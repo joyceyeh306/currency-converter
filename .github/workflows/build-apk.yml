@@ -23,6 +23,9 @@ jobs:
         with:
           gradle-version: '8.9'
 
+      - name: Apply source hotfix
+        run: sed -i 's/private TextView makeResultRow/private LinearLayout makeResultRow/' app/src/main/java/com/joyce/currencyconverter/MainActivity.java
+
       - name: Build debug APK
         run: gradle :app:assembleDebug
 
