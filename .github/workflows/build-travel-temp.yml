@@ -44,6 +44,11 @@ jobs:
           unzip -q /tmp/ajo.zip -d /tmp/ajo
           test -f /tmp/ajo/ajo_build_min/settings.gradle
 
+      - name: Apply v1.0.1 layout and icon
+        run: |
+          python3 travel_build/apply-v101.py
+          cp travel_build/ic_launcher_foreground_v101.xml /tmp/ajo/ajo_build_min/app/src/main/res/drawable/ic_launcher_foreground.xml
+
       - name: Build debug APK
         id: buildapk
         continue-on-error: true
@@ -54,15 +59,15 @@ jobs:
         if: always()
         run: |
           mkdir -p travel_output
-          printf 'outcome=%s\nsource=%s\n' '${{ steps.buildapk.outcome }}' '${{ github.sha }}' > travel_output/status.txt
+          printf 'outcome=%s\nsource=%s\nversion=1.0.1\n' '${{ steps.buildapk.outcome }}' '${{ github.sha }}' > travel_output/status.txt
           if [ -f /tmp/ajo-build.log ]; then tail -n 250 /tmp/ajo-build.log > travel_output/build-log.txt; fi
           if [ -f /tmp/ajo/ajo_build_min/app/build/outputs/apk/debug/app-debug.apk ]; then
-            cp /tmp/ajo/ajo_build_min/app/build/outputs/apk/debug/app-debug.apk travel_output/ajo-travel-notebook-v1.0.0.apk
+            cp /tmp/ajo/ajo_build_min/app/build/outputs/apk/debug/app-debug.apk travel_output/ajo-travel-notebook-v1.0.1.apk
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -- travel_output
-          git commit -m "Travel notebook build result" || exit 0
+          git commit -m "Travel notebook v1.0.1 build result" || exit 0
           git push origin HEAD:travel-notebook-build
 
       - name: Fail if APK build failed
