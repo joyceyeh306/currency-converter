@@ -43,22 +43,26 @@ jobs:
           test -f /tmp/ajo/ajo_build_min/settings.gradle
 
       - name: Build debug APK
+        id: buildapk
+        continue-on-error: true
         working-directory: /tmp/ajo/ajo_build_min
-        run: gradle :app:assembleDebug --stacktrace
+        run: gradle :app:assembleDebug --stacktrace 2>&1 | tee /tmp/ajo-build.log
 
-      - name: Upload APK artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: ajo-travel-notebook-apk
-          path: /tmp/ajo/ajo_build_min/app/build/outputs/apk/debug/app-debug.apk
-          if-no-files-found: error
-
-      - name: Publish APK to build branch
+      - name: Publish build status
+        if: always()
         run: |
           mkdir -p travel_output
-          cp /tmp/ajo/ajo_build_min/app/build/outputs/apk/debug/app-debug.apk travel_output/ajo-travel-notebook-v1.0.0.apk
+          printf 'outcome=%s\ncommit=%s\n' '${{ steps.buildapk.outcome }}' '${{ github.sha }}' > travel_output/status.txt
+          if [ -f /tmp/ajo-build.log ]; then tail -n 200 /tmp/ajo-build.log > travel_output/build-log.txt; fi
+          if [ -f /tmp/ajo/ajo_build_min/app/build/outputs/apk/debug/app-debug.apk ]; then
+            cp /tmp/ajo/ajo_build_min/app/build/outputs/apk/debug/app-debug.apk travel_output/ajo-travel-notebook-v1.0.0.apk
+          fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -- travel_output/ajo-travel-notebook-v1.0.0.apk
-          git commit -m "Publish travel notebook APK v1.0.0" || exit 0
+          git add -- travel_output
+          git commit -m "Travel notebook build result" || exit 0
           git push origin HEAD:travel-notebook-build
+
+      - name: Fail if APK build failed
+        if: steps.buildapk.outcome != 'success'
+        run: exit 1
