@@ -1,2 +1,3 @@
 outcome=success
-commit=ec570965dc7dd68a195050c380fc704044238da2
+commit=7590a363e6c26db757b486e9d6810f43aa8f12ba
+version=1.0.1
