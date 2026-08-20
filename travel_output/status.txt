@@ -1,3 +1,4 @@
-outcome=success
-commit=e6a1635be3af6236f547674d6f34dfe6a3ae67c7
+build=success
+sign=success
+source=548fce1d310e9171c98f86a55f157db07afc76ba
 version=1.0.1
