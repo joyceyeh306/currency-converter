@@ -8,6 +8,9 @@ on:
       - '.github/workflows/build-travel-notebook.yml'
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -43,9 +46,19 @@ jobs:
         working-directory: /tmp/ajo/ajo_build_min
         run: gradle :app:assembleDebug --stacktrace
 
-      - name: Upload APK
+      - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: ajo-travel-notebook-apk
           path: /tmp/ajo/ajo_build_min/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
+
+      - name: Publish APK to build branch
+        run: |
+          mkdir -p travel_output
+          cp /tmp/ajo/ajo_build_min/app/build/outputs/apk/debug/app-debug.apk travel_output/ajo-travel-notebook-v1.0.0.apk
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -- travel_output/ajo-travel-notebook-v1.0.0.apk
+          git commit -m "Publish travel notebook APK v1.0.0" || exit 0
+          git push origin HEAD:travel-notebook-build
