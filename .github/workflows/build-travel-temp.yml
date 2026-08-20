@@ -49,27 +49,40 @@ jobs:
           python3 travel_build/apply-v101.py
           cp travel_build/ic_launcher_foreground_v101.xml /tmp/ajo/ajo_build_min/app/src/main/res/drawable/ic_launcher_foreground.xml
 
-      - name: Build debug APK
+      - name: Build unsigned release APK
         id: buildapk
         continue-on-error: true
         working-directory: /tmp/ajo/ajo_build_min
-        run: gradle :app:assembleDebug --stacktrace 2>&1 | tee /tmp/ajo-build.log
+        run: gradle :app:assembleRelease --stacktrace 2>&1 | tee /tmp/ajo-build.log
+
+      - name: Sign APK with stable AOSP test key
+        id: signapk
+        if: steps.buildapk.outcome == 'success'
+        continue-on-error: true
+        run: |
+          curl -fsSL 'https://android.googlesource.com/platform/build/+/refs/heads/main/target/product/security/testkey.pk8?format=TEXT' | base64 -d > /tmp/testkey.pk8
+          curl -fsSL 'https://android.googlesource.com/platform/build/+/refs/heads/main/target/product/security/testkey.x509.pem?format=TEXT' | base64 -d > /tmp/testkey.x509.pem
+          BT="$ANDROID_HOME/build-tools/35.0.0"
+          "$BT/zipalign" -f -p 4 /tmp/ajo/ajo_build_min/app/build/outputs/apk/release/app-release-unsigned.apk /tmp/ajo-v101-aligned.apk
+          "$BT/apksigner" sign --key /tmp/testkey.pk8 --cert /tmp/testkey.x509.pem --out /tmp/ajo-travel-notebook-v1.0.1.apk /tmp/ajo-v101-aligned.apk
+          "$BT/apksigner" verify --verbose --print-certs /tmp/ajo-travel-notebook-v1.0.1.apk | tee /tmp/apk-signature.txt
 
       - name: Publish result to travel branch
         if: always()
         run: |
           mkdir -p travel_output
-          printf 'outcome=%s\nsource=%s\nversion=1.0.1\n' '${{ steps.buildapk.outcome }}' '${{ github.sha }}' > travel_output/status.txt
+          printf 'build=%s\nsign=%s\nsource=%s\nversion=1.0.1\n' '${{ steps.buildapk.outcome }}' '${{ steps.signapk.outcome }}' '${{ github.sha }}' > travel_output/status.txt
           if [ -f /tmp/ajo-build.log ]; then tail -n 250 /tmp/ajo-build.log > travel_output/build-log.txt; fi
-          if [ -f /tmp/ajo/ajo_build_min/app/build/outputs/apk/debug/app-debug.apk ]; then
-            cp /tmp/ajo/ajo_build_min/app/build/outputs/apk/debug/app-debug.apk travel_output/ajo-travel-notebook-v1.0.1.apk
+          if [ -f /tmp/apk-signature.txt ]; then cat /tmp/apk-signature.txt > travel_output/signature.txt; fi
+          if [ -f /tmp/ajo-travel-notebook-v1.0.1.apk ]; then
+            cp /tmp/ajo-travel-notebook-v1.0.1.apk travel_output/ajo-travel-notebook-v1.0.1.apk
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -- travel_output
-          git commit -m "Travel notebook v1.0.1 build result" || exit 0
+          git commit -m "Travel notebook v1.0.1 stable-signed build" || exit 0
           git push origin HEAD:travel-notebook-build
 
-      - name: Fail if APK build failed
-        if: steps.buildapk.outcome != 'success'
+      - name: Fail if build or signing failed
+        if: steps.buildapk.outcome != 'success' || steps.signapk.outcome != 'success'
         run: exit 1
