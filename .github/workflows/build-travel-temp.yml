@@ -1,4 +1,4 @@
-name: Build Travel Notebook APK Temporary
+name: Build Travel Notebook APK Stable
 
 on:
   push:
