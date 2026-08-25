@@ -1,9 +1,9 @@
 Starting a Gradle Daemon (subsequent builds will be faster)
 > Task :app:preBuild UP-TO-DATE
 > Task :app:preReleaseBuild UP-TO-DATE
-> Task :app:javaPreCompileRelease
 > Task :app:generateReleaseResValues
 > Task :app:checkReleaseAarMetadata
+> Task :app:javaPreCompileRelease
 > Task :app:mapReleaseSourceSetPaths
 > Task :app:generateReleaseResources
 > Task :app:packageReleaseResources
@@ -15,16 +15,16 @@ Starting a Gradle Daemon (subsequent builds will be faster)
 > Task :app:processReleaseManifest
 > Task :app:extractProguardFiles
 > Task :app:mergeReleaseJniLibFolders
-> Task :app:processReleaseManifestForPackage
 > Task :app:mergeReleaseNativeLibs NO-SOURCE
 > Task :app:stripReleaseDebugSymbols NO-SOURCE
 > Task :app:extractReleaseNativeSymbolTables NO-SOURCE
 > Task :app:mergeReleaseNativeDebugMetadata NO-SOURCE
+> Task :app:processReleaseManifestForPackage
 > Task :app:checkReleaseDuplicateClasses
 > Task :app:desugarReleaseFileDependencies
 > Task :app:mergeReleaseStartupProfile
-> Task :app:mergeReleaseArtProfile
 > Task :app:mergeExtDexRelease
+> Task :app:mergeReleaseArtProfile
 > Task :app:mergeReleaseShaders
 > Task :app:compileReleaseShaders NO-SOURCE
 > Task :app:generateReleaseAssets UP-TO-DATE
@@ -55,7 +55,7 @@ Note: Recompile with -Xlint:deprecation for details.
 > Task :app:lintVitalReportRelease
 > Task :app:lintVitalRelease
 > Task :app:assembleRelease
-gradle/actions: Writing build results to /home/runner/work/_temp/.gradle-actions/build-results/buildapk-1787475111690.json
+gradle/actions: Writing build results to /home/runner/work/_temp/.gradle-actions/build-results/buildapk-1787666543581.json
 
 BUILD SUCCESSFUL in 20s
 42 actionable tasks: 42 executed
