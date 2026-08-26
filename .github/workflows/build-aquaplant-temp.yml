@@ -1,0 +1,56 @@
+name: Build Aquaplant Log APK
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - '.github/workflows/build-aquaplant-temp.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout aquaplant source
+        uses: actions/checkout@v6
+        with:
+          ref: aquaplant-build
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK 35
+        run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+
+      - name: Set up Gradle 8.9
+        uses: gradle/actions/setup-gradle@v6
+        with:
+          gradle-version: '8.9'
+
+      - name: Restore embedded web UI
+        run: |
+          mkdir -p aquaplant_app/app/src/main/assets
+          base64 -d aquaplant_app/index.html.gz.b64 | gzip -d > aquaplant_app/app/src/main/assets/index.html
+          grep -q '水草紀錄｜v1.0' aquaplant_app/app/src/main/assets/index.html
+          grep -q '備份與搬家' aquaplant_app/app/src/main/assets/index.html
+
+      - name: Build debug APK
+        working-directory: aquaplant_app
+        run: gradle :app:assembleDebug --stacktrace
+
+      - name: Rename APK
+        run: cp aquaplant_app/app/build/outputs/apk/debug/app-debug.apk /tmp/水草紀錄_v1.0.apk
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: aquaplant-log-v1.0-apk
+          path: /tmp/水草紀錄_v1.0.apk
+          if-no-files-found: error
+          retention-days: 30
