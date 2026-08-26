@@ -1,0 +1,63 @@
+name: Build Aquaplant APK
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - '.github/workflows/build-aquaplant.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout aquaplant source
+        uses: actions/checkout@v6
+        with:
+          ref: aquaplant-build-v2
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK 35
+        run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+
+      - name: Set up Gradle 8.9
+        uses: gradle/actions/setup-gradle@v6
+        with:
+          gradle-version: '8.9'
+
+      - name: Restore web app asset
+        run: |
+          mkdir -p aquaplant_app/app/src/main/assets
+          base64 -d aquaplant_app/index.html.gz.b64 | gunzip > aquaplant_app/app/src/main/assets/index.html
+          test -s aquaplant_app/app/src/main/assets/index.html
+
+      - name: Build release APK
+        working-directory: aquaplant_app
+        run: gradle :app:assembleRelease --stacktrace
+
+      - name: Sign APK
+        run: |
+          curl -fsSL 'https://android.googlesource.com/platform/build/+/refs/heads/main/target/product/security/testkey.pk8?format=TEXT' | base64 -d > /tmp/testkey.pk8
+          curl -fsSL 'https://android.googlesource.com/platform/build/+/refs/heads/main/target/product/security/testkey.x509.pem?format=TEXT' | base64 -d > /tmp/testkey.x509.pem
+          BT="$ANDROID_HOME/build-tools/35.0.0"
+          "$BT/zipalign" -f -p 4 aquaplant_app/app/build/outputs/apk/release/app-release-unsigned.apk /tmp/aquaplant-aligned.apk
+          "$BT/apksigner" sign --key /tmp/testkey.pk8 --cert /tmp/testkey.x509.pem --out /tmp/aquaplant-log-v1.0.apk /tmp/aquaplant-aligned.apk
+          "$BT/apksigner" verify --verbose --print-certs /tmp/aquaplant-log-v1.0.apk
+
+      - name: Upload signed APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: aquaplant-log-v1.0-signed
+          path: /tmp/aquaplant-log-v1.0.apk
+          if-no-files-found: error
