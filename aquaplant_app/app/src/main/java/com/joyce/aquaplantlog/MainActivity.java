@@ -7,12 +7,14 @@ import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.view.View;
+import android.view.WindowInsets;
 import android.webkit.JavascriptInterface;
 import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
+import android.widget.FrameLayout;
 import android.widget.Toast;
 
 import java.io.OutputStream;
@@ -45,17 +47,40 @@ public class MainActivity extends Activity {
         }
         getWindow().getDecorView().setSystemUiVisibility(flags);
 
+        FrameLayout root = new FrameLayout(this);
+        root.setBackgroundColor(appBg);
+
         webView = new WebView(this);
         webView.setBackgroundColor(appBg);
-        setContentView(webView);
+        root.addView(webView, new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT));
+        setContentView(root);
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-            webView.setOnApplyWindowInsetsListener((v, insets) -> {
-                v.setPadding(0, insets.getSystemWindowInsetTop(), 0, insets.getSystemWindowInsetBottom());
-                return insets;
-            });
-            webView.requestApplyInsets();
-        }
+        // Android 15 (targetSdk 35) uses edge-to-edge by default. Apply system-bar
+        // insets to the native container so web content starts below the status bar
+        // and ends above the navigation/gesture area.
+        root.setOnApplyWindowInsetsListener((v, insets) -> {
+            int top;
+            int bottom;
+            int left;
+            int right;
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                android.graphics.Insets bars = insets.getInsets(WindowInsets.Type.systemBars());
+                top = bars.top;
+                bottom = bars.bottom;
+                left = bars.left;
+                right = bars.right;
+            } else {
+                top = insets.getSystemWindowInsetTop();
+                bottom = insets.getSystemWindowInsetBottom();
+                left = insets.getSystemWindowInsetLeft();
+                right = insets.getSystemWindowInsetRight();
+            }
+            v.setPadding(left, top, right, bottom);
+            return insets;
+        });
+        root.requestApplyInsets();
 
         WebSettings s = webView.getSettings();
         s.setJavaScriptEnabled(true);
