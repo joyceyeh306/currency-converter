@@ -4,8 +4,9 @@ import android.app.Activity;
 import android.content.Intent;
 import android.graphics.Color;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
-import android.provider.Settings;
+import android.view.View;
 import android.webkit.JavascriptInterface;
 import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
@@ -29,11 +30,32 @@ public class MainActivity extends Activity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        getWindow().setStatusBarColor(Color.rgb(244, 248, 242));
-        getWindow().setNavigationBarColor(Color.WHITE);
+
+        final int appBg = Color.rgb(251, 250, 243);
+        getWindow().setStatusBarColor(appBg);
+        getWindow().setNavigationBarColor(Color.rgb(255, 254, 249));
+        getWindow().getDecorView().setBackgroundColor(appBg);
+
+        int flags = 0;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            flags |= View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR;
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            flags |= View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR;
+        }
+        getWindow().getDecorView().setSystemUiVisibility(flags);
 
         webView = new WebView(this);
+        webView.setBackgroundColor(appBg);
         setContentView(webView);
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            webView.setOnApplyWindowInsetsListener((v, insets) -> {
+                v.setPadding(0, insets.getSystemWindowInsetTop(), 0, insets.getSystemWindowInsetBottom());
+                return insets;
+            });
+            webView.requestApplyInsets();
+        }
 
         WebSettings s = webView.getSettings();
         s.setJavaScriptEnabled(true);
