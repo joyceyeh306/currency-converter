@@ -8,6 +8,9 @@ on:
       - '.github/workflows/build-video-compressor.yml'
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -21,20 +24,32 @@ jobs:
           distribution: temurin
           java-version: '17'
 
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK 35
+        run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+
       - name: Set up Gradle 8.9
         uses: gradle/actions/setup-gradle@v6
         with:
           gradle-version: '8.9'
 
-      - name: Build installable debug APK
-        run: gradle -p video-compressor :app:assembleDebug --stacktrace
+      - name: Build release APK
+        run: gradle -p video-compressor :app:assembleRelease --stacktrace
 
-      - name: Prepare APK
-        run: cp video-compressor/app/build/outputs/apk/debug/app-debug.apk /tmp/video-compressor-v1.1.apk
+      - name: Sign APK with stable key
+        run: |
+          curl -fsSL 'https://android.googlesource.com/platform/build/+/refs/heads/main/target/product/security/testkey.pk8?format=TEXT' | base64 -d > /tmp/testkey.pk8
+          curl -fsSL 'https://android.googlesource.com/platform/build/+/refs/heads/main/target/product/security/testkey.x509.pem?format=TEXT' | base64 -d > /tmp/testkey.x509.pem
+          BT="$ANDROID_HOME/build-tools/35.0.0"
+          "$BT/zipalign" -f -P 16 4 video-compressor/app/build/outputs/apk/release/app-release-unsigned.apk /tmp/video-compressor-aligned.apk
+          "$BT/apksigner" sign --key /tmp/testkey.pk8 --cert /tmp/testkey.x509.pem --out /tmp/video-compressor-v1.1.apk /tmp/video-compressor-aligned.apk
+          "$BT/apksigner" verify --verbose --print-certs /tmp/video-compressor-v1.1.apk
 
-      - name: Upload APK
+      - name: Upload signed APK
         uses: actions/upload-artifact@v4
         with:
-          name: video-compressor-v1.1-apk
+          name: video-compressor-v1.1-signed
           path: /tmp/video-compressor-v1.1.apk
           if-no-files-found: error
