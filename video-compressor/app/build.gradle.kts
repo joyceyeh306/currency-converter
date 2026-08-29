@@ -11,8 +11,8 @@ android {
         applicationId = "com.joyce.videocompressor"
         minSdk = 26
         targetSdk = 35
-        versionCode = 2
-        versionName = "1.1"
+        versionCode = 3
+        versionName = "1.2"
     }
 
     compileOptions {
@@ -28,5 +28,4 @@ dependencies {
     implementation("androidx.media3:media3-transformer:1.8.1")
     implementation("androidx.media3:media3-effect:1.8.1")
     implementation("androidx.media3:media3-common:1.8.1")
-    implementation("net.qiujuer.lame:lame:1.0.0")
 }
