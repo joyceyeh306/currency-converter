@@ -35,6 +35,15 @@ jobs:
         with:
           gradle-version: '8.9'
 
+      - name: Add LAME native libraries
+        run: |
+          rm -rf /tmp/lame-aar video-compressor/app/src/main/jniLibs
+          mkdir -p /tmp/lame-aar video-compressor/app/src/main/jniLibs
+          curl -fsSL 'https://repo1.maven.org/maven2/net/qiujuer/lame/lame/1.0.0/lame-1.0.0.aar' -o /tmp/lame.aar
+          unzip -q /tmp/lame.aar 'jni/*' -d /tmp/lame-aar
+          cp -R /tmp/lame-aar/jni/* video-compressor/app/src/main/jniLibs/
+          test -f video-compressor/app/src/main/jniLibs/arm64-v8a/libmp3lame-lib.so
+
       - name: Build release APK
         run: gradle -p video-compressor :app:assembleRelease --stacktrace
 
@@ -44,12 +53,12 @@ jobs:
           curl -fsSL 'https://android.googlesource.com/platform/build/+/refs/heads/main/target/product/security/testkey.x509.pem?format=TEXT' | base64 -d > /tmp/testkey.x509.pem
           BT="$ANDROID_HOME/build-tools/35.0.0"
           "$BT/zipalign" -f -P 16 4 video-compressor/app/build/outputs/apk/release/app-release-unsigned.apk /tmp/video-compressor-aligned.apk
-          "$BT/apksigner" sign --key /tmp/testkey.pk8 --cert /tmp/testkey.x509.pem --out /tmp/video-compressor-v1.1.apk /tmp/video-compressor-aligned.apk
-          "$BT/apksigner" verify --verbose --print-certs /tmp/video-compressor-v1.1.apk
+          "$BT/apksigner" sign --key /tmp/testkey.pk8 --cert /tmp/testkey.x509.pem --out /tmp/video-compressor-v1.2.apk /tmp/video-compressor-aligned.apk
+          "$BT/apksigner" verify --verbose --print-certs /tmp/video-compressor-v1.2.apk
 
       - name: Upload signed APK
         uses: actions/upload-artifact@v4
         with:
-          name: video-compressor-v1.1-signed
-          path: /tmp/video-compressor-v1.1.apk
+          name: video-compressor-v1.2-signed
+          path: /tmp/video-compressor-v1.2.apk
           if-no-files-found: error
