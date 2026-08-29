@@ -21,7 +21,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
-            android:text="把大影片壓小，原始影片不會被刪除。"
+            android:text="把大影片壓小，或只留下 MP3 音檔。原始影片不會被刪除。"
             android:textSize="17sp" />
 
         <Button
@@ -44,7 +44,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginTop="26dp"
-            android:text="② 要壓到多小？"
+            android:text="② 要怎麼處理？"
             android:textSize="20sp"
             android:textStyle="bold" />
 
@@ -75,6 +75,13 @@
                 android:layout_height="52dp"
                 android:text="480p 很省空間"
                 android:textSize="18sp" />
+
+            <RadioButton
+                android:id="@+id/qMp3"
+                android:layout_width="match_parent"
+                android:layout_height="56dp"
+                android:text="只匯出 MP3 音檔（192 kbps）"
+                android:textSize="18sp" />
         </RadioGroup>
 
         <TextView
@@ -91,7 +98,7 @@
             android:layout_height="60dp"
             android:layout_marginTop="24dp"
             android:enabled="false"
-            android:text="③ 開始壓縮"
+            android:text="③ 開始處理"
             android:textSize="19sp"
             android:textStyle="bold" />
 
