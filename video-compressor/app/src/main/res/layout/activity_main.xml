@@ -2,49 +2,65 @@
 <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
+    android:background="@color/cypress_bg"
     android:fillViewport="true">
 
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical"
-        android:padding="24dp">
+        android:paddingStart="22dp"
+        android:paddingTop="20dp"
+        android:paddingEnd="22dp"
+        android:paddingBottom="30dp">
 
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="影片瘦身"
-            android:textSize="30sp"
+            android:textColor="@color/cypress_text"
+            android:textSize="28sp"
             android:textStyle="bold" />
 
         <TextView
-            android:layout_width="wrap_content"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:text="把大影片壓小，或只留下 MP3 音檔。原始影片不會被刪除。"
-            android:textSize="17sp" />
+            android:layout_marginTop="6dp"
+            android:lineSpacingExtra="3dp"
+            android:text="壓小影片，或只留下 MP3。新檔會存回原影片所在資料夾，原片不會刪除。"
+            android:textColor="@color/cypress_text_secondary"
+            android:textSize="16sp" />
 
         <Button
             android:id="@+id/selectButton"
             android:layout_width="match_parent"
             android:layout_height="56dp"
-            android:layout_marginTop="24dp"
+            android:layout_marginTop="22dp"
+            android:backgroundTint="@color/cypress_primary"
             android:text="① 選擇影片"
-            android:textSize="18sp" />
+            android:textAllCaps="false"
+            android:textColor="@android:color/white"
+            android:textSize="18sp"
+            android:textStyle="bold" />
 
         <TextView
             android:id="@+id/fileInfo"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="14dp"
+            android:background="@drawable/cypress_panel"
+            android:lineSpacingExtra="3dp"
+            android:padding="15dp"
             android:text="尚未選擇影片"
-            android:textSize="16sp" />
+            android:textColor="@color/cypress_text_secondary"
+            android:textSize="15sp" />
 
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginTop="26dp"
+            android:layout_marginTop="24dp"
             android:text="② 要怎麼處理？"
+            android:textColor="@color/cypress_text"
             android:textSize="20sp"
             android:textStyle="bold" />
 
@@ -52,35 +68,43 @@
             android:id="@+id/qualityGroup"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="10dp">
+            android:layout_marginTop="8dp">
 
             <RadioButton
                 android:id="@+id/q1080"
                 android:layout_width="match_parent"
-                android:layout_height="52dp"
+                android:layout_height="54dp"
+                android:buttonTint="@color/radio_tint"
                 android:checked="true"
-                android:text="1080p 清晰（建議）"
+                android:text="1080p  清晰（建議）"
+                android:textColor="@color/cypress_text"
                 android:textSize="18sp" />
 
             <RadioButton
                 android:id="@+id/q720"
                 android:layout_width="match_parent"
-                android:layout_height="52dp"
-                android:text="720p 省空間"
+                android:layout_height="54dp"
+                android:buttonTint="@color/radio_tint"
+                android:text="720p  省空間"
+                android:textColor="@color/cypress_text"
                 android:textSize="18sp" />
 
             <RadioButton
                 android:id="@+id/q480"
                 android:layout_width="match_parent"
-                android:layout_height="52dp"
-                android:text="480p 很省空間"
+                android:layout_height="54dp"
+                android:buttonTint="@color/radio_tint"
+                android:text="480p  很省空間"
+                android:textColor="@color/cypress_text"
                 android:textSize="18sp" />
 
             <RadioButton
                 android:id="@+id/qMp3"
                 android:layout_width="match_parent"
-                android:layout_height="56dp"
+                android:layout_height="58dp"
+                android:buttonTint="@color/radio_tint"
                 android:text="只匯出 MP3 音檔（192 kbps）"
+                android:textColor="@color/cypress_text"
                 android:textSize="18sp" />
         </RadioGroup>
 
@@ -88,17 +112,24 @@
             android:id="@+id/estimateText"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="10dp"
-            android:text="選擇影片後會顯示預估大小"
-            android:textSize="16sp" />
+            android:layout_marginTop="8dp"
+            android:background="@drawable/cypress_panel"
+            android:lineSpacingExtra="3dp"
+            android:padding="15dp"
+            android:text="選擇影片後會顯示預估大小與輸出檔名"
+            android:textColor="@color/cypress_text_secondary"
+            android:textSize="15sp" />
 
         <Button
             android:id="@+id/compressButton"
             android:layout_width="match_parent"
-            android:layout_height="60dp"
-            android:layout_marginTop="24dp"
+            android:layout_height="58dp"
+            android:layout_marginTop="20dp"
+            android:backgroundTint="@color/cypress_primary_dark"
             android:enabled="false"
             android:text="③ 開始處理"
+            android:textAllCaps="false"
+            android:textColor="@android:color/white"
             android:textSize="19sp"
             android:textStyle="bold" />
 
@@ -106,10 +137,11 @@
             android:id="@+id/progressBar"
             style="?android:attr/progressBarStyleHorizontal"
             android:layout_width="match_parent"
-            android:layout_height="12dp"
-            android:layout_marginTop="22dp"
+            android:layout_height="10dp"
+            android:layout_marginTop="18dp"
             android:max="100"
             android:progress="0"
+            android:progressTint="@color/cypress_primary"
             android:visibility="gone" />
 
         <TextView
@@ -117,7 +149,18 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="12dp"
-            android:textSize="17sp" />
+            android:lineSpacingExtra="3dp"
+            android:textColor="@color/cypress_text_secondary"
+            android:textSize="16sp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="22dp"
+            android:gravity="center"
+            android:text="原始影片永遠保留"
+            android:textColor="@color/cypress_hint"
+            android:textSize="13sp" />
 
     </LinearLayout>
 </ScrollView>
