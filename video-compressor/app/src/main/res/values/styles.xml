@@ -2,7 +2,10 @@
     <style name="Theme.VideoCompressor" parent="Theme.AppCompat.Light.NoActionBar">
         <item name="android:fontFamily">sans</item>
         <item name="android:windowLightStatusBar">true</item>
-        <item name="android:navigationBarColor">#FFFFFF</item>
-        <item name="android:statusBarColor">#FFFFFF</item>
+        <item name="android:statusBarColor">@color/cypress_bg</item>
+        <item name="android:navigationBarColor">@color/cypress_bg</item>
+        <item name="android:windowBackground">@color/cypress_bg</item>
+        <item name="android:colorAccent">@color/cypress_primary_dark</item>
+        <item name="android:windowActionModeOverlay">true</item>
     </style>
 </resources>
