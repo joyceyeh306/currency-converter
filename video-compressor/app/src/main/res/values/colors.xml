@@ -1,0 +1,11 @@
+<resources>
+    <color name="cypress_bg">#F6F0E6</color>
+    <color name="cypress_panel">#EFE2D0</color>
+    <color name="cypress_primary">#B77A4F</color>
+    <color name="cypress_primary_dark">#8E5D3E</color>
+    <color name="cypress_text">#4A3529</color>
+    <color name="cypress_text_secondary">#6C5748</color>
+    <color name="cypress_hint">#9A826E</color>
+    <color name="cypress_stroke">#D9C3A8</color>
+    <color name="white">#FFFFFF</color>
+</resources>
