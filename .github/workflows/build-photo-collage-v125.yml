@@ -1,0 +1,76 @@
+name: Build Photo Collage v1.2.5 Installable
+on:
+  push:
+    branches: [tmp-photo-collage-v125]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Rebuild v1.2.2 source
+        run: |
+          cat source_chunks/part_*.txt | base64 -d > photo-collage-source-v122.zip
+          unzip -t photo-collage-source-v122.zip
+          unzip -q photo-collage-source-v122.zip -d project
+      - name: Apply v1.2.3 base patch
+        run: |
+          cp patch_v123/patch-v123.js project/app/src/main/assets/patch-v123.js
+          cp patch_v123/patch-v123.css project/app/src/main/assets/patch-v123.css
+          mkdir -p project/app/src/main/res/values project/app/src/main/res/mipmap-anydpi project/app/src/main/res/mipmap-anydpi-v26
+          cp patch_v123/colors.xml project/app/src/main/res/values/colors.xml
+          cp patch_v123/ic_launcher_legacy.xml project/app/src/main/res/mipmap-anydpi/ic_launcher.xml
+          cp patch_v123/ic_launcher_adaptive.xml project/app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml
+          python3 - <<'PY'
+          from pathlib import Path
+          h=Path('project/app/src/main/assets/index.html')
+          s=h.read_text(encoding='utf-8')
+          s=s.replace('</head>','<link rel="stylesheet" href="patch-v123.css" /></head>')
+          s=s.replace('</body>','<script src="patch-v123.js"></script></body>')
+          h.write_text(s,encoding='utf-8')
+          b=Path('project/app/build.gradle')
+          s=b.read_text(encoding='utf-8').replace('versionCode 122','versionCode 123').replace("versionName '1.2.2'","versionName '1.2.3'")
+          b.write_text(s,encoding='utf-8')
+          m=Path('project/app/src/main/AndroidManifest.xml')
+          s=m.read_text(encoding='utf-8').replace('android:icon="@drawable/ic_launcher"','android:icon="@mipmap/ic_launcher"\n        android:roundIcon="@mipmap/ic_launcher"')
+          m.write_text(s,encoding='utf-8')
+          PY
+      - name: Apply v1.2.4 editor
+        run: |
+          cat patch_v124/part_*.txt | base64 -d > project/app/src/main/assets/index.html
+          python3 - <<'PY'
+          from pathlib import Path
+          b=Path('project/app/build.gradle')
+          s=b.read_text(encoding='utf-8').replace('versionCode 123','versionCode 124').replace("versionName '1.2.3'","versionName '1.2.4'")
+          b.write_text(s,encoding='utf-8')
+          PY
+      - name: Apply v1.2.5 fixes
+        run: |
+          patch -p0 < patch_v125/v125.patch
+          python3 - <<'PY'
+          from pathlib import Path
+          b=Path('project/app/build.gradle')
+          s=b.read_text(encoding='utf-8').replace('versionCode 124','versionCode 125').replace("versionName '1.2.4'","versionName '1.2.5'")
+          b.write_text(s,encoding='utf-8')
+          PY
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - name: Install Android SDK
+        run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - name: Build unsigned release APK
+        run: gradle -p project :app:assembleRelease --no-daemon
+      - name: Collect release kit
+        run: |
+          mkdir kit
+          cp project/app/build/outputs/apk/release/app-release-unsigned.apk kit/
+          cp "$ANDROID_HOME/build-tools/35.0.0/lib/apksigner.jar" kit/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: photo-collage-v125-release-kit
+          path: kit/
