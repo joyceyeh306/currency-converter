@@ -1,7 +1,7 @@
-name: Build Photo Collage Patch Kit
+name: Build Photo Collage v1.1.2 Patch Kit
 on:
   push:
-    branches: [tmp-photo-collage-fix]
+    branches: [tmp-photo-collage-v112b]
 
 jobs:
   build:
@@ -10,7 +10,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: Unpack Android source
         run: unzip -q photo-collage-source-v11.zip -d project
-      - name: Apply patch
+      - name: Apply v1.1.2 patch
         run: |
           cp patch/app-build.gradle project/app/build.gradle
           cp patch/AndroidManifest.xml project/app/src/main/AndroidManifest.xml
@@ -34,5 +34,5 @@ jobs:
           cp "$ANDROID_HOME/build-tools/35.0.0/lib/apksigner.jar" kit/
       - uses: actions/upload-artifact@v4
         with:
-          name: photo-collage-patch-kit
+          name: photo-collage-v112-patch-kit
           path: kit/

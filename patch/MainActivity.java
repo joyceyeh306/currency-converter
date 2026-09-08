@@ -10,6 +10,10 @@ import android.os.Bundle;
 import android.os.Environment;
 import android.provider.MediaStore;
 import android.util.Base64;
+import android.view.View;
+import android.view.WindowInsets;
+import android.graphics.Insets;
+import android.widget.FrameLayout;
 import android.webkit.JavascriptInterface;
 import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
@@ -34,6 +38,7 @@ public class MainActivity extends Activity {
     protected void onCreate(Bundle state) {
         super.onCreate(state);
 
+        // Keep system-bar handling deliberately simple for Android 16 / OEM compatibility.
         getWindow().setStatusBarColor(Color.rgb(18, 64, 115));
         getWindow().setNavigationBarColor(Color.WHITE);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
@@ -41,9 +46,28 @@ public class MainActivity extends Activity {
         }
 
         try {
+            FrameLayout root = new FrameLayout(this);
+            root.setBackgroundColor(Color.rgb(18, 64, 115));
+
             webView = new WebView(this);
             webView.setBackgroundColor(Color.rgb(246, 250, 255));
-            setContentView(webView);
+            root.addView(webView, new FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                    FrameLayout.LayoutParams.MATCH_PARENT));
+            setContentView(root);
+
+            // Android 15/16 can draw app content behind the status bar even when a
+            // normal NoActionBar theme is used. Read the real system-bar inset and
+            // move the WebView below it instead of relying on a guessed fixed padding.
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                getWindow().setDecorFitsSystemWindows(false);
+                root.setOnApplyWindowInsetsListener((v, insets) -> {
+                    Insets status = insets.getInsets(WindowInsets.Type.statusBars());
+                    v.setPadding(0, status.top, 0, 0);
+                    return insets;
+                });
+                root.requestApplyInsets();
+            }
 
             WebSettings s = webView.getSettings();
             s.setJavaScriptEnabled(true);
