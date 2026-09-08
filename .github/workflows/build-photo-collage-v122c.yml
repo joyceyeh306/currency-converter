@@ -1,0 +1,36 @@
+name: Build Photo Collage v1.2.2 Installable
+on:
+  push:
+    branches: [tmp-photo-collage-v122c]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Rebuild Android source archive
+        run: |
+          cat source_chunks/part_*.txt | base64 -d > photo-collage-source-v122.zip
+          unzip -t photo-collage-source-v122.zip
+          unzip -q photo-collage-source-v122.zip -d project
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - name: Install Android SDK
+        run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - name: Build unsigned release APK
+        run: gradle -p project :app:assembleRelease --no-daemon
+      - name: Collect release kit
+        run: |
+          mkdir kit
+          cp project/app/build/outputs/apk/release/app-release-unsigned.apk kit/
+          cp "$ANDROID_HOME/build-tools/35.0.0/lib/apksigner.jar" kit/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: photo-collage-v122-release-kit
+          path: kit/
