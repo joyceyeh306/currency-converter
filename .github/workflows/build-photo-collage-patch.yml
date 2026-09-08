@@ -1,0 +1,38 @@
+name: Build Photo Collage Patch Kit
+on:
+  push:
+    branches: [tmp-photo-collage-fix]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Unpack Android source
+        run: unzip -q photo-collage-source-v11.zip -d project
+      - name: Apply patch
+        run: |
+          cp patch/app-build.gradle project/app/build.gradle
+          cp patch/AndroidManifest.xml project/app/src/main/AndroidManifest.xml
+          cp patch/MainActivity.java project/app/src/main/java/tw/ajo/photocollage/MainActivity.java
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - name: Install Android SDK
+        run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - name: Build unsigned release APK
+        run: gradle -p project :app:assembleRelease --no-daemon
+      - name: Collect release kit
+        run: |
+          mkdir kit
+          cp project/app/build/outputs/apk/release/app-release-unsigned.apk kit/
+          cp "$ANDROID_HOME/build-tools/35.0.0/lib/apksigner.jar" kit/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: photo-collage-patch-kit
+          path: kit/
