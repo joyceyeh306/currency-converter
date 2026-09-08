@@ -1,0 +1,16 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'tw.ajo.photocollage'
+    compileSdk 35
+
+    defaultConfig {
+        applicationId 'tw.ajo.photocollage'
+        minSdk 24
+        targetSdk 35
+        versionCode 122
+        versionName '1.2.2'
+    }
+}
