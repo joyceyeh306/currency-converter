@@ -85,7 +85,7 @@ jobs:
           b.write_text(s,encoding='utf-8')
           PY
           mkdir -p project/app/src/main/res/mipmap-nodpi
-          base64 -d patch_v128/icon_desired.b64 > project/app/src/main/res/mipmap-nodpi/ic_launcher.png
+          base64 -d patch_v128/icon_128.b64 > project/app/src/main/res/mipmap-nodpi/ic_launcher.png
           rm -f project/app/src/main/res/mipmap-anydpi/ic_launcher.xml
           rm -f project/app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml
           grep -n "versionCode\|versionName" project/app/build.gradle
