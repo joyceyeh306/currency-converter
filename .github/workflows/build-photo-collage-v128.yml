@@ -73,7 +73,7 @@ jobs:
           s=b.read_text(encoding='utf-8').replace('versionCode 126','versionCode 127').replace("versionName '1.2.6'","versionName '1.2.7'")
           b.write_text(s,encoding='utf-8')
           PY
-      - name: Apply v1.2.8 gestures and compact tools
+      - name: Apply v1.2.8 gestures compact tools and requested icon
         run: |
           python3 - <<'PY'
           from pathlib import Path
@@ -84,9 +84,14 @@ jobs:
           s=b.read_text(encoding='utf-8').replace('versionCode 127','versionCode 128').replace("versionName '1.2.7'","versionName '1.2.8'")
           b.write_text(s,encoding='utf-8')
           PY
+          mkdir -p project/app/src/main/res/mipmap-nodpi
+          base64 -d patch_v128/icon_desired.b64 > project/app/src/main/res/mipmap-nodpi/ic_launcher.png
+          rm -f project/app/src/main/res/mipmap-anydpi/ic_launcher.xml
+          rm -f project/app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml
           grep -n "versionCode\|versionName" project/app/build.gradle
           grep -n "照片上方\|照片內\|兩指縮放＋旋轉\|resetBoundaryFloat" project/app/src/main/assets/index.html
-          test -f project/app/src/main/res/mipmap-nodpi/ic_launcher.png
+          test -s project/app/src/main/res/mipmap-nodpi/ic_launcher.png
+          file project/app/src/main/res/mipmap-nodpi/ic_launcher.png
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
