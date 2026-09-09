@@ -69,14 +69,18 @@ jobs:
           PY
       - name: Apply v1.2.7 WYSIWYG editor
         run: |
-          patch -p0 < patch_v127/v127.patch
           python3 - <<'PY'
           from pathlib import Path
+          import base64, zlib
+          src = Path('patch_v127/index_v127.zb64').read_text(encoding='utf-8').strip()
+          data = zlib.decompress(base64.b64decode(src))
+          Path('project/app/src/main/assets/index.html').write_bytes(data)
           b=Path('project/app/build.gradle')
           s=b.read_text(encoding='utf-8').replace('versionCode 126','versionCode 127').replace("versionName '1.2.6'","versionName '1.2.7'")
           b.write_text(s,encoding='utf-8')
           PY
           grep -n "versionCode\|versionName" project/app/build.gradle
+          grep -n "輸出圖片\|長按上方照片" project/app/src/main/assets/index.html
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
