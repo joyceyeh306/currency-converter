@@ -53,14 +53,9 @@ jobs:
           s=b.read_text(encoding='utf-8').replace('versionCode 124','versionCode 125').replace("versionName '1.2.4'","versionName '1.2.5'")
           b.write_text(s,encoding='utf-8')
           PY
-      - name: Apply v1.2.6 date lane and icon
+      - name: Apply v1.2.6 date-lane fix only
         run: |
           patch -p0 < patch_v126/v126.patch
-          mkdir -p project/app/src/main/res/drawable project/app/src/main/res/mipmap-anydpi project/app/src/main/res/mipmap-anydpi-v26
-          cp patch_v126/ic_launcher_foreground.xml project/app/src/main/res/drawable/ic_launcher_foreground_v126.xml
-          cp patch_v126/ic_launcher_legacy.xml project/app/src/main/res/mipmap-anydpi/ic_launcher.xml
-          cp patch_v126/ic_launcher_adaptive.xml project/app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml
-          rm -f project/app/src/main/res/mipmap-nodpi/ic_launcher.png project/app/src/main/res/mipmap-nodpi/ic_launcher_art.png
           python3 - <<'PY'
           from pathlib import Path
           b=Path('project/app/build.gradle')
