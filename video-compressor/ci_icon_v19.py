@@ -8,8 +8,8 @@ match = re.search(r'ICON_B64\s*=\s*"""(.*?)"""', old_script, re.S)
 if not match:
     raise SystemExit("Could not find embedded icon artwork")
 icon_bytes = base64.b64decode(match.group(1))
-if len(icon_bytes) < 10000:
-    raise SystemExit(f"Icon artwork looks too small: {len(icon_bytes)} bytes")
+if len(icon_bytes) < 1000 or not icon_bytes.startswith(b"\xff\xd8"):
+    raise SystemExit("Embedded icon artwork is not a valid JPEG")
 
 res = Path("video-compressor/app/src/main/res")
 (res / "drawable-nodpi").mkdir(parents=True, exist_ok=True)
