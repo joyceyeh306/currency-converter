@@ -9,17 +9,37 @@ import android.widget.Toast;
 
 public class AjoImeService extends InputMethodService {
     private IosKeyboardView keyboard;
+    private CompositionCandidatesView compositionView;
+    private String pendingComposition = "";
 
     @Override public View onCreateInputView() {
         keyboard = new FloatingKeyboardView(this, this);
         return keyboard;
     }
 
+    @Override public View onCreateCandidatesView() {
+        compositionView = new CompositionCandidatesView(this);
+        compositionView.setComposition(pendingComposition);
+        return compositionView;
+    }
+
     @Override public boolean onEvaluateFullscreenMode() { return false; }
 
     @Override public void onStartInput(EditorInfo attribute, boolean restarting) {
         super.onStartInput(attribute, restarting);
+        updateComposition("");
         if (keyboard != null) keyboard.onEditorChanged(attribute);
+    }
+
+    @Override public void onFinishInput() {
+        updateComposition("");
+        super.onFinishInput();
+    }
+
+    public void updateComposition(String s) {
+        pendingComposition = s == null ? "" : s;
+        if (compositionView != null) compositionView.setComposition(pendingComposition);
+        setCandidatesViewShown(!pendingComposition.isEmpty());
     }
 
     public void commit(String s) {
