@@ -1,0 +1,181 @@
+name: Build Ajo IME v0.9.1 Direct
+
+on:
+  push:
+    branches: [ ime-v01-build ]
+    paths:
+      - '.github/workflows/build-ime-v091-direct.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android platform
+        run: sdkmanager 'platforms;android-35' 'build-tools;35.0.0'
+
+      - name: Set up Gradle 8.9
+        uses: gradle/actions/setup-gradle@v6
+        with:
+          gradle-version: '8.9'
+
+      - name: Restore stable IME signing key
+        uses: actions/cache@v4
+        with:
+          path: ~/.android/debug.keystore
+          key: ajo-ime-debug-keystore-v1
+
+      - name: Create signing key when missing
+        run: |
+          mkdir -p ~/.android
+          if [ ! -f ~/.android/debug.keystore ]; then
+            keytool -genkeypair -v \
+              -keystore ~/.android/debug.keystore \
+              -storepass android \
+              -alias androiddebugkey \
+              -keypass android \
+              -dname 'CN=Ajo IME,O=Android,C=TW' \
+              -keyalg RSA -keysize 2048 -validity 10000
+          fi
+
+      - name: Verify retained signing key
+        run: |
+          set -e
+          export LC_ALL=C
+          KEY_SHA=$(keytool -list -v -keystore ~/.android/debug.keystore -storepass android -alias androiddebugkey 2>/dev/null | sed -n 's/.*SHA256: //p' | head -n1 | tr -d ':' | tr '[:upper:]' '[:lower:]')
+          test "$KEY_SHA" = "9d3d3c77112475d20d2b032063a6fdb25b6712870d1c89115c98fe8a781a60fd"
+
+      - name: Apply v0.9.1 phrase commit correction
+        run: |
+          set -e
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          p=Path('imeapp/app/src/main/java/tw/ajo/ime/PreciseKeyboardView.java')
+          s=p.read_text(encoding='utf-8')
+          s=s.replace('            case "可": default: return Collections.emptyList();','            default: return Collections.emptyList();')
+          # Add common words after 非 if not already present.
+          marker='            case "為": return Arrays.asList("為什麼","為了","為何");\n'
+          if marker in s and 'case "非"' not in s:
+              s=s.replace(marker, marker+'            case "非": return Arrays.asList("非常","非法","非洲","非得","非必要");\n',1)
+          old='    private void choose(String s){ if(s==null||s.isEmpty()) return; svc.commit(s); learn(s); if(isPunctuation(s)) lastCommitted=""; cjCode=""; zyCode=""; candOff=0; expanded=false; syncComposition(); invalidate(); }'
+          new='''    private void choose(String s){
+        if(s==null||s.isEmpty()) return;
+        String commit=s;
+        if(!lastCommitted.isEmpty() && !isPunctuation(s)) {
+            if(s.length()>lastCommitted.length() && s.startsWith(lastCommitted)) {
+                commit=s.substring(lastCommitted.length());
+            } else {
+                String tail=lastCommitted.substring(lastCommitted.length()-1);
+                if(s.length()>tail.length() && s.startsWith(tail)) commit=s.substring(tail.length());
+            }
+        }
+        if(!commit.isEmpty()) svc.commit(commit);
+        learn(s);
+        if(isPunctuation(s)) lastCommitted="";
+        cjCode=""; zyCode=""; candOff=0; expanded=false; syncComposition(); invalidate();
+    }'''
+          if old not in s: raise SystemExit('choose() source not found')
+          s=s.replace(old,new,1)
+          p.write_text(s,encoding='utf-8')
+
+          g=Path('imeapp/app/build.gradle')
+          gs=g.read_text(encoding='utf-8')
+          gs=re.sub(r'versionCode\s+\d+','versionCode 11',gs,count=1)
+          gs=re.sub(r"versionName\s+'[^']+'","versionName '0.9.1'",gs,count=1)
+          g.write_text(gs,encoding='utf-8')
+
+          m=Path('imeapp/app/src/main/java/tw/ajo/ime/MainActivity.java')
+          ms=m.read_text(encoding='utf-8')
+          ms=re.sub(r'version\.setText\("[^"]*"\);','version.setText("v0.9.1｜詞句候選修正版");',ms,count=1)
+          m.write_text(ms,encoding='utf-8')
+          PY
+
+      - name: Build Cangjie 3 dictionaries
+        run: |
+          set -e
+          mkdir -p imeapp/app/src/main/assets
+          curl -fL --retry 3 --retry-delay 1 \
+            https://raw.githubusercontent.com/CanCLID/yune/main/apps/yune-web/public/schema/cangjie3.dict.yaml \
+            -o /tmp/cangjie3.dict.yaml
+          python3 - <<'PY'
+          from collections import defaultdict
+          from pathlib import Path
+          src=Path('/tmp/cangjie3.dict.yaml').read_text(encoding='utf-8')
+          if '倉頡三代補完計畫' not in src: raise SystemExit('Unexpected Cangjie source')
+          pref=defaultdict(list); exact=defaultdict(list); data=False
+          for raw in src.splitlines():
+              if raw.strip()=='...': data=True; continue
+              if not data or not raw or raw.startswith('#'): continue
+              parts=raw.split('\t')
+              if len(parts)<2: continue
+              text,code=parts[0].strip(),parts[1].strip().lower()
+              if len(text)!=1 or not code or not code.isalpha(): continue
+              if text not in exact[code]: exact[code].append(text)
+              for n in range(1,min(5,len(code))+1):
+                  key=code[:n]
+                  if text not in pref[key]: pref[key].append(text)
+          if '面' not in exact.get('mwyl',[]): raise SystemExit('Cangjie 3 verification failed')
+          for name,rows in [('cangjie_prefix.tsv',pref),('cangjie_exact.tsv',exact)]:
+              out=Path('imeapp/app/src/main/assets')/name
+              with out.open('w',encoding='utf-8') as f:
+                  for key in sorted(rows): f.write(key+'\t'+' '.join(rows[key])+'\n')
+          PY
+
+      - name: Build Zhuyin dictionary
+        run: |
+          set -e
+          curl -fL --retry 3 --retry-delay 1 \
+            https://raw.githubusercontent.com/chewing/libchewing-data/main/dict/chewing/word.csv \
+            -o /tmp/word.csv
+          python3 - <<'PY'
+          import csv
+          from collections import defaultdict
+          from pathlib import Path
+          rows=defaultdict(list)
+          with open('/tmp/word.csv','r',encoding='utf-8-sig',newline='') as f:
+              for row in csv.reader(f):
+                  if not row or row[0].startswith('#') or len(row)<3: continue
+                  text=row[0].strip(); z=row[2].strip()
+                  if len(text)!=1 or not z or ' ' in z: continue
+                  if text not in rows[z]: rows[z].append(text)
+          out=Path('imeapp/app/src/main/assets/zhuyin.tsv')
+          with out.open('w',encoding='utf-8') as f:
+              for key in sorted(rows): f.write(key+'\t'+' '.join(rows[key])+'\n')
+          PY
+
+      - name: Build APK
+        run: gradle -p imeapp :app:assembleDebug --no-daemon
+
+      - name: Verify APK metadata and certificate
+        run: |
+          set -e
+          APK=imeapp/app/build/outputs/apk/debug/app-debug.apk
+          BADGE=$(${ANDROID_HOME}/build-tools/35.0.0/aapt dump badging "$APK" | head -n 2)
+          echo "$BADGE"
+          echo "$BADGE" | grep -q "versionCode='11' versionName='0.9.1'"
+          APK_SHA=$(${ANDROID_HOME}/build-tools/35.0.0/apksigner verify --print-certs "$APK" | sed -n 's/Signer #1 certificate SHA-256 digest: //p' | head -n1 | tr '[:upper:]' '[:lower:]')
+          echo "APK signer SHA256=$APK_SHA"
+          test "$APK_SHA" = "9d3d3c77112475d20d2b032063a6fdb25b6712870d1c89115c98fe8a781a60fd"
+
+      - name: Prepare artifact
+        run: cp imeapp/app/build/outputs/apk/debug/app-debug.apk '阿喬輸入法_v0.9.1_詞句表情版面修正版.apk'
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: ajo-ime-v0.9.1-apk
+          path: '阿喬輸入法_v0.9.1_詞句表情版面修正版.apk'
+          if-no-files-found: error
