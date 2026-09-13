@@ -99,15 +99,51 @@
         if(settings.getBoolean("key_vibration",false)) performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP);
     }
 
+    private float downX=0f;
+    private float downY=0f;
+
+    private boolean canUseExpandedTouch(Hit h) {
+        String a=h.action;
+        return "CJ".equals(a)||"ZY".equals(a)||"LETTER".equals(a)||"SHIFT".equals(a)||
+                "BACK".equals(a)||"NUMBER".equals(a)||"PUNCT".equals(a)||"NUM".equals(a)||
+                "SYM".equals(a)||"MAIN".equals(a)||"EMOJI".equals(a)||"SPACE".equals(a)||
+                "ENTER".equals(a);
+    }
+
     private Hit findHit(float x,float y) {
+        // Exact visible key wins first.
         for(int i=hits.size()-1;i>=0;i--) if(hits.get(i).r.contains(x,y)) return hits.get(i);
-        return null;
+
+        // Fill the small visual gaps with invisible touch targets. The keycaps themselves never grow.
+        Hit best=null;
+        float bestD=Float.MAX_VALUE;
+        float padX=dp(12),padY=dp(10);
+        for(int i=hits.size()-1;i>=0;i--) {
+            Hit h=hits.get(i);
+            if(!canUseExpandedTouch(h)) continue;
+            RectF rr=new RectF(h.r);
+            rr.inset(-padX,-padY);
+            if(!rr.contains(x,y)) continue;
+            float dx=Math.max(Math.max(h.r.left-x,0f),x-h.r.right);
+            float dy=Math.max(Math.max(h.r.top-y,0f),y-h.r.bottom);
+            float d=dx*dx+dy*dy;
+            if(d<bestD) { bestD=d; best=h; }
+        }
+        return best;
+    }
+
+    private boolean sameHit(Hit a,Hit b) {
+        if(a==null||b==null) return false;
+        if(!a.action.equals(b.action)) return false;
+        if(a.value==null) return b.value==null;
+        return a.value.equals(b.value);
     }
 
     @Override public boolean onTouchEvent(MotionEvent e) {
         float x=e.getX(),y=e.getY();
         if(e.getAction()==MotionEvent.ACTION_DOWN) {
             downAt=SystemClock.uptimeMillis();
+            downX=x; downY=y;
             downHit=findHit(x,y);
             backspaceRepeating=false;
             if(downHit!=null&&"BACK".equals(downHit.action)) {
@@ -123,18 +159,37 @@
         if(e.getAction()!=MotionEvent.ACTION_UP) return true;
 
         repeatHandler.removeCallbacks(repeatBackspace);
-        Hit up=findHit(x,y);
-        long held=SystemClock.uptimeMillis()-downAt;
+        float dx=x-downX,dy=y-downY;
+        float adx=Math.abs(dx),ady=Math.abs(dy);
 
-        if(downHit!=null&&up!=null&&downHit.action.equals(up.action)) {
-            if("GLOBE".equals(up.action)&&held>=450) {
+        if(page==Page.KAOMOJI&&ady>dp(34)&&ady>adx*1.25f) {
+            feedback();
+            scrollKaomoji(dy<0);
+            downHit=null;
+            return true;
+        }
+
+        if(downHit!=null&&"SPACE".equals(downHit.action)) {
+            float threshold=Math.max(dp(42),downHit.r.width()*0.16f);
+            if(adx>threshold&&adx>ady*1.5f) {
                 feedback();
-                modeMenu=true;
-                invalidate();
-            } else if("BACK".equals(up.action)&&backspaceRepeating) {
-                // Long-press repeat already handled the deletion.
-            } else {
-                feedback();
-                act(up);
+                if(dx<0) cycleMode(); else cycleModeBackward();
+                downHit=null;
+                return true;
             }
         }
+
+        Hit up=findHit(x,y);
+        float move=(float)Math.hypot(dx,dy);
+        if(downHit!=null) {
+            if("BACK".equals(downHit.action)&&backspaceRepeating) {
+                // Long-press repeat already handled the deletion.
+            } else if(move<=dp(28)||sameHit(downHit,up)) {
+                // Lock a normal tap to the key chosen on ACTION_DOWN so tiny finger drift is tolerated.
+                feedback();
+                act(downHit);
+            }
+        }
+        downHit=null;
+        return true;
+    }
