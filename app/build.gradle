@@ -10,7 +10,9 @@ android {
         applicationId 'com.joyce.currencyconverter'
         minSdk 24
         targetSdk 35
-        versionCode 1
-        versionName '1.0'
+
+        def runNumber = System.getenv('GITHUB_RUN_NUMBER')
+        versionCode runNumber != null ? runNumber.toInteger() : 1
+        versionName runNumber != null ? "1.${runNumber}" : '1.0'
     }
 }
