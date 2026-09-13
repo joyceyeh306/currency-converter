@@ -46,14 +46,14 @@ public class MainActivity extends Activity {
         root.addView(title);
 
         TextView version = new TextView(this);
-        version.setText("v0.7｜觸控與版面修正版");
+        version.setText("v0.8｜輸入細節與候選修正版");
         version.setTextSize(16);
         version.setTextColor(Color.DKGRAY);
         version.setPadding(0, dp(8), 0, dp(18));
         root.addView(version);
 
         TextView intro = new TextView(this);
-        intro.setText("純倉頡三代。按鍵外框大小維持不變，字根縮小並做視覺置中；第三排新增逗號與句號。實際觸控範圍延伸到按鍵間隙，空白鍵左右滑切換倉頡／English／注音。顏文字頁保留 ColorOS 底部安全區，麥克風改用較簡潔圖示。");
+        intro.setText("純倉頡三代。倉頡、English、注音三種主鍵盤共用同一套文字縮放比例；長按倉頡字根或注音符號可直接輸出鍵面文字。候選列加入常用句尾標點、完整碼優先與左右滑翻頁；空白鍵切換模式時不會打斷正在組字的內容。");
         intro.setTextSize(17);
         intro.setTextColor(Color.rgb(35,35,38));
         intro.setLineSpacing(0, 1.16f);
@@ -72,7 +72,7 @@ public class MainActivity extends Activity {
 
         section(root, "鍵盤設定");
         addSeek(root, "鍵盤高度", "調整整個鍵盤與格子的高度", "keyboard_height", 80, 110, 90, "%");
-        addSeek(root, "按鍵字體", "只調整按鍵上的文字，不改格子位置", "key_text_size", 85, 120, 100, "%");
+        addSeek(root, "主鍵盤文字大小", "倉頡字根、English、注音同步調整；按鍵外框大小不變", "key_text_size", 70, 100, 100, "%");
         addSeek(root, "候選字大小", "調整上方候選列的字體", "candidate_text_size", 85, 125, 100, "%");
         addSwitch(root, "按鍵音", "key_sound", true, true);
         addSwitch(root, "按鍵震動", "key_vibration", false, true);
@@ -87,7 +87,7 @@ public class MainActivity extends Activity {
         root.addView(clear);
 
         TextView note = new TextView(this);
-        note.setText("倉頡版本：第三代。\n空白鍵向左滑：倉頡 → English → 注音 → 倉頡；向右滑為反方向。\n數字頁輸入數字會留在 123；輸入標點後自動回主鍵盤。\n個人學習資料只保存在這支手機內。");
+        note.setText("倉頡版本：第三代。\n空白鍵向左滑：倉頡 → English → 注音 → 倉頡；向右滑為反方向。正在組字時不切換。\n長按倉頡字根或注音符號：直接輸出鍵面文字，不進入組字。\n候選列可左右滑翻頁；句尾常用字後會提示合適的全形標點。\n數字頁輸入數字會留在 123；輸入標點後自動回主鍵盤。\n個人學習資料只保存在這支手機內。");
         note.setTextSize(15);
         note.setTextColor(Color.GRAY);
         note.setPadding(0, dp(26), 0, 0);
@@ -126,8 +126,10 @@ public class MainActivity extends Activity {
 
         SeekBar seek = new SeekBar(this);
         seek.setMax(max - min);
-        int current = settings.getInt(key, def);
-        seek.setProgress(Math.max(0, Math.min(max - min, current - min)));
+        int stored = settings.getInt(key, def);
+        int current = Math.max(min, Math.min(max, stored));
+        if (current != stored) settings.edit().putInt(key, current).apply();
+        seek.setProgress(current - min);
         label.setText(title + "  " + current + suffix);
         seek.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
             @Override public void onProgressChanged(SeekBar s, int progress, boolean fromUser) {
