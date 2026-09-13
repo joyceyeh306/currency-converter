@@ -88,18 +88,31 @@
             t.setColor(Color.BLACK);
             t.setTextAlign(Paint.Align.CENTER);
             t.setTextSize(dp(size * keyScale()));
-            Paint.FontMetrics fm = t.getFontMetrics();
-            c.drawText(label, r.centerX(), r.centerY() - (fm.ascent + fm.descent) / 2f, t);
+            android.graphics.Rect bounds = new android.graphics.Rect();
+            t.getTextBounds(label, 0, label.length(), bounds);
+            float baseline = r.centerY() - (bounds.top + bounds.bottom) / 2f;
+            c.drawText(label, r.centerX(), baseline, t);
         }
         if (action != null) hits.add(new Hit(new RectF(r), action, value));
     }
 
     private void drawCangjie(Canvas c) {
-        // Keep the keycaps unchanged; only Cangjie root glyphs are 80% of the previous size.
-        for (int i=0;i<10;i++) { float x=18+i*116.4f; drawKey(c,x,0,x+96,122,c1[i],20.8f,"CJ",String.valueOf(k1[i])); }
-        for (int i=0;i<9;i++) { float x=76+i*114.8f; drawKey(c,x,155,x+96,282,c2[i],20.8f,"CJ",String.valueOf(k2[i])); }
-        for (int i=0;i<7;i++) { float x=116+i*116.5f; drawKey(c,x,318,x+96,444,c3[i],20f,"CJ",String.valueOf(k3[i])); }
-        drawKey(c,1017,318,1150,444,"⌫",24,"BACK","");
+        // Keep every keycap size unchanged. Root glyphs are 85% of their v0.6 size.
+        for (int i=0;i<10;i++) { float x=18+i*116.4f; drawKey(c,x,0,x+96,122,c1[i],17.68f,"CJ",String.valueOf(k1[i])); }
+        for (int i=0;i<9;i++) { float x=76+i*114.8f; drawKey(c,x,155,x+96,282,c2[i],17.68f,"CJ",String.valueOf(k2[i])); }
+
+        // Add ， to the left of 重 and 。 to the right of 一 without changing key sizes.
+        final float thirdGap = 137f / 9f;
+        float x = 18f;
+        drawKey(c,x,318,x+96,444,"，",21f,"PUNCT","，");
+        x += 96f + thirdGap;
+        for (int i=0;i<7;i++) {
+            drawKey(c,x,318,x+96,444,c3[i],17.0f,"CJ",String.valueOf(k3[i]));
+            x += 96f + thirdGap;
+        }
+        drawKey(c,x,318,x+96,444,"。",21f,"PUNCT","。");
+        x += 96f + thirdGap;
+        drawKey(c,x,318,x+133,444,"⌫",24,"BACK","");
         drawBottom(c,"123","倉");
     }
 
@@ -138,4 +151,4 @@
         for (int i=0;i<10;i++) { float x=18+i*116.4f; drawKey(c,x,155,x+96,282,row2[i],22,"PUNCT",row2[i]); }
 
         String[] row3 = mode==Mode.ENGLISH ?
-                new String[]{"#+=",".",",","?","!","'"} :
+                new String[]{"🔣",".",",","?","!","'"} :
