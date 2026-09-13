@@ -46,14 +46,14 @@ public class MainActivity extends Activity {
         root.addView(title);
 
         TextView version = new TextView(this);
-        version.setText("v0.6｜倉頡三代與版面修正版");
+        version.setText("v0.7｜觸控與版面修正版");
         version.setTextSize(16);
         version.setTextColor(Color.DKGRAY);
         version.setPadding(0, dp(8), 0, dp(18));
         root.addView(version);
 
         TextView intro = new TextView(this);
-        intro.setText("這版改為純倉頡三代碼表，並保留精準按鍵觸控。字根／注音組字改成真正浮在鍵盤上方，不再讓鍵盤往上跳；鍵盤高度設定會重新套用。底部切換、設定與麥克風圖示也重新配置，避開 ColorOS 系統按鍵。");
+        intro.setText("純倉頡三代。按鍵外框大小維持不變，字根縮小並做視覺置中；第三排新增逗號與句號。實際觸控範圍延伸到按鍵間隙，空白鍵左右滑切換倉頡／English／注音。顏文字頁保留 ColorOS 底部安全區，麥克風改用較簡潔圖示。");
         intro.setTextSize(17);
         intro.setTextColor(Color.rgb(35,35,38));
         intro.setLineSpacing(0, 1.16f);
@@ -87,7 +87,7 @@ public class MainActivity extends Activity {
         root.addView(clear);
 
         TextView note = new TextView(this);
-        note.setText("倉頡版本：第三代。\n切換順序：倉頡 → English → 注音 → 倉頡。\n數字頁輸入數字會留在 123；輸入標點後自動回主鍵盤。\n個人學習資料只保存在這支手機內。");
+        note.setText("倉頡版本：第三代。\n空白鍵向左滑：倉頡 → English → 注音 → 倉頡；向右滑為反方向。\n數字頁輸入數字會留在 123；輸入標點後自動回主鍵盤。\n個人學習資料只保存在這支手機內。");
         note.setTextSize(15);
         note.setTextColor(Color.GRAY);
         note.setPadding(0, dp(26), 0, 0);
