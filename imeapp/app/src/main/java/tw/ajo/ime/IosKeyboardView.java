@@ -6,7 +6,9 @@ import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
 import android.graphics.RectF;
+import android.media.AudioManager;
 import android.os.SystemClock;
+import android.view.HapticFeedbackConstants;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.inputmethod.EditorInfo;
@@ -27,68 +29,635 @@ import java.util.Map;
 public class IosKeyboardView extends View {
     enum Mode { CANGJIE, ZHUYIN, ENGLISH }
     enum Page { MAIN, NUM, SYM, EMOJI, KAOMOJI }
-    private static final float IW=1170f, IH=842f;
-    private static final int BG=Color.rgb(218,219,224);
+
+    private static final float IW = 1170f, IH = 842f;
+    private static final int BG = Color.rgb(218, 219, 224);
+
     private final AjoImeService svc;
-    private final Paint p=new Paint(Paint.ANTI_ALIAS_FLAG), t=new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint t = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final SharedPreferences prefs;
-    private final Map<String,List<String>> cj=new HashMap<>(), zy=new HashMap<>();
-    private Mode mode=Mode.CANGJIE; private Page page=Page.MAIN;
-    private String cjCode="", zyCode=""; private boolean shift=false,caps=false,expanded=false,modeMenu=false;
-    private long lastShift=0,downAt=0; private float downY=0; private int kaoOff=0;
+    private final SharedPreferences settings;
+    private final Map<String, List<String>> cj = new HashMap<>();
+    private final Map<String, List<String>> zy = new HashMap<>();
 
-    private final String[] c1={"手","田","水","口","廿","卜","山","戈","人","心"}, c2={"日","尸","木","火","土","竹","十","大","中"}, c3={"重","難","金","女","月","弓","一"};
-    private final char[] k1={'q','w','e','r','t','y','u','i','o','p'},k2={'a','s','d','f','g','h','j','k','l'},k3={'z','x','c','v','b','n','m'};
-    private final String[] z1={"ㄅ","ㄉ","ˇ","ˋ","ㄓ","ˊ","˙","ㄚ","ㄞ","ㄢ","ㄦ"},z2={"ㄆ","ㄊ","ㄍ","ㄐ","ㄔ","ㄗ","ㄧ","ㄛ","ㄟ","ㄣ"},z3={"ㄇ","ㄋ","ㄎ","ㄑ","ㄕ","ㄘ","ㄨ","ㄜ","ㄠ","ㄤ"},z4={"ㄈ","ㄌ","ㄏ","ㄒ","ㄖ","ㄙ","ㄩ","ㄝ","ㄡ","ㄥ"};
-    private final String[] q1={"q","w","e","r","t","y","u","i","o","p"},q2={"a","s","d","f","g","h","j","k","l"},q3={"z","x","c","v","b","n","m"};
-    private final String[] cn2={"-","/",":",";","(",")","$","@","「","」"},en2={"-","/",":",";","(",")","$","&","@","\""};
-    private final String[] sy1={"[","]","{","}","#","%","^","*","+","="},syC2={"_","\\","|","~","《","》","¥","&","•"},syE2={"_","\\","|","~","<",">","€","£","¥","•"};
-    private final String[] emojis={"😅","🥰","👍","🥲","🍰","😳","🤣","😜","😭","😓","😵‍💫","😥","⬇️","🙄","😆","💕","😁","💝","🙏","🚑","😀","😂","😱","❤️","🎂","🥺","😄","🌹","😊","😉","😍","🤔","😴","🤗","🎉","🔥","✨","💯","👏","🙌","💪","👌"};
-    private final String[] kaos={"^_^","^^","(^_^)","(^ ^)","(^_-^)","^o^","(o^^o)","(^_^)a","(^_^)v",":)",":(",":-)","=)","=(",";-)",":-|",":-(",":-D",":D",":-P",":P","凸^_^凸","(´▽｀)","(*^^*)","(*^_^*)","(^_^*)","*^_^*","V(^_^)V","Y(^_^)Y","d(^_^o)","o(^_^)o","p(^_^)q","(#^.^#)","(*^o^*)","(^.^)","(^O^)","(^o^)","(^｡^)","(^○^)",")^o^(","*^O^*","=^.^=","(^▽^)","o(^▽^)o","(^◇^)","(^3^)","(^3^)-☆","(*^3^)","(^ω^)","(>^ω^<)","^ω^","┌(^ω^)┐","↖(^ω^)↗","(^人^)","^*^","〜^_^","(∩_∩)","O(∩_∩)O","o(∩_∩)o","(￣▽￣)","(*￣︶￣*)","(*￣▽￣*)","(*☺-☺*)","(T_T)","(╥﹏╥)","(>_<)","(；ω；)","(｡•́︿•̀｡)","(ง •̀_•́)ง","ᕦ(ò_óˇ)ᕤ","ヽ(•‿•)ノ","¯\\_(ツ)_/¯","(¬_¬)"};
+    private Mode mode = Mode.CANGJIE;
+    private Page page = Page.MAIN;
+    private String cjCode = "";
+    private String zyCode = "";
+    private String lastCommitted = "";
+    private boolean shift = false, caps = false, expanded = false, modeMenu = false;
+    private long lastShift = 0, downAt = 0;
+    private float downY = 0;
+    private int kaoOff = 0;
 
-    public IosKeyboardView(Context c,AjoImeService s){super(c);svc=s;prefs=c.getSharedPreferences("ime_learning",Context.MODE_PRIVATE);setBackgroundColor(BG);loadCj();initZy();}
-    public void onEditorChanged(EditorInfo e){invalidate();}
-    private int dp(float v){return Math.round(v*getResources().getDisplayMetrics().density);} private int candH(){return dp(46);} private float sx(float x){return x/IW*getWidth();} private float sy(float y,int h){return h+y/IH*(getHeight()-h);}
-    @Override protected void onMeasure(int ws,int hs){int w=MeasureSpec.getSize(ws);setMeasuredDimension(w,candH()+Math.round(w*IH/IW));}
+    private final String[] c1 = {"手","田","水","口","廿","卜","山","戈","人","心"};
+    private final String[] c2 = {"日","尸","木","火","土","竹","十","大","中"};
+    private final String[] c3 = {"重","難","金","女","月","弓","一"};
+    private final char[] k1 = {'q','w','e','r','t','y','u','i','o','p'};
+    private final char[] k2 = {'a','s','d','f','g','h','j','k','l'};
+    private final char[] k3 = {'z','x','c','v','b','n','m'};
 
-    private void loadCj(){try(BufferedReader b=new BufferedReader(new InputStreamReader(getContext().getAssets().open("cangjie_prefix.tsv"),StandardCharsets.UTF_8))){String l;while((l=b.readLine())!=null){int i=l.indexOf('\t');if(i>0)cj.put(l.substring(0,i),Arrays.asList(l.substring(i+1).trim().split(" +")));}}catch(Exception e){cj.put("hqi",Arrays.asList("我"));cj.put("o",Arrays.asList("人","你","他"));}}
-    private void initZy(){z("ㄨㄛˇ","我");z("ㄋㄧˇ","你妳擬");z("ㄊㄚ","他她它");z("ㄕˋ","是事市式視世士");z("ㄉㄜ˙","的得地");z("ㄧㄡˇ","有友");z("ㄅㄨˋ","不部步布");z("ㄗㄞˋ","在再載");z("ㄐㄧㄣ","今金斤津");z("ㄊㄧㄢ","天添田");z("ㄧㄠˋ","要藥耀");z("ㄑㄩˋ","去趣");z("ㄔ","吃癡");z("ㄈㄢˋ","飯範犯");z("ㄏㄠˇ","好郝");z("ㄇㄚ˙","嗎嘛媽");}
-    private void z(String k,String chars){ArrayList<String>a=new ArrayList<>();chars.codePoints().forEach(cp->a.add(new String(Character.toChars(cp))));zy.put(k,a);}
+    private final String[] z1 = {"ㄅ","ㄉ","ˇ","ˋ","ㄓ","ˊ","˙","ㄚ","ㄞ","ㄢ","ㄦ"};
+    private final String[] z2 = {"ㄆ","ㄊ","ㄍ","ㄐ","ㄔ","ㄗ","ㄧ","ㄛ","ㄟ","ㄣ"};
+    private final String[] z3 = {"ㄇ","ㄋ","ㄎ","ㄑ","ㄕ","ㄘ","ㄨ","ㄜ","ㄠ","ㄤ"};
+    private final String[] z4 = {"ㄈ","ㄌ","ㄏ","ㄒ","ㄖ","ㄙ","ㄩ","ㄝ","ㄡ","ㄥ"};
 
-    @Override protected void onDraw(Canvas c){super.onDraw(c);if(page==Page.EMOJI){drawEmoji(c);return;}if(page==Page.KAOMOJI){drawKao(c);return;}int h=candH();drawCandidates(c,h);drawBody(c,h);if(expanded)drawCandidates(c,h);if(modeMenu)drawMenu(c);}
-    private void drawBody(Canvas c,int h){p.setColor(BG);c.drawRect(0,h,getWidth(),getHeight(),p);if(page==Page.MAIN){if(mode==Mode.CANGJIE)drawCj(c,h);else if(mode==Mode.ZHUYIN)drawZy(c,h);else drawEn(c,h);}else if(page==Page.NUM)drawNum(c,h);else drawSym(c,h);footer(c,h);}
-    private void key(Canvas c,int h,float x1,float y1,float x2,float y2,String s,float sz){RectF r=new RectF(sx(x1),sy(y1,h),sx(x2),sy(y2,h));p.setColor(Color.WHITE);c.drawRoundRect(r,dp(8),dp(8),p);t.setColor(Color.BLACK);t.setTextAlign(Paint.Align.CENTER);t.setTextSize(dp(sz));Paint.FontMetrics f=t.getFontMetrics();c.drawText(s,r.centerX(),r.centerY()-(f.ascent+f.descent)/2,t);}
-    private void drawCj(Canvas c,int h){for(int i=0;i<10;i++){float x=18+i*116.4f;key(c,h,x,0,x+96,122,c1[i],26);}for(int i=0;i<9;i++){float x=76+i*114.8f;key(c,h,x,155,x+96,282,c2[i],26);}for(int i=0;i<7;i++){float x=116+i*116.5f;key(c,h,x,318,x+96,444,c3[i],25);}key(c,h,1017,318,1150,444,"⌫",24);bottom(c,h,"123","倉");}
-    private void drawZy(Canvas c,int h){for(int i=0;i<11;i++){float x=18+i*103.3f;key(c,h,x,0,x+88,108,z1[i],25);}for(int i=0;i<10;i++){float x=55+i*105.5f;key(c,h,x,122,x+88,236,z2[i],25);}for(int i=0;i<10;i++){float x=82+i*101.5f;key(c,h,x,252,x+88,365,z3[i],25);}for(int i=0;i<10;i++){float x=18+i*103.4f;key(c,h,x,382,x+88,494,z4[i],24);}key(c,h,1060,382,1150,494,"⌫",22);bottom(c,h,"123","注");}
-    private void drawEn(Canvas c,int h){for(int i=0;i<10;i++){float x=18+i*116.4f;key(c,h,x,0,x+96,122,q1[i],27);}for(int i=0;i<9;i++){float x=76+i*114.8f;key(c,h,x,155,x+96,282,q2[i],27);}key(c,h,18,318,145,444,"⇧",25);for(int i=0;i<7;i++){float x=172+i*116.2f;key(c,h,x,318,x+96,444,q3[i],27);}key(c,h,1017,318,1150,444,"⌫",24);bottom(c,h,"123","A");}
-    private void bottom(Canvas c,int h,String left,String mark){key(c,h,18,478,145,607,left,left.length()>3?15:22);key(c,h,160,478,287,607,"☺",23);key(c,h,303,478,864,607,"",22);key(c,h,880,478,1150,607,"↩",25);t.setColor(Color.rgb(190,190,194));t.setTextSize(dp(12));t.setTextAlign(Paint.Align.RIGHT);c.drawText(mark,sx(842),sy(586,h),t);}
-    private void drawNum(Canvas c,int h){for(int i=0;i<10;i++){float x=18+i*116.4f;key(c,h,x,0,x+96,122,String.valueOf((i+1)%10),25);}String[] r=mode==Mode.ENGLISH?en2:cn2;for(int i=0;i<10;i++){float x=18+i*116.4f;key(c,h,x,155,x+96,282,r[i],22);}String[] a=mode==Mode.ENGLISH?new String[]{"#+=",".",",","?","!","'"}:new String[]{"#+=","。","，","、","？","！","．"};float step=mode==Mode.ENGLISH?119f:131f;for(int i=0;i<a.length;i++){float x=18+i*step;key(c,h,x,318,x+(mode==Mode.ENGLISH?100:112),444,a[i],20);}key(c,h,1017,318,1150,444,"⌫",24);bottom(c,h,mode==Mode.CANGJIE?"倉頡":mode==Mode.ZHUYIN?"注音":"ABC",mode==Mode.CANGJIE?"倉":mode==Mode.ZHUYIN?"注":"A");}
-    private void drawSym(Canvas c,int h){for(int i=0;i<10;i++){float x=18+i*116.4f;key(c,h,x,0,x+96,122,sy1[i],21);}String[] r=mode==Mode.ENGLISH?syE2:syC2;float cell=IW/r.length;for(int i=0;i<r.length;i++){float x=i*cell+10;key(c,h,x,155,x+cell-20,282,r[i],20);}String[] a=mode==Mode.ENGLISH?new String[]{"123",".",",","?","!","'"}:new String[]{"123","…","，","^_^","？","！","'"};for(int i=0;i<a.length;i++){float x=18+i*119f;key(c,h,x,318,x+100,444,a[i],18);}key(c,h,1017,318,1150,444,"⌫",24);bottom(c,h,mode==Mode.CANGJIE?"倉頡":mode==Mode.ZHUYIN?"注音":"ABC",mode==Mode.CANGJIE?"倉":mode==Mode.ZHUYIN?"注":"A");}
-    private void footer(Canvas c,int h){t.setColor(Color.BLACK);t.setTextAlign(Paint.Align.CENTER);t.setTextSize(dp(31));c.drawText("◎",sx(92),sy(740,h),t);p.setColor(Color.BLACK);p.setStyle(Paint.Style.STROKE);p.setStrokeWidth(dp(2.5f));float x=sx(1042),y=sy(706,h);c.drawRoundRect(new RectF(x-dp(6),y-dp(17),x+dp(6),y+dp(9)),dp(6),dp(6),p);c.drawArc(new RectF(x-dp(13),y-dp(2),x+dp(13),y+dp(22)),0,180,false,p);c.drawLine(x,y+dp(20),x,y+dp(31),p);p.setStyle(Paint.Style.FILL);}
+    private final String[] q1 = {"q","w","e","r","t","y","u","i","o","p"};
+    private final String[] q2 = {"a","s","d","f","g","h","j","k","l"};
+    private final String[] q3 = {"z","x","c","v","b","n","m"};
 
-    private void drawCandidates(Canvas c,int h){p.setColor(expanded?Color.rgb(232,233,237):BG);c.drawRect(0,0,getWidth(),expanded?h*3:h,p);List<String>a=cands();int n=Math.min(expanded?21:7,a.size()),cols=7;float aw=dp(48),cw=(getWidth()-aw)/cols;t.setColor(Color.BLACK);t.setTextAlign(Paint.Align.CENTER);t.setTextSize(dp(22));for(int i=0;i<n;i++)c.drawText(a.get(i),(i%cols)*cw+cw/2,(i/cols)*h+h*.67f,t);t.setColor(Color.GRAY);t.setTextSize(dp(21));c.drawText(expanded?"⌃":"⌄",getWidth()-aw/2,h*.68f,t);}
-    private List<String> cands(){if(mode==Mode.CANGJIE){if(cjCode.isEmpty())return Arrays.asList("的","嗎","為","成","過","變","法","我","你","是","有","在","不","人");List<String>a=cj.get(cjCode);return a==null?Collections.singletonList(roots(cjCode)):boost(a);}if(mode==Mode.ZHUYIN){if(zyCode.isEmpty())return Arrays.asList("的","我","是","了","不","在","有","你","這","人","要","好","就","也");LinkedHashSet<String>o=new LinkedHashSet<>();List<String>e=zy.get(zyCode);if(e!=null)o.addAll(e);for(Map.Entry<String,List<String>>x:zy.entrySet())if(x.getKey().startsWith(zyCode))o.addAll(x.getValue());if(o.isEmpty())o.add(zyCode);return boost(new ArrayList<>(o));}return Arrays.asList("i","the","i’m","and","to","you","a","is","of","it","that","for","in","on");}
-    private List<String> boost(List<String>a){ArrayList<String>b=new ArrayList<>(a);b.sort(Comparator.comparingInt((String s)->-prefs.getInt("f_"+s,0)));return b;} private void learn(String s){prefs.edit().putInt("f_"+s,Math.min(100000,prefs.getInt("f_"+s,0)+1)).apply();}
-    private String roots(String code){String l="abcdefghijklmnopqrstuvwxyz",r="日月金木水火土竹戈十大中一弓人心手口尸廿山女田難卜符";StringBuilder b=new StringBuilder();for(char c:code.toCharArray()){int i=l.indexOf(c);if(i>=0)b.append(r.charAt(i));}return b.toString();}
+    private final String[] cn2 = {"-","/",":",";","(",")","$","@","「","」"};
+    private final String[] en2 = {"-","/",":",";","(",")","$","&","@","\""};
+    private final String[] sy1 = {"[","]","{","}","#","%","^","*","+","="};
+    private final String[] syC2 = {"_","\\","|","~","《","》","¥","&","•"};
+    private final String[] syE2 = {"_","\\","|","~","<",">","€","£","¥","•"};
 
-    @Override public boolean onTouchEvent(MotionEvent e){float x=e.getX(),y=e.getY();if(e.getAction()==MotionEvent.ACTION_DOWN){downY=y;downAt=SystemClock.uptimeMillis();return true;}if(e.getAction()!=MotionEvent.ACTION_UP)return true;long held=SystemClock.uptimeMillis()-downAt;if(page==Page.KAOMOJI&&Math.abs(y-downY)>dp(35)){kaoOff=Math.max(0,Math.min(Math.max(0,kaos.length-18),kaoOff+(y<downY?9:-9)));invalidate();return true;}if(modeMenu){menuTap(x,y);return true;}if(page==Page.EMOJI){emojiTap(x,y,held);return true;}if(page==Page.KAOMOJI){kaoTap(x,y,held);return true;}int h=candH();if(y<h*(expanded?3:1)){candTap(x,y);return true;}float ix=x/getWidth()*IW,iy=(y-h)/(getHeight()-h)*IH;if(iy>620&&ix<230){if(held>=450){modeMenu=true;invalidate();}else cycle();return true;}if(iy>620&&ix>930){svc.voiceComingSoon();return true;}if(page==Page.MAIN)mainTap(ix,iy);else if(page==Page.NUM)numTap(ix,iy);else symTap(ix,iy);return true;}
-    private void candTap(float x,float y){float aw=dp(48);if(x>getWidth()-aw){expanded=!expanded;invalidate();return;}List<String>a=cands();int i=(int)(y/candH())*7+(int)(x/((getWidth()-aw)/7f));if(i>=0&&i<a.size())choose(a.get(i));}
-    private void choose(String s){if(mode==Mode.CANGJIE&&!cjCode.isEmpty()&&cj.get(cjCode)==null&&s.equals(roots(cjCode)))return;svc.commit(s);learn(s);cjCode="";zyCode="";expanded=false;invalidate();}
-    private void mainTap(float x,float y){if(mode==Mode.CANGJIE)cjTap(x,y);else if(mode==Mode.ZHUYIN)zyTap(x,y);else enTap(x,y);}
-    private void cjTap(float x,float y){if(y<130){int i=(int)(x/(IW/10));if(i<10)addC(k1[i]);return;}if(y<290){int i=(int)((x-52)/(1066/9f));if(x>=52&&i>=0&&i<9)addC(k2[i]);return;}if(y<465){if(x>985){back();return;}int i=(int)((x-100)/(820/7f));if(x>=100&&i>=0&&i<7)addC(k3[i]);return;}bottomTap(x,y);}
-    private void zyTap(float x,float y){if(y<116){int i=(int)(x/(IW/11));if(i<11)addZ(z1[i]);return;}if(y<242){int i=(int)((x-50)/(1070/10f));if(x>=50&&i>=0&&i<10)addZ(z2[i]);return;}if(y<374){int i=(int)((x-80)/(1020/10f));if(x>=80&&i>=0&&i<10)addZ(z3[i]);return;}if(y<505){if(x>1030){back();return;}int i=(int)((x-18)/(1015/10f));if(x>=18&&i>=0&&i<10)addZ(z4[i]);return;}bottomTap(x,y);}
-    private void enTap(float x,float y){if(y<130){int i=(int)(x/(IW/10));if(i<10)letter(q1[i]);return;}if(y<290){int i=(int)((x-55)/(1060/9f));if(x>=55&&i>=0&&i<9)letter(q2[i]);return;}if(y<465){if(x<155){sh();return;}if(x>990){svc.backspace();return;}int i=(int)((x-165)/(805/7f));if(x>=165&&i>=0&&i<7)letter(q3[i]);return;}bottomTap(x,y);}
-    private void addC(char c){if(cjCode.length()<5)cjCode+=c;invalidate();} private void addZ(String s){if(zyCode.length()<8)zyCode+=s;invalidate();} private void letter(String s){svc.commit(shift||caps?s.toUpperCase(Locale.ROOT):s);if(shift&&!caps)shift=false;invalidate();} private void sh(){long n=SystemClock.uptimeMillis();if(n-lastShift<350){caps=!caps;shift=caps;}else shift=!shift;lastShift=n;invalidate();}
-    private void bottomTap(float x,float y){if(y>=625)return;if(x<150){page=Page.NUM;invalidate();}else if(x<300){page=Page.EMOJI;invalidate();}else if(x<875){if(mode==Mode.CANGJIE&&!cjCode.isEmpty())choose(cands().get(0));else if(mode==Mode.ZHUYIN&&!zyCode.isEmpty())choose(cands().get(0));else svc.commit(" ");}else svc.enter();}
-    private void numTap(float x,float y){if(y<135){int i=(int)(x/(IW/10));if(i<10)svc.commit(String.valueOf((i+1)%10));return;}if(y<300){String[]r=mode==Mode.ENGLISH?en2:cn2;int i=(int)(x/(IW/10));if(i<r.length)punct(r[i]);return;}if(y<465){if(x>1000){svc.backspace();return;}String[]r=mode==Mode.ENGLISH?new String[]{"#+=",".",",","?","!","'"}:new String[]{"#+=","。","，","、","？","！","．"};float cell=IW/(r.length+1f);int i=(int)(x/cell);if(i==0){page=Page.SYM;invalidate();}else if(i<r.length)punct(r[i]);else if(x<1000)punct(r[r.length-1]);return;}if(y<625){if(x<150){page=Page.MAIN;invalidate();}else if(x<300){page=Page.EMOJI;invalidate();}else if(x<875)svc.commit(" ");else svc.enter();}}
-    private void symTap(float x,float y){if(y<135){int i=(int)(x/(IW/10));if(i<sy1.length)punct(sy1[i]);return;}if(y<300){String[]r=mode==Mode.ENGLISH?syE2:syC2;int i=(int)(x/(IW/r.length));if(i<r.length)punct(r[i]);return;}if(y<465){if(x>1000){svc.backspace();return;}if(mode==Mode.ENGLISH){int i=(int)(x/(IW/7));String[]r={"123",".",",","?","!","'"};if(i==0){page=Page.NUM;invalidate();}else if(i<r.length)punct(r[i]);}else{int i=(int)(x/(IW/8));String[]r={"123","…","，","^_^","？","！","'"};if(i==0){page=Page.NUM;invalidate();}else if(i==3){page=Page.KAOMOJI;invalidate();}else if(i<r.length)punct(r[i]);}return;}if(y<625){if(x<150){page=Page.MAIN;invalidate();}else if(x<300){page=Page.EMOJI;invalidate();}else if(x<875)svc.commit(" ");else svc.enter();}}
-    private void punct(String s){svc.commit(s);page=Page.MAIN;invalidate();} private void back(){if(mode==Mode.CANGJIE&&!cjCode.isEmpty()){cjCode=cjCode.substring(0,cjCode.length()-1);invalidate();}else if(mode==Mode.ZHUYIN&&!zyCode.isEmpty()){int cp=zyCode.codePointBefore(zyCode.length());zyCode=zyCode.substring(0,zyCode.length()-Character.charCount(cp));invalidate();}else svc.backspace();}
-    private void cycle(){mode=mode==Mode.CANGJIE?Mode.ZHUYIN:mode==Mode.ZHUYIN?Mode.ENGLISH:Mode.CANGJIE;page=Page.MAIN;cjCode="";zyCode="";expanded=false;invalidate();}
-    private void drawMenu(Canvas c){float w=getWidth(),h=getHeight(),top=h-dp(132),pad=dp(12),gap=dp(8),bw=(w-pad*2-gap*2)/3;p.setColor(Color.argb(235,245,245,247));c.drawRoundRect(new RectF(pad,top,w-pad,h-dp(52)),dp(15),dp(15),p);String[]a={"倉頡","注音","English"};t.setColor(Color.BLACK);t.setTextAlign(Paint.Align.CENTER);t.setTextSize(dp(18));for(int i=0;i<3;i++){float l=pad+i*(bw+gap);p.setColor(Color.WHITE);c.drawRoundRect(new RectF(l,top+dp(10),l+bw,top+dp(66)),dp(12),dp(12),p);c.drawText(a[i],l+bw/2,top+dp(46),t);}}
-    private void menuTap(float x,float y){float w=getWidth(),h=getHeight(),top=h-dp(132),pad=dp(12),gap=dp(8),bw=(w-pad*2-gap*2)/3;if(y>=top&&y<=top+dp(80)){int i=(int)((x-pad)/(bw+gap));if(i>=0&&i<3){mode=Mode.values()[i];page=Page.MAIN;cjCode="";zyCode="";}}modeMenu=false;invalidate();}
-    private void drawEmoji(Canvas c){c.drawColor(BG);float w=getWidth(),h=getHeight();p.setColor(Color.rgb(238,239,242));c.drawRoundRect(new RectF(dp(16),dp(14),w-dp(16),dp(58)),dp(22),dp(22),p);t.setColor(Color.GRAY);t.setTextAlign(Paint.Align.LEFT);t.setTextSize(dp(16));c.drawText("⌕  搜尋表情符號",dp(28),dp(43),t);int cols=7;float top=dp(72),bot=h-dp(118),cw=w/cols,ch=(bot-top)/4;t.setColor(Color.BLACK);t.setTextAlign(Paint.Align.CENTER);t.setTextSize(dp(28));for(int i=0;i<Math.min(28,emojis.length);i++)c.drawText(emojis[i],(i%cols)*cw+cw/2,top+(i/cols)*ch+ch*.67f,t);t.setColor(Color.DKGRAY);t.setTextAlign(Paint.Align.LEFT);t.setTextSize(dp(15));c.drawText(label(),dp(16),h-dp(82),t);t.setTextSize(dp(19));c.drawText("◷   ☺   ♡   ♫   ✈   ⚑",dp(82),h-dp(82),t);footIcons(c,h);}
-    private void emojiTap(float x,float y,long held){float w=getWidth(),h=getHeight();if(y>dp(72)&&y<h-dp(118)){int cols=7;float cw=w/cols,ch=(h-dp(118)-dp(72))/4;int i=(int)((y-dp(72))/ch)*cols+(int)(x/cw);if(i>=0&&i<emojis.length){svc.commit(emojis[i]);return;}}if(y>h-dp(115)&&y<h-dp(55)&&x<dp(72)){page=Page.MAIN;invalidate();return;}if(y>h-dp(58)&&x<dp(160)){if(held>=450){modeMenu=true;invalidate();}else cycle();return;}if(y>h-dp(58)&&x>w-dp(150))svc.voiceComingSoon();}
-    private void drawKao(Canvas c){c.drawColor(BG);float w=getWidth(),h=getHeight();t.setColor(Color.BLACK);t.setTextAlign(Paint.Align.RIGHT);t.setTextSize(dp(27));c.drawText("⌃",w-dp(20),dp(34),t);int cols=3,rows=6;float top=dp(14),bot=h-dp(72),cw=w/cols,ch=(bot-top)/rows;t.setTextAlign(Paint.Align.CENTER);t.setTextSize(dp(19));for(int i=0;i<18;i++){int n=kaoOff+i;if(n>=kaos.length)break;c.drawText(kaos[n],(i%cols)*cw+cw/2,top+(i/cols)*ch+ch*.62f,t);}footIcons(c,h);}
-    private void kaoTap(float x,float y,long held){float w=getWidth(),h=getHeight();if(y<dp(55)&&x>w-dp(80)){page=Page.SYM;invalidate();return;}if(y<h-dp(72)){int cols=3;float top=dp(14),cw=w/cols,ch=(h-dp(72)-top)/6;int i=kaoOff+(int)((y-top)/ch)*cols+(int)(x/cw);if(i>=0&&i<kaos.length){svc.commit(kaos[i]);return;}}if(y>h-dp(60)&&x<dp(160)){if(held>=450){modeMenu=true;invalidate();}else cycle();return;}if(y>h-dp(60)&&x>w-dp(150))svc.voiceComingSoon();}
-    private void footIcons(Canvas c,float h){t.setColor(Color.BLACK);t.setTextAlign(Paint.Align.CENTER);t.setTextSize(dp(31));c.drawText("◎",dp(58),h-dp(18),t);t.setTextSize(dp(28));c.drawText("♩",getWidth()-dp(58),h-dp(18),t);} private String label(){return mode==Mode.CANGJIE?"倉頡":mode==Mode.ZHUYIN?"注音":"ABC";}
+    private final String[] emojis = {
+            "😅","🥰","👍","🥲","🍰","😳","🤣","😜","😭","😓","😵‍💫","😥","⬇️","🙄",
+            "😆","💕","😁","💝","🙏","🚑","😀","😂","😱","❤️","🎂","🥺","😄","🌹",
+            "😊","😉","😍","🤔","😴","🤗","🎉","🔥","✨","💯","👏","🙌","💪","👌"
+    };
+
+    private final String[] kaos = {
+            "^_^","^^","(^_^)","(^ ^)","(^_-^)","^o^","(o^^o)","(^_^)a","(^_^)v",":)",":(",":-)",
+            "=)","=(",";-)",":-|",":-(",":-D",":D",":-P",":P","凸^_^凸","(´▽｀)","(*^^*)","(*^_^*)",
+            "(^_^*)","*^_^*","V(^_^)V","Y(^_^)Y","d(^_^o)","o(^_^)o","p(^_^)q","(#^.^#)","(*^o^*)",
+            "(^.^)","(^O^)","(^o^)","(^｡^)","(^○^)",")^o^(","*^O^*","=^.^=","(^▽^)","o(^▽^)o",
+            "(^◇^)","(^3^)","(^3^)-☆","(*^3^)","(^ω^)","(>^ω^<)","^ω^","┌(^ω^)┐","↖(^ω^)↗",
+            "(^人^)","^*^","〜^_^","(∩_∩)","O(∩_∩)O","o(∩_∩)o","(￣▽￣)","(*￣︶￣*)","(*￣▽￣*)",
+            "(*☺-☺*)","(T_T)","(╥﹏╥)","(>_<)","(；ω；)","(｡•́︿•̀｡)","(ง •̀_•́)ง","ᕦ(ò_óˇ)ᕤ",
+            "ヽ(•‿•)ノ","¯\\_(ツ)_/¯","(¬_¬)"
+    };
+
+    public IosKeyboardView(Context c, AjoImeService s) {
+        super(c);
+        svc = s;
+        prefs = c.getSharedPreferences("ime_learning", Context.MODE_PRIVATE);
+        settings = c.getSharedPreferences("ime_settings", Context.MODE_PRIVATE);
+        setBackgroundColor(BG);
+        loadCj();
+        initZy();
+    }
+
+    public void onEditorChanged(EditorInfo e) {
+        cjCode = "";
+        zyCode = "";
+        expanded = false;
+        invalidate();
+    }
+
+    private int dp(float v) { return Math.round(v * getResources().getDisplayMetrics().density); }
+    private int candH() { return dp(46); }
+    private float sx(float x) { return x / IW * getWidth(); }
+    private float sy(float y, int h) { return h + y / IH * (getHeight() - h); }
+    private float keyScale() { return settings.getInt("key_text_size", 100) / 100f; }
+    private float candScale() { return settings.getInt("candidate_text_size", 100) / 100f; }
+    private float heightScale() { return settings.getInt("keyboard_height", 90) / 100f; }
+    private boolean learningEnabled() { return settings.getBoolean("learning_enabled", true); }
+
+    @Override protected void onMeasure(int ws, int hs) {
+        int w = MeasureSpec.getSize(ws);
+        int body = Math.round(w * IH / IW * heightScale());
+        setMeasuredDimension(w, candH() + body);
+    }
+
+    private void loadCj() {
+        try (BufferedReader b = new BufferedReader(new InputStreamReader(
+                getContext().getAssets().open("cangjie_prefix.tsv"), StandardCharsets.UTF_8))) {
+            String l;
+            while ((l = b.readLine()) != null) {
+                int i = l.indexOf('\t');
+                if (i > 0) cj.put(l.substring(0, i), Arrays.asList(l.substring(i + 1).trim().split(" +")));
+            }
+        } catch (Exception e) {
+            cj.put("hqi", Arrays.asList("我"));
+            cj.put("o", Arrays.asList("人","你","他"));
+        }
+    }
+
+    private void initZy() {
+        z("ㄨㄛˇ","我"); z("ㄋㄧˇ","你妳擬"); z("ㄊㄚ","他她它"); z("ㄕˋ","是事市式視世士");
+        z("ㄉㄜ˙","的得地"); z("ㄧㄡˇ","有友"); z("ㄅㄨˋ","不部步布"); z("ㄗㄞˋ","在再載");
+        z("ㄐㄧㄣ","今金斤津"); z("ㄊㄧㄢ","天添田"); z("ㄧㄠˋ","要藥耀"); z("ㄑㄩˋ","去趣");
+        z("ㄔ","吃癡"); z("ㄈㄢˋ","飯範犯"); z("ㄏㄠˇ","好郝"); z("ㄇㄚ˙","嗎嘛媽");
+    }
+
+    private void z(String k, String chars) {
+        ArrayList<String> a = new ArrayList<>();
+        chars.codePoints().forEach(cp -> a.add(new String(Character.toChars(cp))));
+        zy.put(k, a);
+    }
+
+    @Override protected void onDraw(Canvas c) {
+        super.onDraw(c);
+        if (page == Page.EMOJI) { drawEmoji(c); return; }
+        if (page == Page.KAOMOJI) { drawKao(c); return; }
+        int h = candH();
+        drawCandidates(c, h);
+        drawBody(c, h);
+        if (expanded) drawCandidates(c, h);
+        if (modeMenu) drawMenu(c);
+    }
+
+    private void drawBody(Canvas c, int h) {
+        p.setColor(BG);
+        c.drawRect(0, h, getWidth(), getHeight(), p);
+        if (page == Page.MAIN) {
+            if (mode == Mode.CANGJIE) drawCj(c, h);
+            else if (mode == Mode.ZHUYIN) drawZy(c, h);
+            else drawEn(c, h);
+        } else if (page == Page.NUM) drawNum(c, h);
+        else drawSym(c, h);
+        footer(c, h);
+    }
+
+    private void key(Canvas c, int h, float x1, float y1, float x2, float y2, String s, float sz) {
+        RectF r = new RectF(sx(x1), sy(y1, h), sx(x2), sy(y2, h));
+        p.setColor(Color.WHITE);
+        c.drawRoundRect(r, dp(8), dp(8), p);
+        t.setColor(Color.BLACK);
+        t.setTextAlign(Paint.Align.CENTER);
+        t.setTextSize(dp(sz * keyScale()));
+        Paint.FontMetrics f = t.getFontMetrics();
+        c.drawText(s, r.centerX(), r.centerY() - (f.ascent + f.descent) / 2, t);
+    }
+
+    private void drawCj(Canvas c, int h) {
+        for (int i=0;i<10;i++) { float x=18+i*116.4f; key(c,h,x,0,x+96,122,c1[i],26); }
+        for (int i=0;i<9;i++) { float x=76+i*114.8f; key(c,h,x,155,x+96,282,c2[i],26); }
+        for (int i=0;i<7;i++) { float x=116+i*116.5f; key(c,h,x,318,x+96,444,c3[i],25); }
+        key(c,h,1017,318,1150,444,"⌫",24);
+        bottom(c,h,"123","倉");
+    }
+
+    private void drawZy(Canvas c, int h) {
+        for (int i=0;i<11;i++) { float x=18+i*103.3f; key(c,h,x,0,x+88,108,z1[i],25); }
+        for (int i=0;i<10;i++) { float x=55+i*105.5f; key(c,h,x,122,x+88,236,z2[i],25); }
+        for (int i=0;i<10;i++) { float x=82+i*101.5f; key(c,h,x,252,x+88,365,z3[i],25); }
+        for (int i=0;i<10;i++) { float x=18+i*103.4f; key(c,h,x,382,x+88,494,z4[i],24); }
+        key(c,h,1060,382,1150,494,"⌫",22);
+        bottom(c,h,"123","注");
+    }
+
+    private void drawEn(Canvas c, int h) {
+        for (int i=0;i<10;i++) { float x=18+i*116.4f; key(c,h,x,0,x+96,122,q1[i],27); }
+        for (int i=0;i<9;i++) { float x=76+i*114.8f; key(c,h,x,155,x+96,282,q2[i],27); }
+        key(c,h,18,318,145,444,"⇧",25);
+        for (int i=0;i<7;i++) { float x=172+i*116.2f; key(c,h,x,318,x+96,444,q3[i],27); }
+        key(c,h,1017,318,1150,444,"⌫",24);
+        bottom(c,h,"123","A");
+    }
+
+    private void bottom(Canvas c, int h, String left, String mark) {
+        key(c,h,18,478,145,607,left,left.length()>3?15:22);
+        key(c,h,160,478,287,607,"☺",23);
+        key(c,h,303,478,864,607,"",22);
+        key(c,h,880,478,1150,607,"↩",25);
+        t.setColor(Color.rgb(190,190,194));
+        t.setTextSize(dp(12));
+        t.setTextAlign(Paint.Align.RIGHT);
+        c.drawText(mark,sx(842),sy(586,h),t);
+    }
+
+    private void drawNum(Canvas c, int h) {
+        for (int i=0;i<10;i++) { float x=18+i*116.4f; key(c,h,x,0,x+96,122,String.valueOf((i+1)%10),25); }
+        String[] r = mode==Mode.ENGLISH ? en2 : cn2;
+        for (int i=0;i<10;i++) { float x=18+i*116.4f; key(c,h,x,155,x+96,282,r[i],22); }
+        String[] a = mode==Mode.ENGLISH ? new String[]{"#+=",".",",","?","!","'"} : new String[]{"#+=","。","，","、","？","！","．"};
+        float step = mode==Mode.ENGLISH ? 119f : 131f;
+        float width = mode==Mode.ENGLISH ? 100f : 112f;
+        for (int i=0;i<a.length;i++) { float x=18+i*step; key(c,h,x,318,x+width,444,a[i],20); }
+        key(c,h,1017,318,1150,444,"⌫",24);
+        bottom(c,h,mode==Mode.CANGJIE?"倉頡":mode==Mode.ZHUYIN?"注音":"ABC",mode==Mode.CANGJIE?"倉":mode==Mode.ZHUYIN?"注":"A");
+    }
+
+    private void drawSym(Canvas c, int h) {
+        for (int i=0;i<10;i++) { float x=18+i*116.4f; key(c,h,x,0,x+96,122,sy1[i],21); }
+        String[] r = mode==Mode.ENGLISH ? syE2 : syC2;
+        float cell = IW / r.length;
+        for (int i=0;i<r.length;i++) { float x=i*cell+10; key(c,h,x,155,x+cell-20,282,r[i],20); }
+        String[] a = mode==Mode.ENGLISH ? new String[]{"123",".",",","?","!","'"} : new String[]{"123","…","，","^_^","？","！","'"};
+        for (int i=0;i<a.length;i++) { float x=18+i*119f; key(c,h,x,318,x+100,444,a[i],18); }
+        key(c,h,1017,318,1150,444,"⌫",24);
+        bottom(c,h,mode==Mode.CANGJIE?"倉頡":mode==Mode.ZHUYIN?"注音":"ABC",mode==Mode.CANGJIE?"倉":mode==Mode.ZHUYIN?"注":"A");
+    }
+
+    private void footer(Canvas c, int h) {
+        t.setColor(Color.BLACK);
+        t.setTextAlign(Paint.Align.CENTER);
+        t.setTextSize(dp(31));
+        c.drawText("◎",sx(92),sy(740,h),t);
+
+        p.setColor(Color.BLACK);
+        p.setStyle(Paint.Style.STROKE);
+        p.setStrokeWidth(dp(2.2f));
+        float x=sx(970), y=sy(706,h);
+        c.drawRoundRect(new RectF(x-dp(5.5f),y-dp(15),x+dp(5.5f),y+dp(8)),dp(5.5f),dp(5.5f),p);
+        c.drawArc(new RectF(x-dp(12),y-dp(2),x+dp(12),y+dp(20)),0,180,false,p);
+        c.drawLine(x,y+dp(18),x,y+dp(28),p);
+        p.setStyle(Paint.Style.FILL);
+    }
+
+    private String composition() {
+        if (mode==Mode.CANGJIE && !cjCode.isEmpty()) return roots(cjCode);
+        if (mode==Mode.ZHUYIN && !zyCode.isEmpty()) return zyCode;
+        return "";
+    }
+
+    private void drawCandidates(Canvas c, int h) {
+        int totalH = expanded ? h*3 : h;
+        p.setColor(expanded ? Color.rgb(232,233,237) : BG);
+        c.drawRect(0,0,getWidth(),totalH,p);
+
+        String comp = composition();
+        float compW = comp.isEmpty() ? 0 : dp(96);
+        float arrowW = dp(46);
+        int cols = comp.isEmpty() ? 7 : 6;
+        float cw = (getWidth()-compW-arrowW)/cols;
+
+        if (!comp.isEmpty()) {
+            p.setColor(Color.rgb(238,239,242));
+            c.drawRoundRect(new RectF(dp(6),dp(5),compW-dp(5),h-dp(5)),dp(9),dp(9),p);
+            t.setColor(Color.rgb(45,45,48));
+            t.setTextAlign(Paint.Align.CENTER);
+            t.setTextSize(dp(19*candScale()));
+            c.drawText(comp,compW/2,h*.67f,t);
+        }
+
+        List<String> a = cands();
+        int n = Math.min(expanded ? cols*3 : cols, a.size());
+        t.setColor(Color.BLACK);
+        t.setTextAlign(Paint.Align.CENTER);
+        t.setTextSize(dp(22*candScale()));
+        for (int i=0;i<n;i++) {
+            int row=i/cols, col=i%cols;
+            c.drawText(a.get(i),compW+col*cw+cw/2,row*h+h*.67f,t);
+        }
+
+        t.setColor(Color.GRAY);
+        t.setTextSize(dp(21));
+        c.drawText(expanded?"⌃":"⌄",getWidth()-arrowW/2,h*.68f,t);
+    }
+
+    private List<String> cands() {
+        if (mode==Mode.CANGJIE) {
+            if (cjCode.isEmpty()) return withLearnedNext(Arrays.asList("的","嗎","為","成","過","變","法","我","你","是","有","在","不","人"));
+            List<String> a = cj.get(cjCode);
+            return a==null ? Collections.singletonList(roots(cjCode)) : boost(a);
+        }
+        if (mode==Mode.ZHUYIN) {
+            if (zyCode.isEmpty()) return withLearnedNext(Arrays.asList("的","我","是","了","不","在","有","你","這","人","要","好","就","也"));
+            LinkedHashSet<String> o = new LinkedHashSet<>();
+            List<String> e = zy.get(zyCode);
+            if (e!=null) o.addAll(e);
+            for (Map.Entry<String,List<String>> x:zy.entrySet()) if (x.getKey().startsWith(zyCode)) o.addAll(x.getValue());
+            if (o.isEmpty()) o.add(zyCode);
+            return boost(new ArrayList<>(o));
+        }
+        return Arrays.asList("i","the","i’m","and","to","you","a","is","of","it","that","for","in","on");
+    }
+
+    private List<String> withLearnedNext(List<String> base) {
+        LinkedHashSet<String> out = new LinkedHashSet<>();
+        if (learningEnabled() && !lastCommitted.isEmpty()) out.addAll(learnedNext(lastCommitted));
+        out.addAll(base);
+        return new ArrayList<>(out);
+    }
+
+    private List<String> learnedNext(String prev) {
+        String prefix = "b_" + prev + "_";
+        ArrayList<String> words = new ArrayList<>();
+        Map<String,?> all = prefs.getAll();
+        for (String key:all.keySet()) if (key.startsWith(prefix)) words.add(key.substring(prefix.length()));
+        words.sort(Comparator.comparingInt((String s) -> -prefs.getInt(prefix+s,0)));
+        if (words.size()>12) return new ArrayList<>(words.subList(0,12));
+        return words;
+    }
+
+    private List<String> boost(List<String> a) {
+        ArrayList<String> b = new ArrayList<>(a);
+        if (learningEnabled()) b.sort(Comparator.comparingInt((String s)->-prefs.getInt("f_"+s,0)));
+        return b;
+    }
+
+    private void learn(String s) {
+        if (s==null || s.isEmpty()) return;
+        if (learningEnabled()) {
+            SharedPreferences.Editor e = prefs.edit();
+            e.putInt("f_"+s,Math.min(100000,prefs.getInt("f_"+s,0)+1));
+            if (!lastCommitted.isEmpty()) {
+                String k="b_"+lastCommitted+"_"+s;
+                e.putInt(k,Math.min(100000,prefs.getInt(k,0)+1));
+            }
+            e.apply();
+        }
+        lastCommitted=s;
+    }
+
+    private String roots(String code) {
+        String l="abcdefghijklmnopqrstuvwxyz";
+        String r="日月金木水火土竹戈十大中一弓人心手口尸廿山女田難卜符";
+        StringBuilder b=new StringBuilder();
+        for(char c:code.toCharArray()) { int i=l.indexOf(c); if(i>=0)b.append(r.charAt(i)); }
+        return b.toString();
+    }
+
+    private void feedback() {
+        if (settings.getBoolean("key_sound",true)) {
+            AudioManager am=(AudioManager)getContext().getSystemService(Context.AUDIO_SERVICE);
+            if(am!=null) am.playSoundEffect(AudioManager.FX_KEY_CLICK,0.35f);
+        }
+        if (settings.getBoolean("key_vibration",false)) performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP);
+    }
+
+    @Override public boolean onTouchEvent(MotionEvent e) {
+        float x=e.getX(), y=e.getY();
+        if(e.getAction()==MotionEvent.ACTION_DOWN) { downY=y; downAt=SystemClock.uptimeMillis(); return true; }
+        if(e.getAction()!=MotionEvent.ACTION_UP) return true;
+
+        long held=SystemClock.uptimeMillis()-downAt;
+        if(page==Page.KAOMOJI && Math.abs(y-downY)>dp(35)) {
+            kaoOff=Math.max(0,Math.min(Math.max(0,kaos.length-18),kaoOff+(y<downY?9:-9)));
+            invalidate();
+            return true;
+        }
+
+        feedback();
+        if(modeMenu) { menuTap(x,y); return true; }
+        if(page==Page.EMOJI) { emojiTap(x,y,held); return true; }
+        if(page==Page.KAOMOJI) { kaoTap(x,y,held); return true; }
+
+        int h=candH();
+        if(y<h*(expanded?3:1)) { candTap(x,y); return true; }
+        float ix=x/getWidth()*IW, iy=(y-h)/(getHeight()-h)*IH;
+        if(iy>620 && ix<230) {
+            if(held>=450) { modeMenu=true; invalidate(); }
+            else cycle();
+            return true;
+        }
+        if(iy>620 && ix>850 && ix<1085) { svc.voiceComingSoon(); return true; }
+        if(page==Page.MAIN) mainTap(ix,iy);
+        else if(page==Page.NUM) numTap(ix,iy);
+        else symTap(ix,iy);
+        return true;
+    }
+
+    private void candTap(float x, float y) {
+        float arrowW=dp(46);
+        if(x>getWidth()-arrowW) { expanded=!expanded; invalidate(); return; }
+        String comp=composition();
+        float compW=comp.isEmpty()?0:dp(96);
+        if(x<compW) return;
+        int cols=comp.isEmpty()?7:6;
+        float cw=(getWidth()-compW-arrowW)/cols;
+        int row=(int)(y/candH());
+        int col=(int)((x-compW)/cw);
+        int i=row*cols+col;
+        List<String>a=cands();
+        if(i>=0 && i<a.size()) choose(a.get(i));
+    }
+
+    private void choose(String s) {
+        if(mode==Mode.CANGJIE && !cjCode.isEmpty() && cj.get(cjCode)==null && s.equals(roots(cjCode))) return;
+        svc.commit(s);
+        learn(s);
+        cjCode="";
+        zyCode="";
+        expanded=false;
+        invalidate();
+    }
+
+    private void mainTap(float x,float y) {
+        if(mode==Mode.CANGJIE) cjTap(x,y);
+        else if(mode==Mode.ZHUYIN) zyTap(x,y);
+        else enTap(x,y);
+    }
+
+    private void cjTap(float x,float y) {
+        if(y<130) { int i=(int)(x/(IW/10)); if(i<10)addC(k1[i]); return; }
+        if(y<290) { int i=(int)((x-52)/(1066/9f)); if(x>=52&&i>=0&&i<9)addC(k2[i]); return; }
+        if(y<465) {
+            if(x>985){back();return;}
+            int i=(int)((x-100)/(820/7f)); if(x>=100&&i>=0&&i<7)addC(k3[i]); return;
+        }
+        bottomTap(x,y);
+    }
+
+    private void zyTap(float x,float y) {
+        if(y<116) { int i=(int)(x/(IW/11)); if(i<11)addZ(z1[i]); return; }
+        if(y<242) { int i=(int)((x-50)/(1070/10f)); if(x>=50&&i>=0&&i<10)addZ(z2[i]); return; }
+        if(y<374) { int i=(int)((x-80)/(1020/10f)); if(x>=80&&i>=0&&i<10)addZ(z3[i]); return; }
+        if(y<505) {
+            if(x>1030){back();return;}
+            int i=(int)((x-18)/(1015/10f)); if(x>=18&&i>=0&&i<10)addZ(z4[i]); return;
+        }
+        bottomTap(x,y);
+    }
+
+    private void enTap(float x,float y) {
+        if(y<130) { int i=(int)(x/(IW/10)); if(i<10)letter(q1[i]); return; }
+        if(y<290) { int i=(int)((x-55)/(1060/9f)); if(x>=55&&i>=0&&i<9)letter(q2[i]); return; }
+        if(y<465) {
+            if(x<155){sh();return;}
+            if(x>990){svc.backspace();return;}
+            int i=(int)((x-165)/(805/7f)); if(x>=165&&i>=0&&i<7)letter(q3[i]); return;
+        }
+        bottomTap(x,y);
+    }
+
+    private void addC(char c) { if(cjCode.length()<5)cjCode+=c; invalidate(); }
+    private void addZ(String s) { if(zyCode.length()<8)zyCode+=s; invalidate(); }
+    private void letter(String s) {
+        svc.commit(shift||caps?s.toUpperCase(Locale.ROOT):s);
+        lastCommitted="";
+        if(shift&&!caps)shift=false;
+        invalidate();
+    }
+    private void sh() {
+        long n=SystemClock.uptimeMillis();
+        if(n-lastShift<350){caps=!caps;shift=caps;} else shift=!shift;
+        lastShift=n;
+        invalidate();
+    }
+
+    private void bottomTap(float x,float y) {
+        if(y>=625)return;
+        if(x<150){page=Page.NUM;invalidate();}
+        else if(x<300){page=Page.EMOJI;invalidate();}
+        else if(x<875){
+            if(mode==Mode.CANGJIE&&!cjCode.isEmpty()) choose(cands().get(0));
+            else if(mode==Mode.ZHUYIN&&!zyCode.isEmpty()) choose(cands().get(0));
+            else { svc.commit(" "); lastCommitted=""; }
+        } else { svc.enter(); lastCommitted=""; }
+    }
+
+    private boolean in(float x,float y,float x1,float y1,float x2,float y2) {
+        return x>=x1&&x<=x2&&y>=y1&&y<=y2;
+    }
+
+    private int fixedRowHit(float x,float y,float y1,float y2,int count,float start,float step,float width) {
+        if(y<y1||y>y2)return -1;
+        for(int i=0;i<count;i++) { float l=start+i*step; if(x>=l&&x<=l+width)return i; }
+        return -1;
+    }
+
+    private void numTap(float x,float y) {
+        int i=fixedRowHit(x,y,0,122,10,18,116.4f,96);
+        if(i>=0){ svc.commit(String.valueOf((i+1)%10)); lastCommitted=""; return; }
+
+        i=fixedRowHit(x,y,155,282,10,18,116.4f,96);
+        if(i>=0){ String[]r=mode==Mode.ENGLISH?en2:cn2; punct(r[i]); return; }
+
+        if(in(x,y,1017,318,1150,444)){ svc.backspace(); return; }
+        String[]r=mode==Mode.ENGLISH?new String[]{"#+=",".",",","?","!","'"}:new String[]{"#+=","。","，","、","？","！","．"};
+        float step=mode==Mode.ENGLISH?119f:131f, width=mode==Mode.ENGLISH?100f:112f;
+        i=fixedRowHit(x,y,318,444,r.length,18,step,width);
+        if(i>=0){ if(i==0){page=Page.SYM;invalidate();} else punct(r[i]); return; }
+
+        if(y>=478&&y<=607){
+            if(x>=18&&x<=145){page=Page.MAIN;invalidate();}
+            else if(x>=160&&x<=287){page=Page.EMOJI;invalidate();}
+            else if(x>=303&&x<=864){svc.commit(" ");lastCommitted="";}
+            else if(x>=880&&x<=1150){svc.enter();lastCommitted="";}
+        }
+    }
+
+    private void symTap(float x,float y) {
+        int i=fixedRowHit(x,y,0,122,10,18,116.4f,96);
+        if(i>=0){ punct(sy1[i]); return; }
+
+        String[]r=mode==Mode.ENGLISH?syE2:syC2;
+        float cell=IW/r.length;
+        if(y>=155&&y<=282){
+            for(i=0;i<r.length;i++){float l=i*cell+10;if(x>=l&&x<=l+cell-20){punct(r[i]);return;}}
+        }
+
+        if(in(x,y,1017,318,1150,444)){svc.backspace();return;}
+        String[]a=mode==Mode.ENGLISH?new String[]{"123",".",",","?","!","'"}:new String[]{"123","…","，","^_^","？","！","'"};
+        i=fixedRowHit(x,y,318,444,a.length,18,119f,100f);
+        if(i>=0){
+            if(i==0){page=Page.NUM;invalidate();}
+            else if(mode!=Mode.ENGLISH&&i==3){page=Page.KAOMOJI;invalidate();}
+            else punct(a[i]);
+            return;
+        }
+
+        if(y>=478&&y<=607){
+            if(x>=18&&x<=145){page=Page.MAIN;invalidate();}
+            else if(x>=160&&x<=287){page=Page.EMOJI;invalidate();}
+            else if(x>=303&&x<=864){svc.commit(" ");lastCommitted="";}
+            else if(x>=880&&x<=1150){svc.enter();lastCommitted="";}
+        }
+    }
+
+    private void punct(String s) {
+        svc.commit(s);
+        lastCommitted="";
+        page=Page.MAIN;
+        invalidate();
+    }
+
+    private void back() {
+        if(mode==Mode.CANGJIE&&!cjCode.isEmpty()) {
+            cjCode=cjCode.substring(0,cjCode.length()-1); invalidate();
+        } else if(mode==Mode.ZHUYIN&&!zyCode.isEmpty()) {
+            int cp=zyCode.codePointBefore(zyCode.length());
+            zyCode=zyCode.substring(0,zyCode.length()-Character.charCount(cp)); invalidate();
+        } else svc.backspace();
+    }
+
+    private void cycle() {
+        if(mode==Mode.CANGJIE) mode=Mode.ENGLISH;
+        else if(mode==Mode.ENGLISH) mode=Mode.ZHUYIN;
+        else mode=Mode.CANGJIE;
+        page=Page.MAIN;
+        cjCode=""; zyCode=""; lastCommitted=""; expanded=false;
+        invalidate();
+    }
+
+    private void drawMenu(Canvas c) {
+        float w=getWidth(),h=getHeight(),top=h-dp(132),pad=dp(12),gap=dp(8),bw=(w-pad*2-gap*2)/3;
+        p.setColor(Color.argb(235,245,245,247));
+        c.drawRoundRect(new RectF(pad,top,w-pad,h-dp(52)),dp(15),dp(15),p);
+        String[]a={"倉頡","English","注音"};
+        t.setColor(Color.BLACK); t.setTextAlign(Paint.Align.CENTER); t.setTextSize(dp(18));
+        for(int i=0;i<3;i++){
+            float l=pad+i*(bw+gap); p.setColor(Color.WHITE);
+            c.drawRoundRect(new RectF(l,top+dp(10),l+bw,top+dp(66)),dp(12),dp(12),p);
+            c.drawText(a[i],l+bw/2,top+dp(46),t);
+        }
+    }
+
+    private void menuTap(float x,float y) {
+        float w=getWidth(),h=getHeight(),top=h-dp(132),pad=dp(12),gap=dp(8),bw=(w-pad*2-gap*2)/3;
+        if(y>=top&&y<=top+dp(80)){
+            int i=(int)((x-pad)/(bw+gap));
+            if(i==0)mode=Mode.CANGJIE;
+            else if(i==1)mode=Mode.ENGLISH;
+            else if(i==2)mode=Mode.ZHUYIN;
+            if(i>=0&&i<3){page=Page.MAIN;cjCode="";zyCode="";lastCommitted="";}
+        }
+        modeMenu=false; invalidate();
+    }
+
+    private void drawEmoji(Canvas c) {
+        c.drawColor(BG);
+        float w=getWidth(),h=getHeight();
+        p.setColor(Color.rgb(238,239,242));
+        c.drawRoundRect(new RectF(dp(16),dp(14),w-dp(16),dp(58)),dp(22),dp(22),p);
+        t.setColor(Color.GRAY); t.setTextAlign(Paint.Align.LEFT); t.setTextSize(dp(16));
+        c.drawText("⌕  搜尋表情符號",dp(28),dp(43),t);
+        int cols=7; float top=dp(72),bot=h-dp(118),cw=w/cols,ch=(bot-top)/4;
+        t.setColor(Color.BLACK); t.setTextAlign(Paint.Align.CENTER); t.setTextSize(dp(28));
+        for(int i=0;i<Math.min(28,emojis.length);i++) c.drawText(emojis[i],(i%cols)*cw+cw/2,top+(i/cols)*ch+ch*.67f,t);
+        t.setColor(Color.DKGRAY); t.setTextAlign(Paint.Align.LEFT); t.setTextSize(dp(15));
+        c.drawText(label(),dp(16),h-dp(82),t);
+        t.setTextSize(dp(19)); c.drawText("◷   ☺   ♡   ♫   ✈   ⚑",dp(82),h-dp(82),t);
+        footIcons(c,h);
+    }
+
+    private void emojiTap(float x,float y,long held) {
+        float w=getWidth(),h=getHeight();
+        if(y>dp(72)&&y<h-dp(118)){
+            int cols=7;float cw=w/cols,ch=(h-dp(118)-dp(72))/4;
+            int i=(int)((y-dp(72))/ch)*cols+(int)(x/cw);
+            if(i>=0&&i<emojis.length){svc.commit(emojis[i]);lastCommitted="";return;}
+        }
+        if(y>h-dp(115)&&y<h-dp(55)&&x<dp(72)){page=Page.MAIN;invalidate();return;}
+        if(y>h-dp(58)&&x<dp(160)){if(held>=450){modeMenu=true;invalidate();}else cycle();return;}
+        if(y>h-dp(58)&&x>w-dp(160)&&x<w-dp(36))svc.voiceComingSoon();
+    }
+
+    private void drawKao(Canvas c) {
+        c.drawColor(BG);
+        float w=getWidth(),h=getHeight();
+        t.setColor(Color.BLACK); t.setTextAlign(Paint.Align.RIGHT); t.setTextSize(dp(27));
+        c.drawText("⌃",w-dp(20),dp(34),t);
+        int cols=3,rows=6; float top=dp(14),bot=h-dp(72),cw=w/cols,ch=(bot-top)/rows;
+        t.setTextAlign(Paint.Align.CENTER); t.setTextSize(dp(19));
+        for(int i=0;i<18;i++){int n=kaoOff+i;if(n>=kaos.length)break;c.drawText(kaos[n],(i%cols)*cw+cw/2,top+(i/cols)*ch+ch*.62f,t);}
+        footIcons(c,h);
+    }
+
+    private void kaoTap(float x,float y,long held) {
+        float w=getWidth(),h=getHeight();
+        if(y<dp(55)&&x>w-dp(80)){page=Page.SYM;invalidate();return;}
+        if(y<h-dp(72)){
+            int cols=3;float top=dp(14),cw=w/cols,ch=(h-dp(72)-top)/6;
+            int i=kaoOff+(int)((y-top)/ch)*cols+(int)(x/cw);
+            if(i>=0&&i<kaos.length){svc.commit(kaos[i]);lastCommitted="";return;}
+        }
+        if(y>h-dp(60)&&x<dp(160)){if(held>=450){modeMenu=true;invalidate();}else cycle();return;}
+        if(y>h-dp(60)&&x>w-dp(160)&&x<w-dp(36))svc.voiceComingSoon();
+    }
+
+    private void footIcons(Canvas c,float h) {
+        t.setColor(Color.BLACK); t.setTextAlign(Paint.Align.CENTER); t.setTextSize(dp(31));
+        c.drawText("◎",dp(58),h-dp(18),t);
+        t.setTextSize(dp(25));
+        c.drawText("♩",getWidth()-dp(96),h-dp(18),t);
+    }
+
+    private String label() { return mode==Mode.CANGJIE?"倉頡":mode==Mode.ZHUYIN?"注音":"ABC"; }
 }
