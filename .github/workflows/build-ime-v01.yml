@@ -1,4 +1,4 @@
-name: Build Ajo IME v0.1
+name: Build Ajo IME v0.4
 
 on:
   push:
@@ -51,7 +51,7 @@ jobs:
               -keyalg RSA -keysize 2048 -validity 10000
           fi
 
-      - name: Build local Cangjie prefix dictionary
+      - name: Build complete Cangjie prefix dictionary
         run: |
           set -e
           mkdir -p imeapp/app/src/main/assets
@@ -79,7 +79,7 @@ jobs:
                   continue
               for n in range(1, min(5, len(code)) + 1):
                   key = code[:n]
-                  if text not in rows[key] and len(rows[key]) < 80:
+                  if text not in rows[key]:
                       rows[key].append(text)
 
           out = Path('imeapp/app/src/main/assets/cangjie_prefix.tsv')
@@ -89,15 +89,45 @@ jobs:
           print('Cangjie prefixes:', len(rows), 'bytes:', out.stat().st_size)
           PY
 
+      - name: Build complete Zhuyin single-character dictionary
+        run: |
+          set -e
+          curl -fL --retry 3 --retry-delay 1 \
+            https://raw.githubusercontent.com/chewing/libchewing-data/main/dict/chewing/word.csv \
+            -o /tmp/word.csv
+          python3 - <<'PY'
+          import csv
+          from collections import defaultdict
+          from pathlib import Path
+
+          rows = defaultdict(list)
+          with open('/tmp/word.csv', 'r', encoding='utf-8-sig', newline='') as f:
+              for row in csv.reader(f):
+                  if not row or row[0].startswith('#') or len(row) < 3:
+                      continue
+                  text = row[0].strip()
+                  zhuyin = row[2].strip()
+                  if len(text) != 1 or not zhuyin or ' ' in zhuyin:
+                      continue
+                  if text not in rows[zhuyin]:
+                      rows[zhuyin].append(text)
+
+          out = Path('imeapp/app/src/main/assets/zhuyin.tsv')
+          with out.open('w', encoding='utf-8') as f:
+              for key in sorted(rows):
+                  f.write(key + '\t' + ' '.join(rows[key]) + '\n')
+          print('Zhuyin syllables:', len(rows), 'characters:', sum(map(len, rows.values())), 'bytes:', out.stat().st_size)
+          PY
+
       - name: Build APK
         run: gradle -p imeapp :app:assembleDebug --no-daemon
 
       - name: Prepare artifact
-        run: cp imeapp/app/build/outputs/apk/debug/app-debug.apk '阿喬輸入法_v0.1_版面測試.apk'
+        run: cp imeapp/app/build/outputs/apk/debug/app-debug.apk '阿喬輸入法_v0.4_詞庫與版面修正版.apk'
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: ajo-ime-v0.1-apk
-          path: '阿喬輸入法_v0.1_版面測試.apk'
+          name: ajo-ime-v0.4-apk
+          path: '阿喬輸入法_v0.4_詞庫與版面修正版.apk'
           if-no-files-found: error
