@@ -8,12 +8,12 @@ import android.view.inputmethod.InputConnection;
 import android.widget.Toast;
 
 public class AjoImeService extends InputMethodService {
-    private IosKeyboardView keyboard;
+    private PreciseKeyboardView keyboard;
     private CompositionCandidatesView compositionView;
     private String pendingComposition = "";
 
     @Override public View onCreateInputView() {
-        keyboard = new FloatingKeyboardView(this, this);
+        keyboard = new PreciseKeyboardView(this, this);
         return keyboard;
     }
 
@@ -52,7 +52,10 @@ public class AjoImeService extends InputMethodService {
         if (ic == null) return;
         CharSequence before = ic.getTextBeforeCursor(1, 0);
         if (before != null && before.length() > 0) ic.deleteSurroundingText(1, 0);
-        else ic.sendKeyEvent(new KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DEL));
+        else {
+            ic.sendKeyEvent(new KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DEL));
+            ic.sendKeyEvent(new KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_DEL));
+        }
     }
 
     public void enter() {
