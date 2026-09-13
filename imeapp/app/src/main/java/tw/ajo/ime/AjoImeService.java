@@ -11,7 +11,7 @@ public class AjoImeService extends InputMethodService {
     private IosKeyboardView keyboard;
 
     @Override public View onCreateInputView() {
-        keyboard = new IosKeyboardView(this, this);
+        keyboard = new FloatingKeyboardView(this, this);
         return keyboard;
     }
 
