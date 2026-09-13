@@ -1,0 +1,103 @@
+name: Build Ajo IME v0.1
+
+on:
+  push:
+    branches: [ ime-v01-build ]
+    paths:
+      - 'imeapp/**'
+      - '.github/workflows/build-ime-v01.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android platform
+        run: sdkmanager 'platforms;android-35' 'build-tools;35.0.0'
+
+      - name: Set up Gradle 8.9
+        uses: gradle/actions/setup-gradle@v6
+        with:
+          gradle-version: '8.9'
+
+      - name: Restore stable IME debug signing key
+        uses: actions/cache@v4
+        with:
+          path: ~/.android/debug.keystore
+          key: ajo-ime-debug-keystore-v1
+
+      - name: Create signing key when missing
+        run: |
+          mkdir -p ~/.android
+          if [ ! -f ~/.android/debug.keystore ]; then
+            keytool -genkeypair -v \
+              -keystore ~/.android/debug.keystore \
+              -storepass android \
+              -alias androiddebugkey \
+              -keypass android \
+              -dname 'CN=Ajo IME,O=Android,C=TW' \
+              -keyalg RSA -keysize 2048 -validity 10000
+          fi
+
+      - name: Build local Cangjie prefix dictionary
+        run: |
+          set -e
+          mkdir -p imeapp/app/src/main/assets
+          curl -fL --retry 3 --retry-delay 1 \
+            https://raw.githubusercontent.com/rime/rime-cangjie/master/cangjie5.base.dict.yaml \
+            -o /tmp/cangjie5.base.dict.yaml
+          python3 - <<'PY'
+          from collections import defaultdict
+          from pathlib import Path
+
+          src = Path('/tmp/cangjie5.base.dict.yaml').read_text(encoding='utf-8')
+          rows = defaultdict(list)
+          in_data = False
+          for raw in src.splitlines():
+              if raw.strip() == '...':
+                  in_data = True
+                  continue
+              if not in_data or not raw or raw.startswith('#'):
+                  continue
+              parts = raw.split('\t')
+              if len(parts) < 2:
+                  continue
+              text, code = parts[0].strip(), parts[1].strip().lower()
+              if len(text) != 1 or not code or not code.isalpha():
+                  continue
+              for n in range(1, min(5, len(code)) + 1):
+                  key = code[:n]
+                  if text not in rows[key] and len(rows[key]) < 80:
+                      rows[key].append(text)
+
+          out = Path('imeapp/app/src/main/assets/cangjie_prefix.tsv')
+          with out.open('w', encoding='utf-8') as f:
+              for key in sorted(rows):
+                  f.write(key + '\t' + ' '.join(rows[key]) + '\n')
+          print('Cangjie prefixes:', len(rows), 'bytes:', out.stat().st_size)
+          PY
+
+      - name: Build APK
+        run: gradle -p imeapp :app:assembleDebug --no-daemon
+
+      - name: Prepare artifact
+        run: cp imeapp/app/build/outputs/apk/debug/app-debug.apk '阿喬輸入法_v0.1_版面測試.apk'
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: ajo-ime-v0.1-apk
+          path: '阿喬輸入法_v0.1_版面測試.apk'
+          if-no-files-found: error
