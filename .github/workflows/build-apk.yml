@@ -42,36 +42,34 @@ jobs:
               -keyalg RSA -keysize 2048 -validity 10000
           fi
 
-      - name: Prepare embedded assets
+      - name: Prepare launcher icon
         run: |
-          mkdir -p app/src/main/res/drawable app/src/main/java/com/joyce/currencyconverter
+          mkdir -p app/src/main/res/drawable
           python3 - <<'PY'
           import base64
           from pathlib import Path
-
           launcher = ''.join(Path('app/icon/ic_launcher.webp.b64').read_text().split())
           launcher += '=' * ((4 - len(launcher) % 4) % 4)
           Path('app/src/main/res/drawable/ic_launcher.webp').write_bytes(
               base64.b64decode(launcher, validate=False)
           )
-
-          flags = ''.join(Path('app/icon/flags_sprite.png.b64').read_text().split())
-          raw = base64.b64decode(flags + '=' * ((4 - len(flags) % 4) % 4), validate=False)
-          assert raw.startswith(b'\x89PNG\r\n\x1a\n'), 'flag sprite is not a PNG'
-          assert len(raw) > 7000, 'flag sprite is unexpectedly small'
-
-          java = (
-              'package com.joyce.currencyconverter;\n\n'
-              'final class FlagSprite {\n'
-              '    static final String DATA = "' + flags + '";\n'
-              '    private FlagSprite() {}\n'
-              '}\n'
-          )
-          Path('app/src/main/java/com/joyce/currencyconverter/FlagSprite.java').write_text(
-              java, encoding='utf-8'
-          )
-          print('Flag sprite bytes:', len(raw))
           PY
+
+      - name: Download built-in flag images
+        run: |
+          set -e
+          mkdir -p app/src/main/res/drawable-nodpi
+          countries="tw us eu jp kr gb ch no cn hk sg au nz ca th my id ph vn in ae sa tr se dk pl cz hu mx za"
+          for c in $countries; do
+            echo "Downloading $c"
+            curl -fL --retry 3 --retry-delay 1 "https://flagcdn.com/w80/${c}.png" \
+              -o "app/src/main/res/drawable-nodpi/flag_${c}.png"
+            test -s "app/src/main/res/drawable-nodpi/flag_${c}.png"
+          done
+          ls -lh app/src/main/res/drawable-nodpi/flag_*.png
+
+      - name: Apply resource flag patch
+        run: python3 .github/patch_resource_flags.py
 
       - name: Build debug APK
         run: gradle :app:assembleDebug
