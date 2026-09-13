@@ -23,7 +23,7 @@ if not m:
 indent = m.group('indent')
 replacement = (
     m.group(1)
-    + indent + 'if(out.isEmpty()) out.addAll(cangjieMistypeCandidates(cjCode));\\n'
+    + indent + 'if(out.isEmpty()) out.addAll(cangjieMistypeCandidates(cjCode));\n'
     + indent + 'return new ArrayList<>(out);'
 )
 s = s[:m.start()] + replacement + s[m.end():]
