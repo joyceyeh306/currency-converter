@@ -24,8 +24,9 @@ public class AjoImeService extends InputMethodService {
 
     private final SharedPreferences.OnSharedPreferenceChangeListener settingsListener = (sp, key) -> {
         if (keyboard == null) return;
-        if ("keyboard_height".equals(key)
-                || "key_text_size".equals(key)
+        if ("keyboard_height".equals(key)) {
+            keyboard.post(this::rebuildKeyboardForHeight);
+        } else if ("key_text_size".equals(key)
                 || "candidate_text_size".equals(key)) {
             keyboard.post(keyboard::refreshSettings);
         } else {
@@ -44,9 +45,17 @@ public class AjoImeService extends InputMethodService {
         return keyboard;
     }
 
+    private void rebuildKeyboardForHeight() {
+        updateComposition("");
+        PreciseKeyboardView fresh = new PreciseKeyboardView(this, this);
+        EditorInfo info = getCurrentInputEditorInfo();
+        if (info != null) fresh.onEditorChanged(info);
+        keyboard = fresh;
+        setInputView(fresh);
+        fresh.requestLayout();
+    }
+
     @Override public View onCreateCandidatesView() {
-        // The keyboard draws its own candidate row. Returning null also keeps
-        // ColorOS from reserving a separate candidates frame.
         return null;
     }
 
@@ -96,9 +105,6 @@ public class AjoImeService extends InputMethodService {
         bg.setCornerRadius(dp(10));
         compositionText.setBackground(bg);
 
-        // Fixed width prevents the popup window itself from resizing while the
-        // user types more roots. It floats above the IME and never changes the
-        // keyboard's measured height.
         compositionPopup = new PopupWindow(compositionText, dp(150), dp(38), false);
         compositionPopup.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
         compositionPopup.setTouchable(false);
@@ -115,8 +121,6 @@ public class AjoImeService extends InputMethodService {
             ensureCompositionPopup();
             compositionText.setText(pendingComposition);
             if (!compositionPopup.isShowing()) {
-                // y is measured from the display bottom because Gravity.BOTTOM is used.
-                // This places the popup just above the keyboard without adding IME height.
                 compositionPopup.showAtLocation(
                         keyboard,
                         Gravity.BOTTOM | Gravity.START,
