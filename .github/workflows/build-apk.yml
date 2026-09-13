@@ -26,10 +26,14 @@ jobs:
       - name: Apply source hotfix
         run: sed -i 's/private TextView makeResultRow/private LinearLayout makeResultRow/' app/src/main/java/com/joyce/currencyconverter/MainActivity.java
 
-      - name: Prepare launcher icon
+      - name: Prepare built-in image assets
         run: |
-          mkdir -p app/src/main/res/drawable
+          mkdir -p app/src/main/res/drawable app/src/main/res/drawable-nodpi
           base64 -d app/icon/ic_launcher.webp.b64 > app/src/main/res/drawable/ic_launcher.webp
+          base64 -d app/icon/flags_sprite.png.b64 > app/src/main/res/drawable-nodpi/flags_sprite.png
+
+      - name: Apply built-in flag image patch
+        run: python3 .github/patch_flags.py
 
       - name: Build debug APK
         run: gradle :app:assembleDebug
