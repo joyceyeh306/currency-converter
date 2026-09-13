@@ -51,16 +51,13 @@ jobs:
               -keyalg RSA -keysize 2048 -validity 10000
           fi
 
-      - name: Verify restored v0.5.1 update key
+      - name: Verify retained stable Ajo signing key
         run: |
           set -e
           export LC_ALL=C
-          echo "HOME=$HOME"
-          realpath ~/.android/debug.keystore
-          keytool -list -v -keystore ~/.android/debug.keystore -storepass android -alias androiddebugkey | grep -E 'Owner:|SHA256:' || true
           KEY_SHA=$(keytool -list -v -keystore ~/.android/debug.keystore -storepass android -alias androiddebugkey 2>/dev/null | sed -n 's/.*SHA256: //p' | head -n1 | tr -d ':' | tr '[:upper:]' '[:lower:]')
-          echo "Restored signing key SHA256=$KEY_SHA"
-          test "$KEY_SHA" = "0a412c0b18048ccc7d40fd50b331748f2c8c3ddaa1ee36087250ec7da4ec6bcf"
+          echo "Stable signing key SHA256=$KEY_SHA"
+          test "$KEY_SHA" = "9d3d52052899962660acc2c61eb3b2fe1cede997864c3cdd5bd57fd56745b6d"
 
       - name: Assemble precise v0.6 keyboard source
         run: |
@@ -153,7 +150,7 @@ jobs:
       - name: Build APK
         run: gradle -p imeapp :app:assembleDebug --no-daemon
 
-      - name: Verify APK metadata and exact update certificate
+      - name: Verify APK metadata and stable certificate
         run: |
           set -e
           APK=imeapp/app/build/outputs/apk/debug/app-debug.apk
@@ -161,7 +158,7 @@ jobs:
           ${ANDROID_HOME}/build-tools/35.0.0/apksigner verify --print-certs "$APK" | head -n 8
           APK_SHA=$(${ANDROID_HOME}/build-tools/35.0.0/apksigner verify --print-certs "$APK" | sed -n 's/Signer #1 certificate SHA-256 digest: //p' | head -n1 | tr '[:upper:]' '[:lower:]')
           echo "APK signer SHA256=$APK_SHA"
-          test "$APK_SHA" = "0a412c0b18048ccc7d40fd50b331748f2c8c3ddaa1ee36087250ec7da4ec6bcf"
+          test "$APK_SHA" = "9d3d52052899962660acc2c61eb3b2fe1cede997864c3cdd5bd57fd56745b6d"
 
       - name: Prepare artifact
         run: cp imeapp/app/build/outputs/apk/debug/app-debug.apk '阿喬輸入法_v0.6_倉頡三代修正版.apk'
