@@ -1,0 +1,97 @@
+        downHit=null;
+        return true;
+    }
+
+    private final Runnable repeatBackspace=new Runnable() {
+        @Override public void run() {
+            if(downHit==null||!"BACK".equals(downHit.action)) return;
+            backspaceRepeating=true;
+            doBackspace();
+            repeatHandler.postDelayed(this,70);
+        }
+    };
+
+    private void act(Hit h) {
+        switch(h.action) {
+            case "CJ": if(cjCode.length()<5){cjCode+=h.value;syncComposition();invalidate();} break;
+            case "ZY": if(zyCode.length()<8){zyCode+=h.value;syncComposition();invalidate();} break;
+            case "LETTER": commitLetter(h.value); break;
+            case "SHIFT": shift(); break;
+            case "BACK": doBackspace(); break;
+            case "NUMBER": svc.commit(h.value); lastCommitted=""; break;
+            case "PUNCT": svc.commit(h.value); lastCommitted=""; page=Page.MAIN; syncComposition(); invalidate(); break;
+            case "NUM": page=Page.NUM; syncComposition(); invalidate(); break;
+            case "SYM": page=Page.SYM; syncComposition(); invalidate(); break;
+            case "MAIN": page=Page.MAIN; syncComposition(); invalidate(); break;
+            case "EMOJI": page=Page.EMOJI; syncComposition(); invalidate(); break;
+            case "KAO": page=Page.KAOMOJI; syncComposition(); invalidate(); break;
+            case "EMOJI_CHAR": svc.commit(h.value); page=Page.MAIN; invalidate(); break;
+            case "KAO_CHAR": svc.commit(h.value); page=Page.MAIN; invalidate(); break;
+            case "SPACE": doSpace(); break;
+            case "ENTER": svc.enter(); lastCommitted=""; break;
+            case "EXPAND": expanded=!expanded; invalidate(); break;
+            case "CAND": choose(h.value); break;
+            case "GLOBE": cycleMode(); break;
+            case "MIC": svc.voiceComingSoon(); break;
+            case "MODE": chooseMode(h.value); break;
+        }
+    }
+
+    private void commitLetter(String s) {
+        String out=(shift||caps)?s.toUpperCase(Locale.ROOT):s;
+        svc.commit(out);
+        lastCommitted="";
+        if(shift&&!caps) shift=false;
+        invalidate();
+    }
+
+    private void shift() {
+        if(shift&&!caps) { caps=true; shift=true; }
+        else if(caps) { caps=false; shift=false; }
+        else shift=true;
+        invalidate();
+    }
+
+    private void doBackspace() {
+        if(mode==Mode.CANGJIE&&!cjCode.isEmpty()) {
+            cjCode=cjCode.substring(0,cjCode.length()-1);
+            syncComposition(); invalidate(); return;
+        }
+        if(mode==Mode.ZHUYIN&&!zyCode.isEmpty()) {
+            int cp=zyCode.codePointBefore(zyCode.length());
+            zyCode=zyCode.substring(0,zyCode.length()-Character.charCount(cp));
+            syncComposition(); invalidate(); return;
+        }
+        svc.backspace();
+    }
+
+    private void doSpace() {
+        if(mode==Mode.CANGJIE&&!cjCode.isEmpty()) {
+            List<String>a=candidates(); if(!a.isEmpty()) choose(a.get(0)); return;
+        }
+        if(mode==Mode.ZHUYIN&&!zyCode.isEmpty()) {
+            List<String>a=candidates(); if(!a.isEmpty()) choose(a.get(0)); return;
+        }
+        svc.commit(" ");
+        lastCommitted="";
+    }
+
+    private void cycleMode() {
+        // User-confirmed order: 倉頡 → English → 注音 → 倉頡
+        if(mode==Mode.CANGJIE) mode=Mode.ENGLISH;
+        else if(mode==Mode.ENGLISH) mode=Mode.ZHUYIN;
+        else mode=Mode.CANGJIE;
+        page=Page.MAIN;
+        cjCode=""; zyCode=""; expanded=false; modeMenu=false;
+        syncComposition(); invalidate();
+    }
+
+    private void chooseMode(String v) {
+        if("CJ".equals(v)) mode=Mode.CANGJIE;
+        else if("EN".equals(v)) mode=Mode.ENGLISH;
+        else mode=Mode.ZHUYIN;
+        page=Page.MAIN;
+        cjCode=""; zyCode=""; expanded=false; modeMenu=false;
+        syncComposition(); invalidate();
+    }
+}
