@@ -1,0 +1,140 @@
+        c.drawRoundRect(bg,dp(15),dp(15),p);
+        String[] labels={"倉頡","English","注音"};
+        String[] values={"CJ","EN","ZY"};
+        float cw=bg.width()/3f;
+        for(int i=0;i<3;i++) {
+            RectF r=new RectF(bg.left+i*cw,bg.top,bg.left+(i+1)*cw,bg.bottom);
+            hits.add(new Hit(r,"MODE",values[i]));
+            t.setColor(Color.WHITE); t.setTextAlign(Paint.Align.CENTER); t.setTextSize(dp(17));
+            c.drawText(labels[i],r.centerX(),r.centerY()+dp(6),t);
+        }
+    }
+
+    private List<String> candidates() {
+        if(mode==Mode.CANGJIE) {
+            if(cjCode.isEmpty()) return withLearnedNext(Arrays.asList("的","嗎","為","成","過","變","法","我","你","是","有","在","不","人"));
+            List<String> a=cj.get(cjCode);
+            return a==null ? Collections.emptyList() : boost(a);
+        }
+        if(mode==Mode.ZHUYIN) {
+            if(zyCode.isEmpty()) return withLearnedNext(Arrays.asList("的","我","是","了","不","在","有","你","這","人","要","好","就","也"));
+            LinkedHashSet<String> out=new LinkedHashSet<>();
+            List<String> exact=zy.get(zyCode);
+            if(exact!=null) out.addAll(exact);
+            for(Map.Entry<String,List<String>> e:zy.entrySet()) if(e.getKey().startsWith(zyCode)) out.addAll(e.getValue());
+            return boost(new ArrayList<>(out));
+        }
+        return Arrays.asList("i","the","i’m","and","to","you","a","is","of","it","that","for","in","on");
+    }
+
+    private List<String> withLearnedNext(List<String> base) {
+        LinkedHashSet<String> out=new LinkedHashSet<>();
+        if(learningEnabled()&&!lastCommitted.isEmpty()) out.addAll(learnedNext(lastCommitted));
+        out.addAll(base);
+        return new ArrayList<>(out);
+    }
+
+    private List<String> learnedNext(String prev) {
+        String prefix="b_"+prev+"_";
+        ArrayList<String> words=new ArrayList<>();
+        for(String key:prefs.getAll().keySet()) if(key.startsWith(prefix)) words.add(key.substring(prefix.length()));
+        words.sort(Comparator.comparingInt((String s)->-prefs.getInt(prefix+s,0)));
+        if(words.size()>12) return new ArrayList<>(words.subList(0,12));
+        return words;
+    }
+
+    private List<String> boost(List<String> source) {
+        ArrayList<String> out=new ArrayList<>(source);
+        if(learningEnabled()) out.sort(Comparator.comparingInt((String s)->-prefs.getInt("f_"+s,0)));
+        return out;
+    }
+
+    private void learn(String s) {
+        if(s==null||s.isEmpty()) return;
+        if(learningEnabled()) {
+            SharedPreferences.Editor e=prefs.edit();
+            e.putInt("f_"+s,Math.min(100000,prefs.getInt("f_"+s,0)+1));
+            if(!lastCommitted.isEmpty()) {
+                String k="b_"+lastCommitted+"_"+s;
+                e.putInt(k,Math.min(100000,prefs.getInt(k,0)+1));
+            }
+            e.apply();
+        }
+        lastCommitted=s;
+    }
+
+    private String composition() {
+        if(page!=Page.MAIN) return "";
+        if(mode==Mode.CANGJIE&&!cjCode.isEmpty()) return roots(cjCode);
+        if(mode==Mode.ZHUYIN&&!zyCode.isEmpty()) return zyCode;
+        return "";
+    }
+
+    private void syncComposition() { svc.updateComposition(composition()); }
+
+    private String roots(String code) {
+        String letters="abcdefghijklmnopqrstuvwxyz";
+        String roots="日月金木水火土竹戈十大中一弓人心手口尸廿山女田難卜符";
+        StringBuilder b=new StringBuilder();
+        for(char ch:code.toCharArray()) { int i=letters.indexOf(ch); if(i>=0)b.append(roots.charAt(i)); }
+        return b.toString();
+    }
+
+    private void choose(String s) {
+        if(s==null||s.isEmpty()) return;
+        svc.commit(s);
+        learn(s);
+        cjCode="";
+        zyCode="";
+        expanded=false;
+        syncComposition();
+        invalidate();
+    }
+
+    private void feedback() {
+        if(settings.getBoolean("key_sound",true)) {
+            AudioManager am=(AudioManager)getContext().getSystemService(Context.AUDIO_SERVICE);
+            if(am!=null) am.playSoundEffect(AudioManager.FX_KEY_CLICK,0.35f);
+        }
+        if(settings.getBoolean("key_vibration",false)) performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP);
+    }
+
+    private Hit findHit(float x,float y) {
+        for(int i=hits.size()-1;i>=0;i--) if(hits.get(i).r.contains(x,y)) return hits.get(i);
+        return null;
+    }
+
+    @Override public boolean onTouchEvent(MotionEvent e) {
+        float x=e.getX(),y=e.getY();
+        if(e.getAction()==MotionEvent.ACTION_DOWN) {
+            downAt=SystemClock.uptimeMillis();
+            downHit=findHit(x,y);
+            backspaceRepeating=false;
+            if(downHit!=null&&"BACK".equals(downHit.action)) {
+                repeatHandler.postDelayed(repeatBackspace,420);
+            }
+            return true;
+        }
+        if(e.getAction()==MotionEvent.ACTION_CANCEL) {
+            repeatHandler.removeCallbacks(repeatBackspace);
+            downHit=null;
+            return true;
+        }
+        if(e.getAction()!=MotionEvent.ACTION_UP) return true;
+
+        repeatHandler.removeCallbacks(repeatBackspace);
+        Hit up=findHit(x,y);
+        long held=SystemClock.uptimeMillis()-downAt;
+
+        if(downHit!=null&&up!=null&&downHit.action.equals(up.action)) {
+            if("GLOBE".equals(up.action)&&held>=450) {
+                feedback();
+                modeMenu=true;
+                invalidate();
+            } else if("BACK".equals(up.action)&&backspaceRepeating) {
+                // Long-press repeat already handled the deletion.
+            } else {
+                feedback();
+                act(up);
+            }
+        }
