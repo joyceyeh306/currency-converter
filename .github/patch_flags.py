@@ -41,7 +41,7 @@ rep('        String name = allNames[index];\n        String flag = allFlags[inde
     'remove emoji flag variable')
 
 rep('        TextView flagView = new TextView(this);\n        flagView.setText(flag);\n        flagView.setTextSize(18);\n        top.addView(flagView);',
-    '        ImageView flagView = new ImageView(this);\n        flagView.setImageBitmap(flagBitmap(code));\n        flagView.setScaleType(ImageView.ScaleType.FIT_XY);\n        top.addView(flagView, new LinearLayout.LayoutParams(dp(29), dp(19)));',
+    '        ImageView flagView = new ImageView(this);\n        Bitmap flagBitmap = flagBitmap(code);\n        if (flagBitmap != null) {\n            flagView.setImageBitmap(flagBitmap);\n        }\n        flagView.setScaleType(ImageView.ScaleType.FIT_XY);\n        top.addView(flagView, new LinearLayout.LayoutParams(dp(29), dp(19)));',
     'card image flag')
 
 rep('        return allFlags[i] + "  " + allNames[i] + "  " + code;',
@@ -49,10 +49,10 @@ rep('        return allFlags[i] + "  " + allNames[i] + "  " + code;',
     'plain display name')
 
 marker = '    private int indexOfCode(String code) {'
-helpers = '''    private Bitmap loadFlagsSprite() {\n        try {\n            java.io.InputStream in = getAssets().open("flags_sprite.png");\n            Bitmap b = BitmapFactory.decodeStream(in);\n            in.close();\n            return b;\n        } catch (Exception e) {\n            return null;\n        }\n    }\n\n    private Bitmap flagBitmap(String code) {\n        Bitmap cached = flagCache.get(code);\n        if (cached != null) return cached;\n        int i = indexOfCode(code);\n        if (i < 0 || flagsSprite == null) return null;\n        final int cellW = 96;\n        final int cellH = 64;\n        final int cols = 5;\n        int x = (i % cols) * cellW;\n        int y = (i / cols) * cellH;\n        if (x + cellW > flagsSprite.getWidth() || y + cellH > flagsSprite.getHeight()) return null;\n        Bitmap b = Bitmap.createBitmap(flagsSprite, x, y, cellW, cellH);\n        flagCache.put(code, b);\n        return b;\n    }\n\n    private void applyFlagDrawable(TextView view, String code, int widthDp, int heightDp) {\n        Bitmap b = flagBitmap(code);\n        if (b == null) {\n            view.setCompoundDrawables(null, null, null, null);\n            return;\n        }\n        BitmapDrawable d = new BitmapDrawable(getResources(), b);\n        d.setBounds(0, 0, dp(widthDp), dp(heightDp));\n        view.setCompoundDrawables(d, null, null, null);\n        view.setCompoundDrawablePadding(dp(7));\n    }\n\n'''
+helpers = '''    private Bitmap loadFlagsSprite() {\n        try {\n            byte[] bytes = android.util.Base64.decode(FlagSprite.DATA, android.util.Base64.DEFAULT);\n            return BitmapFactory.decodeByteArray(bytes, 0, bytes.length);\n        } catch (Exception e) {\n            return null;\n        }\n    }\n\n    private Bitmap flagBitmap(String code) {\n        Bitmap cached = flagCache.get(code);\n        if (cached != null) return cached;\n        int i = indexOfCode(code);\n        if (i < 0 || flagsSprite == null) return null;\n        final int cellW = 96;\n        final int cellH = 64;\n        final int cols = 5;\n        int x = (i % cols) * cellW;\n        int y = (i / cols) * cellH;\n        if (x + cellW > flagsSprite.getWidth() || y + cellH > flagsSprite.getHeight()) return null;\n        Bitmap b = Bitmap.createBitmap(flagsSprite, x, y, cellW, cellH);\n        flagCache.put(code, b);\n        return b;\n    }\n\n    private void applyFlagDrawable(TextView view, String code, int widthDp, int heightDp) {\n        Bitmap b = flagBitmap(code);\n        if (b == null) {\n            view.setCompoundDrawables(null, null, null, null);\n            return;\n        }\n        BitmapDrawable d = new BitmapDrawable(getResources(), b);\n        d.setBounds(0, 0, dp(widthDp), dp(heightDp));\n        view.setCompoundDrawables(d, null, null, null);\n        view.setCompoundDrawablePadding(dp(7));\n    }\n\n'''
 if marker not in s:
     raise SystemExit('Patch target not found: helper insertion')
 s = s.replace(marker, helpers + marker, 1)
 
 p.write_text(s, encoding='utf-8')
-print('Built-in flag image patch applied.')
+print('Embedded flag image patch applied.')
