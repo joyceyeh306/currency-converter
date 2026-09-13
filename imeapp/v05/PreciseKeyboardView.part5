@@ -24,7 +24,7 @@
             case "SYM": page=Page.SYM; syncComposition(); invalidate(); break;
             case "MAIN": page=Page.MAIN; syncComposition(); invalidate(); break;
             case "EMOJI": page=Page.EMOJI; syncComposition(); invalidate(); break;
-            case "KAO": page=Page.KAOMOJI; syncComposition(); invalidate(); break;
+            case "KAO": page=Page.KAOMOJI; kaoOff=0; syncComposition(); invalidate(); break;
             case "EMOJI_CHAR": svc.commit(h.value); page=Page.MAIN; invalidate(); break;
             case "KAO_CHAR": svc.commit(h.value); page=Page.MAIN; invalidate(); break;
             case "SPACE": doSpace(); break;
@@ -78,9 +78,19 @@
     }
 
     private void cycleMode() {
-        // User-confirmed order: 倉頡 → English → 注音 → 倉頡
+        // Swipe left on Space: 倉頡 → English → 注音 → 倉頡
         if(mode==Mode.CANGJIE) mode=Mode.ENGLISH;
         else if(mode==Mode.ENGLISH) mode=Mode.ZHUYIN;
+        else mode=Mode.CANGJIE;
+        page=Page.MAIN;
+        cjCode=""; zyCode=""; expanded=false; modeMenu=false;
+        syncComposition(); invalidate();
+    }
+
+    private void cycleModeBackward() {
+        // Swipe right on Space: reverse the same order.
+        if(mode==Mode.CANGJIE) mode=Mode.ZHUYIN;
+        else if(mode==Mode.ZHUYIN) mode=Mode.ENGLISH;
         else mode=Mode.CANGJIE;
         page=Page.MAIN;
         cjCode=""; zyCode=""; expanded=false; modeMenu=false;
