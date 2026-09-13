@@ -46,14 +46,14 @@ public class MainActivity extends Activity {
         root.addView(title);
 
         TextView version = new TextView(this);
-        version.setText("v0.2｜實機修正版");
+        version.setText("v0.4｜詞庫與版面修正版");
         version.setTextSize(16);
         version.setTextColor(Color.DKGRAY);
         version.setPadding(0, dp(8), 0, dp(18));
         root.addView(version);
 
         TextView intro = new TextView(this);
-        intro.setText("這版加入鍵盤大小設定、倉頡／注音正在輸入內容顯示、英文標點觸控修正，以及下一字常用字學習。\n\n第一次安裝後，請先啟用「阿喬輸入法」，再選成目前鍵盤。");
+        intro.setText("這版修正注音按鍵重疊、字根／注音顯示位置，並補強倉頡與注音單字詞庫。正在輸入的字根會顯示在鍵盤上方，不再遮住候選字或按鍵。");
         intro.setTextSize(17);
         intro.setTextColor(Color.rgb(35,35,38));
         intro.setLineSpacing(0, 1.16f);
@@ -71,7 +71,7 @@ public class MainActivity extends Activity {
         root.addView(choose);
 
         section(root, "鍵盤設定");
-        addSeek(root, "鍵盤高度", "調整整個鍵盤與格子的高度", "keyboard_height", 80, 110, 90, "%");
+        addSeek(root, "鍵盤高度", "調整整個鍵盤與格子的高度", "keyboard_height", 80, 110, 81, "%");
         addSeek(root, "按鍵字體", "只調整按鍵上的文字，不改格子位置", "key_text_size", 85, 120, 100, "%");
         addSeek(root, "候選字大小", "調整上方候選列的字體", "candidate_text_size", 85, 125, 100, "%");
         addSwitch(root, "按鍵音", "key_sound", true, true);
@@ -87,7 +87,7 @@ public class MainActivity extends Activity {
         root.addView(clear);
 
         TextView note = new TextView(this);
-        note.setText("左下切換順序：倉頡 → English → 注音 → 倉頡；長按可直接選三種模式。\n數字頁：輸入數字會留在 123；輸入標點後自動回主鍵盤。\n個人學習資料只保存在這支手機內。");
+        note.setText("切換順序：倉頡 → English → 注音 → 倉頡。\n數字頁輸入數字會留在 123；輸入標點後自動回主鍵盤。\n個人學習資料只保存在這支手機內。");
         note.setTextSize(15);
         note.setTextColor(Color.GRAY);
         note.setPadding(0, dp(26), 0, 0);
