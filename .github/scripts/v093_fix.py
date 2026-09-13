@@ -90,7 +90,10 @@ new_next = r'''    private String continuationOnly(String prev,String item){
         return new ArrayList<>(out);
     }
 '''
-sub1(r'    private List<String> withLearnedNext\(List<String> base\)\{.*?\n    \}\n(?=    private List<String> phraseSuggestions)', new_next, 'continuation-only predictions')
+old_next = '    private List<String> withLearnedNext(List<String> base){ LinkedHashSet<String> out=new LinkedHashSet<>(); if(learningEnabled()&&!lastCommitted.isEmpty()) out.addAll(learnedNext(lastCommitted)); out.addAll(phraseSuggestions(lastCommitted)); out.addAll(sentencePunctuation(lastCommitted)); out.addAll(base); return new ArrayList<>(out); }\n'
+if old_next not in s:
+    raise SystemExit('v0.9.3 patch failed: withLearnedNext source not found')
+s = s.replace(old_next, new_next, 1)
 
 # While actually composing Chinese, candidate characters always occupy fixed 1/7-width
 # cells from the left. This prevents 2-4 exact candidates from stretching across the row.
