@@ -22,9 +22,7 @@ public class MainActivity extends Activity {
     private SharedPreferences settings;
     private SharedPreferences learning;
 
-    private int dp(float v) {
-        return Math.round(v * getResources().getDisplayMetrics().density);
-    }
+    private int dp(float v) { return Math.round(v * getResources().getDisplayMetrics().density); }
 
     @Override public void onCreate(Bundle b) {
         super.onCreate(b);
@@ -46,14 +44,14 @@ public class MainActivity extends Activity {
         root.addView(title);
 
         TextView version = new TextView(this);
-        version.setText("v0.8｜輸入細節與候選修正版");
+        version.setText("v0.9｜詞句、表情與版面修正版");
         version.setTextSize(16);
         version.setTextColor(Color.DKGRAY);
         version.setPadding(0, dp(8), 0, dp(18));
         root.addView(version);
 
         TextView intro = new TextView(this);
-        intro.setText("純倉頡三代。倉頡、English、注音三種主鍵盤共用同一套文字縮放比例；長按倉頡字根或注音符號可直接輸出鍵面文字。候選列加入常用句尾標點、完整碼優先與左右滑翻頁；空白鍵切換模式時不會打斷正在組字的內容。");
+        intro.setText("純倉頡三代。第三排字根恢復原始位置，逗號與句點縮窄放入原本空隙；倉頡、English、注音、數字與符號頁的一般輸入文字共用 70%～100% 字級設定。候選列加入常用詞句、句尾標點、完整碼優先、誤按相鄰字根修正候選與左右滑翻頁。Emoji 擴充分類、最近使用與上下滑動；顏文字資料量也大幅增加。");
         intro.setTextSize(17);
         intro.setTextColor(Color.rgb(35,35,38));
         intro.setLineSpacing(0, 1.16f);
@@ -72,22 +70,22 @@ public class MainActivity extends Activity {
 
         section(root, "鍵盤設定");
         addSeek(root, "鍵盤高度", "調整整個鍵盤與格子的高度", "keyboard_height", 80, 110, 90, "%");
-        addSeek(root, "主鍵盤文字大小", "倉頡字根、English、注音同步調整；按鍵外框大小不變", "key_text_size", 70, 100, 100, "%");
+        addSeek(root, "按鍵文字大小", "倉頡、English、注音、數字與符號頁同步調整；按鍵外框大小不變", "key_text_size", 70, 100, 100, "%");
         addSeek(root, "候選字大小", "調整上方候選列的字體", "candidate_text_size", 85, 125, 100, "%");
         addSwitch(root, "按鍵音", "key_sound", true, true);
         addSwitch(root, "按鍵震動", "key_vibration", false, true);
-        addSwitch(root, "個人常用字學習", "learning_enabled", true, true);
+        addSwitch(root, "個人常用字／詞學習", "learning_enabled", true, true);
         addSwitch(root, "語音輸入（第二階段）", "voice_enabled", false, false);
 
         Button clear = button("清除個人學習紀錄");
         clear.setOnClickListener(v -> {
             learning.edit().clear().apply();
-            Toast.makeText(this, "個人常用字紀錄已清除", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, "個人常用字／詞紀錄已清除", Toast.LENGTH_SHORT).show();
         });
         root.addView(clear);
 
         TextView note = new TextView(this);
-        note.setText("倉頡版本：第三代。\n空白鍵向左滑：倉頡 → English → 注音 → 倉頡；向右滑為反方向。正在組字時不切換。\n長按倉頡字根或注音符號：直接輸出鍵面文字，不進入組字。\n候選列可左右滑翻頁；句尾常用字後會提示合適的全形標點。\n數字頁輸入數字會留在 123；輸入標點後自動回主鍵盤。\n個人學習資料只保存在這支手機內。");
+        note.setText("倉頡版本：第三代。\n空白鍵向左滑：倉頡 → English → 注音 → 倉頡；向右滑為反方向。正在組字時不切換。\n長按倉頡字根或注音符號：直接輸出鍵面文字，不進入組字。\n候選列可左右滑翻頁；常用字後會出現常用詞句與合適標點。\n倉頡碼若疑似按錯相鄰字根，只提供修正候選，不會自動改碼。\nEmoji 可依分類瀏覽、記住最近使用並上下滑動；顏文字也可上下滑動查看更多。\n個人學習與最近使用資料只保存在這支手機內。");
         note.setTextSize(15);
         note.setTextColor(Color.GRAY);
         note.setPadding(0, dp(26), 0, 0);
@@ -152,8 +150,7 @@ public class MainActivity extends Activity {
         sw.setPadding(0, dp(10), 0, dp(10));
         sw.setChecked(enabled && settings.getBoolean(key, def));
         sw.setEnabled(enabled);
-        sw.setOnCheckedChangeListener((CompoundButton buttonView, boolean isChecked) ->
-                settings.edit().putBoolean(key, isChecked).apply());
+        sw.setOnCheckedChangeListener((CompoundButton buttonView, boolean isChecked) -> settings.edit().putBoolean(key, isChecked).apply());
         root.addView(sw);
     }
 
