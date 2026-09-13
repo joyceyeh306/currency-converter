@@ -42,10 +42,7 @@ jobs:
               -keyalg RSA -keysize 2048 -validity 10000
           fi
 
-      - name: Apply source hotfix
-        run: sed -i 's/private TextView makeResultRow/private LinearLayout makeResultRow/' app/src/main/java/com/joyce/currencyconverter/MainActivity.java
-
-      - name: Prepare embedded image assets
+      - name: Prepare embedded assets
         run: |
           mkdir -p app/src/main/res/drawable app/src/main/java/com/joyce/currencyconverter
           python3 - <<'PY'
@@ -54,9 +51,15 @@ jobs:
 
           launcher = ''.join(Path('app/icon/ic_launcher.webp.b64').read_text().split())
           launcher += '=' * ((4 - len(launcher) % 4) % 4)
-          Path('app/src/main/res/drawable/ic_launcher.webp').write_bytes(base64.b64decode(launcher, validate=False))
+          Path('app/src/main/res/drawable/ic_launcher.webp').write_bytes(
+              base64.b64decode(launcher, validate=False)
+          )
 
           flags = ''.join(Path('app/icon/flags_sprite.png.b64').read_text().split())
+          raw = base64.b64decode(flags + '=' * ((4 - len(flags) % 4) % 4), validate=False)
+          assert raw.startswith(b'\x89PNG\r\n\x1a\n'), 'flag sprite is not a PNG'
+          assert len(raw) > 7000, 'flag sprite is unexpectedly small'
+
           java = (
               'package com.joyce.currencyconverter;\n\n'
               'final class FlagSprite {\n'
@@ -64,11 +67,11 @@ jobs:
               '    private FlagSprite() {}\n'
               '}\n'
           )
-          Path('app/src/main/java/com/joyce/currencyconverter/FlagSprite.java').write_text(java, encoding='utf-8')
+          Path('app/src/main/java/com/joyce/currencyconverter/FlagSprite.java').write_text(
+              java, encoding='utf-8'
+          )
+          print('Flag sprite bytes:', len(raw))
           PY
-
-      - name: Apply built-in flag image patch
-        run: python3 .github/patch_flags.py
 
       - name: Build debug APK
         run: gradle :app:assembleDebug
