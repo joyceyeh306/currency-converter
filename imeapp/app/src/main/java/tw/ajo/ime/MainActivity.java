@@ -3,25 +3,38 @@ package tw.ajo.ime;
 import android.app.Activity;
 import android.content.Context;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.graphics.Color;
 import android.os.Bundle;
 import android.provider.Settings;
 import android.view.Gravity;
 import android.view.inputmethod.InputMethodManager;
 import android.widget.Button;
+import android.widget.CompoundButton;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
+import android.widget.SeekBar;
+import android.widget.Switch;
 import android.widget.TextView;
+import android.widget.Toast;
 
 public class MainActivity extends Activity {
-    private int dp(float v) { return Math.round(v * getResources().getDisplayMetrics().density); }
+    private SharedPreferences settings;
+    private SharedPreferences learning;
+
+    private int dp(float v) {
+        return Math.round(v * getResources().getDisplayMetrics().density);
+    }
 
     @Override public void onCreate(Bundle b) {
         super.onCreate(b);
+        settings = getSharedPreferences("ime_settings", MODE_PRIVATE);
+        learning = getSharedPreferences("ime_learning", MODE_PRIVATE);
+
         ScrollView sv = new ScrollView(this);
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(dp(24), dp(34), dp(24), dp(34));
+        root.setPadding(dp(24), dp(28), dp(24), dp(34));
         root.setBackgroundColor(Color.rgb(247,247,249));
         sv.addView(root);
 
@@ -33,17 +46,17 @@ public class MainActivity extends Activity {
         root.addView(title);
 
         TextView version = new TextView(this);
-        version.setText("v0.1｜iOS 版面與操作測試版");
+        version.setText("v0.2｜實機修正版");
         version.setTextSize(16);
         version.setTextColor(Color.DKGRAY);
-        version.setPadding(0, dp(8), 0, dp(24));
+        version.setPadding(0, dp(8), 0, dp(18));
         root.addView(version);
 
         TextView intro = new TextView(this);
-        intro.setText("這一版先讓妳在 OPPO 上直接測試鍵盤比例、按鍵位置、倉頡／注音／英文切換、123／#+=、Emoji、顏文字，以及倉頡提前候選。\n\n第一次安裝後，請先啟用「阿喬輸入法」，再選成目前鍵盤。");
-        intro.setTextSize(18);
+        intro.setText("這版加入鍵盤大小設定、倉頡／注音正在輸入內容顯示、英文標點觸控修正，以及下一字常用字學習。\n\n第一次安裝後，請先啟用「阿喬輸入法」，再選成目前鍵盤。");
+        intro.setTextSize(17);
         intro.setTextColor(Color.rgb(35,35,38));
-        intro.setLineSpacing(0, 1.18f);
+        intro.setLineSpacing(0, 1.16f);
         root.addView(intro);
 
         Button enable = button("① 啟用阿喬輸入法");
@@ -57,15 +70,89 @@ public class MainActivity extends Activity {
         });
         root.addView(choose);
 
+        section(root, "鍵盤設定");
+        addSeek(root, "鍵盤高度", "調整整個鍵盤與格子的高度", "keyboard_height", 80, 110, 90, "%");
+        addSeek(root, "按鍵字體", "只調整按鍵上的文字，不改格子位置", "key_text_size", 85, 120, 100, "%");
+        addSeek(root, "候選字大小", "調整上方候選列的字體", "candidate_text_size", 85, 125, 100, "%");
+        addSwitch(root, "按鍵音", "key_sound", true, true);
+        addSwitch(root, "按鍵震動", "key_vibration", false, true);
+        addSwitch(root, "個人常用字學習", "learning_enabled", true, true);
+        addSwitch(root, "語音輸入（第二階段）", "voice_enabled", false, false);
+
+        Button clear = button("清除個人學習紀錄");
+        clear.setOnClickListener(v -> {
+            learning.edit().clear().apply();
+            Toast.makeText(this, "個人常用字紀錄已清除", Toast.LENGTH_SHORT).show();
+        });
+        root.addView(clear);
+
         TextView note = new TextView(this);
-        note.setText("v0.1 已可實際當 Android 系統鍵盤使用。倉頡單字碼表會在建置時內建；注音完整詞庫、個人字頻、設定頁與語音辨識會在後續版本逐步補齊。\n\n左下地球：短按 倉頡 → 注音 → English；長按可直接選三種模式。\n數字頁：輸入數字會留在 123；輸入標點後自動回主鍵盤。");
+        note.setText("左下切換順序：倉頡 → English → 注音 → 倉頡；長按可直接選三種模式。\n數字頁：輸入數字會留在 123；輸入標點後自動回主鍵盤。\n個人學習資料只保存在這支手機內。");
         note.setTextSize(15);
         note.setTextColor(Color.GRAY);
-        note.setPadding(0, dp(28), 0, 0);
+        note.setPadding(0, dp(26), 0, 0);
         note.setLineSpacing(0,1.15f);
         root.addView(note);
 
         setContentView(sv);
+    }
+
+    private void section(LinearLayout root, String text) {
+        TextView t = new TextView(this);
+        t.setText(text);
+        t.setTextSize(21);
+        t.setTextColor(Color.BLACK);
+        t.setTypeface(null, 1);
+        t.setPadding(0, dp(30), 0, dp(8));
+        root.addView(t);
+    }
+
+    private void addSeek(LinearLayout root, String title, String sub, String key, int min, int max, int def, String suffix) {
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(0, dp(10), 0, dp(10));
+
+        TextView label = new TextView(this);
+        label.setTextSize(17);
+        label.setTextColor(Color.BLACK);
+        box.addView(label);
+
+        TextView hint = new TextView(this);
+        hint.setText(sub);
+        hint.setTextSize(13);
+        hint.setTextColor(Color.GRAY);
+        hint.setPadding(0, dp(2), 0, dp(3));
+        box.addView(hint);
+
+        SeekBar seek = new SeekBar(this);
+        seek.setMax(max - min);
+        int current = settings.getInt(key, def);
+        seek.setProgress(Math.max(0, Math.min(max - min, current - min)));
+        label.setText(title + "  " + current + suffix);
+        seek.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override public void onProgressChanged(SeekBar s, int progress, boolean fromUser) {
+                int value = min + progress;
+                label.setText(title + "  " + value + suffix);
+                if (fromUser) settings.edit().putInt(key, value).apply();
+            }
+            @Override public void onStartTrackingTouch(SeekBar s) {}
+            @Override public void onStopTrackingTouch(SeekBar s) {}
+        });
+        box.addView(seek);
+        root.addView(box);
+    }
+
+    private void addSwitch(LinearLayout root, String title, String key, boolean def, boolean enabled) {
+        Switch sw = new Switch(this);
+        sw.setText(title);
+        sw.setTextSize(17);
+        sw.setTextColor(enabled ? Color.BLACK : Color.GRAY);
+        sw.setPadding(0, dp(10), 0, dp(10));
+        sw.setChecked(enabled && settings.getBoolean(key, def));
+        sw.setEnabled(enabled);
+        sw.setOnCheckedChangeListener((CompoundButton buttonView, boolean isChecked) ->
+                settings.edit().putBoolean(key, isChecked).apply());
+        root.addView(sw);
     }
 
     private Button button(String text) {
@@ -75,7 +162,7 @@ public class MainActivity extends Activity {
         b.setAllCaps(false);
         b.setGravity(Gravity.CENTER);
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, dp(58));
-        lp.topMargin = dp(16);
+        lp.topMargin = dp(14);
         b.setLayoutParams(lp);
         return b;
     }
