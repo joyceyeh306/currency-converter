@@ -1,4 +1,4 @@
-name: Build Ajo IME v0.4
+name: Build Ajo IME v0.5
 
 on:
   push:
@@ -50,6 +50,18 @@ jobs:
               -dname 'CN=Ajo IME,O=Android,C=TW' \
               -keyalg RSA -keysize 2048 -validity 10000
           fi
+
+      - name: Assemble precise v0.5 keyboard source
+        run: |
+          set -e
+          cat imeapp/v05/PreciseKeyboardView.part1 \
+              imeapp/v05/PreciseKeyboardView.part2 \
+              imeapp/v05/PreciseKeyboardView.part3 \
+              imeapp/v05/PreciseKeyboardView.part4 \
+              imeapp/v05/PreciseKeyboardView.part5 \
+              > imeapp/app/src/main/java/tw/ajo/ime/PreciseKeyboardView.java
+          grep -q 'class PreciseKeyboardView' imeapp/app/src/main/java/tw/ajo/ime/PreciseKeyboardView.java
+          grep -q '倉頡 → English → 注音' imeapp/app/src/main/java/tw/ajo/ime/PreciseKeyboardView.java
 
       - name: Build complete Cangjie prefix dictionary
         run: |
@@ -122,12 +134,17 @@ jobs:
       - name: Build APK
         run: gradle -p imeapp :app:assembleDebug --no-daemon
 
+      - name: Verify APK metadata
+        run: |
+          aapt dump badging imeapp/app/build/outputs/apk/debug/app-debug.apk | head -n 2
+          apksigner verify --print-certs imeapp/app/build/outputs/apk/debug/app-debug.apk | head -n 8
+
       - name: Prepare artifact
-        run: cp imeapp/app/build/outputs/apk/debug/app-debug.apk '阿喬輸入法_v0.4_詞庫與版面修正版.apk'
+        run: cp imeapp/app/build/outputs/apk/debug/app-debug.apk '阿喬輸入法_v0.5_精準按鍵修正版.apk'
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: ajo-ime-v0.4-apk
-          path: '阿喬輸入法_v0.4_詞庫與版面修正版.apk'
+          name: ajo-ime-v0.5-apk
+          path: '阿喬輸入法_v0.5_精準按鍵修正版.apk'
           if-no-files-found: error
