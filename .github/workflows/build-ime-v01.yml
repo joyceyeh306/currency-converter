@@ -1,4 +1,4 @@
-name: Build Ajo IME v0.5.1
+name: Build Ajo IME v0.6
 
 on:
   push:
@@ -51,7 +51,7 @@ jobs:
               -keyalg RSA -keysize 2048 -validity 10000
           fi
 
-      - name: Assemble precise v0.5 keyboard source
+      - name: Assemble precise v0.6 keyboard source
         run: |
           set -e
           cat imeapp/v05/PreciseKeyboardView.part1 \
@@ -62,19 +62,23 @@ jobs:
               > imeapp/app/src/main/java/tw/ajo/ime/PreciseKeyboardView.java
           grep -q 'class PreciseKeyboardView' imeapp/app/src/main/java/tw/ajo/ime/PreciseKeyboardView.java
           grep -q '倉頡 → English → 注音' imeapp/app/src/main/java/tw/ajo/ime/PreciseKeyboardView.java
+          grep -q 'SETTINGS' imeapp/app/src/main/java/tw/ajo/ime/PreciseKeyboardView.java
 
-      - name: Build complete Cangjie prefix dictionary
+      - name: Build complete Cangjie 3 prefix dictionary
         run: |
           set -e
           mkdir -p imeapp/app/src/main/assets
           curl -fL --retry 3 --retry-delay 1 \
-            https://raw.githubusercontent.com/rime/rime-cangjie/master/cangjie5.base.dict.yaml \
-            -o /tmp/cangjie5.base.dict.yaml
+            https://raw.githubusercontent.com/CanCLID/yune/main/apps/yune-web/public/schema/cangjie3.dict.yaml \
+            -o /tmp/cangjie3.dict.yaml
           python3 - <<'PY'
           from collections import defaultdict
           from pathlib import Path
 
-          src = Path('/tmp/cangjie5.base.dict.yaml').read_text(encoding='utf-8')
+          src = Path('/tmp/cangjie3.dict.yaml').read_text(encoding='utf-8')
+          if '倉頡三代補完計畫' not in src:
+              raise SystemExit('Downloaded dictionary is not the expected Cangjie 3 source')
+
           rows = defaultdict(list)
           in_data = False
           for raw in src.splitlines():
@@ -94,11 +98,15 @@ jobs:
                   if text not in rows[key]:
                       rows[key].append(text)
 
+          if '面' not in rows.get('mwyl', []):
+              raise SystemExit('Cangjie 3 verification failed: 面 must be available at MWYL')
+
           out = Path('imeapp/app/src/main/assets/cangjie_prefix.tsv')
           with out.open('w', encoding='utf-8') as f:
               for key in sorted(rows):
                   f.write(key + '\t' + ' '.join(rows[key]) + '\n')
-          print('Cangjie prefixes:', len(rows), 'bytes:', out.stat().st_size)
+          print('Cangjie 3 prefixes:', len(rows), 'bytes:', out.stat().st_size)
+          print('Verified: 面 = MWYL (一田卜中)')
           PY
 
       - name: Build complete Zhuyin single-character dictionary
@@ -134,17 +142,17 @@ jobs:
       - name: Build APK
         run: gradle -p imeapp :app:assembleDebug --no-daemon
 
-      - name: Verify APK metadata
+      - name: Verify APK metadata and signing certificate
         run: |
           ${ANDROID_HOME}/build-tools/35.0.0/aapt dump badging imeapp/app/build/outputs/apk/debug/app-debug.apk | head -n 2
           ${ANDROID_HOME}/build-tools/35.0.0/apksigner verify --print-certs imeapp/app/build/outputs/apk/debug/app-debug.apk | head -n 8
 
       - name: Prepare artifact
-        run: cp imeapp/app/build/outputs/apk/debug/app-debug.apk '阿喬輸入法_v0.5.1_字根浮動窗修正版.apk'
+        run: cp imeapp/app/build/outputs/apk/debug/app-debug.apk '阿喬輸入法_v0.6_倉頡三代修正版.apk'
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: ajo-ime-v0.5.1-apk
-          path: '阿喬輸入法_v0.5.1_字根浮動窗修正版.apk'
+          name: ajo-ime-v0.6-apk
+          path: '阿喬輸入法_v0.6_倉頡三代修正版.apk'
           if-no-files-found: error

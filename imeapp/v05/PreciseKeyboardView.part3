@@ -67,24 +67,57 @@
     }
 
     private void drawFooter(Canvas c) {
-        // Keep microphone left of ColorOS' system keyboard-switch control.
-        RectF globe=rect(28,682,175,838);
-        RectF mic=rect(835,675,1005,838);
+        // Leave clear ColorOS safe zones at both sides. The visible icons and hit boxes
+        // share these same RectF objects, so the buttons cannot drift away from touch.
+        RectF globe=rect(145,682,295,838);
+        RectF settingsButton=rect(715,682,845,838);
+        RectF mic=rect(855,682,1005,838);
         hits.add(new Hit(globe,"GLOBE",""));
+        hits.add(new Hit(settingsButton,"SETTINGS",""));
         hits.add(new Hit(mic,"MIC",""));
 
-        t.setTextAlign(Paint.Align.CENTER);
-        t.setTextSize(dp(31));
-        t.setColor(Color.BLACK);
-        c.drawText("◎",globe.centerX(),globe.centerY()+dp(10),t);
+        drawGlobeIcon(c, globe.centerX(), globe.centerY());
+        drawSettingsIcon(c, settingsButton.centerX(), settingsButton.centerY());
+        drawMicIcon(c, mic.centerX(), mic.centerY());
+    }
 
-        float x=mic.centerX(), y=mic.centerY()-dp(5);
+    private void drawGlobeIcon(Canvas c, float x, float y) {
         p.setColor(Color.BLACK);
         p.setStyle(Paint.Style.STROKE);
-        p.setStrokeWidth(dp(2.2f));
-        c.drawRoundRect(new RectF(x-dp(6),y-dp(16),x+dp(6),y+dp(8)),dp(6),dp(6),p);
-        c.drawArc(new RectF(x-dp(13),y-dp(3),x+dp(13),y+dp(21)),0,180,false,p);
-        c.drawLine(x,y+dp(18),x,y+dp(29),p);
+        p.setStrokeWidth(dp(1.7f));
+        float r=dp(11.5f);
+        c.drawCircle(x,y,r,p);
+        c.drawOval(new RectF(x-dp(5.5f),y-r,x+dp(5.5f),y+r),p);
+        c.drawLine(x-r,y,x+r,y,p);
+        p.setStyle(Paint.Style.FILL);
+    }
+
+    private void drawSettingsIcon(Canvas c, float x, float y) {
+        p.setColor(Color.BLACK);
+        p.setStyle(Paint.Style.STROKE);
+        p.setStrokeWidth(dp(1.7f));
+        float inner=dp(7f), outer=dp(12f);
+        for(int i=0;i<8;i++) {
+            double a=Math.PI*2*i/8.0;
+            float x1=x+(float)Math.cos(a)*inner;
+            float y1=y+(float)Math.sin(a)*inner;
+            float x2=x+(float)Math.cos(a)*outer;
+            float y2=y+(float)Math.sin(a)*outer;
+            c.drawLine(x1,y1,x2,y2,p);
+        }
+        c.drawCircle(x,y,inner,p);
+        c.drawCircle(x,y,dp(2.5f),p);
+        p.setStyle(Paint.Style.FILL);
+    }
+
+    private void drawMicIcon(Canvas c, float x, float y) {
+        p.setColor(Color.BLACK);
+        p.setStyle(Paint.Style.STROKE);
+        p.setStrokeWidth(dp(1.8f));
+        c.drawRoundRect(new RectF(x-dp(4.5f),y-dp(10.5f),x+dp(4.5f),y+dp(3.5f)),dp(4.5f),dp(4.5f),p);
+        c.drawArc(new RectF(x-dp(9.5f),y-dp(2.5f),x+dp(9.5f),y+dp(13.5f)),0,180,false,p);
+        c.drawLine(x,y+dp(11.5f),x,y+dp(18f),p);
+        c.drawLine(x-dp(6f),y+dp(18f),x+dp(6f),y+dp(18f),p);
         p.setStyle(Paint.Style.FILL);
     }
 

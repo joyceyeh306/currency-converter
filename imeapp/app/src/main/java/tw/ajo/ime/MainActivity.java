@@ -46,14 +46,14 @@ public class MainActivity extends Activity {
         root.addView(title);
 
         TextView version = new TextView(this);
-        version.setText("v0.5.1｜字根浮動窗修正版");
+        version.setText("v0.6｜倉頡三代與版面修正版");
         version.setTextSize(16);
         version.setTextColor(Color.DKGRAY);
         version.setPadding(0, dp(8), 0, dp(18));
         root.addView(version);
 
         TextView intro = new TextView(this);
-        intro.setText("這版保留 v0.5 的精準按鍵觸控，並修正 OPPO／ColorOS 沒有顯示字根與注音組字浮動窗的問題。浮動窗改成直接屬於輸入法本身，顯示在候選列上方，不佔候選列，也不改動主鍵盤按鍵位置。");
+        intro.setText("這版改為純倉頡三代碼表，並保留精準按鍵觸控。字根／注音組字改成真正浮在鍵盤上方，不再讓鍵盤往上跳；鍵盤高度設定會重新套用。底部切換、設定與麥克風圖示也重新配置，避開 ColorOS 系統按鍵。");
         intro.setTextSize(17);
         intro.setTextColor(Color.rgb(35,35,38));
         intro.setLineSpacing(0, 1.16f);
@@ -87,7 +87,7 @@ public class MainActivity extends Activity {
         root.addView(clear);
 
         TextView note = new TextView(this);
-        note.setText("切換順序：倉頡 → English → 注音 → 倉頡。\n數字頁輸入數字會留在 123；輸入標點後自動回主鍵盤。\n個人學習資料只保存在這支手機內。");
+        note.setText("倉頡版本：第三代。\n切換順序：倉頡 → English → 注音 → 倉頡。\n數字頁輸入數字會留在 123；輸入標點後自動回主鍵盤。\n個人學習資料只保存在這支手機內。");
         note.setTextSize(15);
         note.setTextColor(Color.GRAY);
         note.setPadding(0, dp(26), 0, 0);

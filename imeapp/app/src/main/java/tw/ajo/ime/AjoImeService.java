@@ -1,42 +1,52 @@
 package tw.ajo.ime;
 
+import android.content.Intent;
+import android.content.SharedPreferences;
+import android.graphics.Color;
+import android.graphics.drawable.ColorDrawable;
+import android.graphics.drawable.GradientDrawable;
 import android.inputmethodservice.InputMethodService;
+import android.view.Gravity;
 import android.view.KeyEvent;
 import android.view.View;
 import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.InputConnection;
-import android.widget.LinearLayout;
+import android.widget.PopupWindow;
+import android.widget.TextView;
 import android.widget.Toast;
 
 public class AjoImeService extends InputMethodService {
     private PreciseKeyboardView keyboard;
-    private CompositionCandidatesView compositionView;
-    private LinearLayout inputRoot;
+    private PopupWindow compositionPopup;
+    private TextView compositionText;
     private String pendingComposition = "";
+    private SharedPreferences settings;
+
+    private final SharedPreferences.OnSharedPreferenceChangeListener settingsListener = (sp, key) -> {
+        if (keyboard == null) return;
+        if ("keyboard_height".equals(key)
+                || "key_text_size".equals(key)
+                || "candidate_text_size".equals(key)) {
+            keyboard.post(keyboard::refreshSettings);
+        } else {
+            keyboard.post(keyboard::invalidate);
+        }
+    };
+
+    @Override public void onCreate() {
+        super.onCreate();
+        settings = getSharedPreferences("ime_settings", MODE_PRIVATE);
+        settings.registerOnSharedPreferenceChangeListener(settingsListener);
+    }
 
     @Override public View onCreateInputView() {
-        inputRoot = new LinearLayout(this);
-        inputRoot.setOrientation(LinearLayout.VERTICAL);
-
-        // Put the composition bubble in the IME input view itself instead of the
-        // system candidates area. Some OPPO/ColorOS versions do not reliably
-        // show or re-measure InputMethodService's candidates view.
-        compositionView = new CompositionCandidatesView(this);
-        compositionView.setComposition(pendingComposition);
-        inputRoot.addView(compositionView, new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT));
-
         keyboard = new PreciseKeyboardView(this, this);
-        inputRoot.addView(keyboard, new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT));
-        return inputRoot;
+        return keyboard;
     }
 
     @Override public View onCreateCandidatesView() {
-        // The keyboard already draws its own candidate row. Keeping this null
-        // prevents ColorOS from reserving an extra system candidates frame.
+        // The keyboard draws its own candidate row. Returning null also keeps
+        // ColorOS from reserving a separate candidates frame.
         return null;
     }
 
@@ -45,7 +55,15 @@ public class AjoImeService extends InputMethodService {
     @Override public void onStartInput(EditorInfo attribute, boolean restarting) {
         super.onStartInput(attribute, restarting);
         updateComposition("");
-        if (keyboard != null) keyboard.onEditorChanged(attribute);
+        if (keyboard != null) {
+            keyboard.onEditorChanged(attribute);
+            keyboard.refreshSettings();
+        }
+    }
+
+    @Override public void onStartInputView(EditorInfo info, boolean restarting) {
+        super.onStartInputView(info, restarting);
+        if (keyboard != null) keyboard.refreshSettings();
     }
 
     @Override public void onFinishInput() {
@@ -53,10 +71,87 @@ public class AjoImeService extends InputMethodService {
         super.onFinishInput();
     }
 
+    @Override public void onDestroy() {
+        dismissCompositionPopup();
+        if (settings != null) settings.unregisterOnSharedPreferenceChangeListener(settingsListener);
+        super.onDestroy();
+    }
+
+    private int dp(float v) {
+        return Math.round(v * getResources().getDisplayMetrics().density);
+    }
+
+    private void ensureCompositionPopup() {
+        if (compositionPopup != null) return;
+
+        compositionText = new TextView(this);
+        compositionText.setTextColor(Color.WHITE);
+        compositionText.setTextSize(17);
+        compositionText.setGravity(Gravity.START | Gravity.CENTER_VERTICAL);
+        compositionText.setSingleLine(true);
+        compositionText.setPadding(dp(12), 0, dp(12), 0);
+
+        GradientDrawable bg = new GradientDrawable();
+        bg.setColor(Color.argb(220, 43, 43, 49));
+        bg.setCornerRadius(dp(10));
+        compositionText.setBackground(bg);
+
+        // Fixed width prevents the popup window itself from resizing while the
+        // user types more roots. It floats above the IME and never changes the
+        // keyboard's measured height.
+        compositionPopup = new PopupWindow(compositionText, dp(150), dp(38), false);
+        compositionPopup.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
+        compositionPopup.setTouchable(false);
+        compositionPopup.setOutsideTouchable(false);
+        compositionPopup.setClippingEnabled(false);
+        compositionPopup.setInputMethodMode(PopupWindow.INPUT_METHOD_NOT_NEEDED);
+        compositionPopup.setElevation(dp(4));
+    }
+
+    private void showCompositionPopup() {
+        if (keyboard == null || pendingComposition.isEmpty()) return;
+        keyboard.post(() -> {
+            if (keyboard == null || keyboard.getWindowToken() == null || pendingComposition.isEmpty()) return;
+            ensureCompositionPopup();
+            compositionText.setText(pendingComposition);
+            if (!compositionPopup.isShowing()) {
+                // y is measured from the display bottom because Gravity.BOTTOM is used.
+                // This places the popup just above the keyboard without adding IME height.
+                compositionPopup.showAtLocation(
+                        keyboard,
+                        Gravity.BOTTOM | Gravity.START,
+                        dp(18),
+                        keyboard.getHeight() + dp(7));
+            }
+        });
+    }
+
+    private void dismissCompositionPopup() {
+        if (compositionPopup != null && compositionPopup.isShowing()) compositionPopup.dismiss();
+    }
+
+    public void repositionCompositionPopup() {
+        if (compositionPopup != null && compositionPopup.isShowing()) {
+            compositionPopup.dismiss();
+            showCompositionPopup();
+        }
+    }
+
     public void updateComposition(String s) {
         pendingComposition = s == null ? "" : s;
-        if (compositionView != null) compositionView.setComposition(pendingComposition);
-        if (inputRoot != null) inputRoot.requestLayout();
+        if (pendingComposition.isEmpty()) {
+            dismissCompositionPopup();
+        } else {
+            if (compositionText != null) compositionText.setText(pendingComposition);
+            showCompositionPopup();
+        }
+    }
+
+    public void openSettings() {
+        updateComposition("");
+        Intent intent = new Intent(this, MainActivity.class);
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        startActivity(intent);
     }
 
     public void commit(String s) {

@@ -95,9 +95,10 @@
     }
 
     private void drawCangjie(Canvas c) {
-        for (int i=0;i<10;i++) { float x=18+i*116.4f; drawKey(c,x,0,x+96,122,c1[i],26,"CJ",String.valueOf(k1[i])); }
-        for (int i=0;i<9;i++) { float x=76+i*114.8f; drawKey(c,x,155,x+96,282,c2[i],26,"CJ",String.valueOf(k2[i])); }
-        for (int i=0;i<7;i++) { float x=116+i*116.5f; drawKey(c,x,318,x+96,444,c3[i],25,"CJ",String.valueOf(k3[i])); }
+        // Keep the keycaps unchanged; only Cangjie root glyphs are 80% of the previous size.
+        for (int i=0;i<10;i++) { float x=18+i*116.4f; drawKey(c,x,0,x+96,122,c1[i],20.8f,"CJ",String.valueOf(k1[i])); }
+        for (int i=0;i<9;i++) { float x=76+i*114.8f; drawKey(c,x,155,x+96,282,c2[i],20.8f,"CJ",String.valueOf(k2[i])); }
+        for (int i=0;i<7;i++) { float x=116+i*116.5f; drawKey(c,x,318,x+96,444,c3[i],20f,"CJ",String.valueOf(k3[i])); }
         drawKey(c,1017,318,1150,444,"⌫",24,"BACK","");
         drawBottom(c,"123","倉");
     }

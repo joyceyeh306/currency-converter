@@ -32,6 +32,7 @@
             case "EXPAND": expanded=!expanded; invalidate(); break;
             case "CAND": choose(h.value); break;
             case "GLOBE": cycleMode(); break;
+            case "SETTINGS": svc.openSettings(); break;
             case "MIC": svc.voiceComingSoon(); break;
             case "MODE": chooseMode(h.value); break;
         }
@@ -93,5 +94,11 @@
         page=Page.MAIN;
         cjCode=""; zyCode=""; expanded=false; modeMenu=false;
         syncComposition(); invalidate();
+    }
+
+    public void refreshSettings() {
+        requestLayout();
+        invalidate();
+        post(() -> svc.repositionCompositionPopup());
     }
 }
