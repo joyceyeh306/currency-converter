@@ -108,7 +108,7 @@
             hits.add(new Hit(r,"EMOJI_CHAR",emojis[i]));
         }
         RectF back=new RectF(0,getHeight()-dp(62),dp(110),getHeight());
-        hits.add(new Hit(back,"MAIN","");
+        hits.add(new Hit(back,"MAIN",""));
         t.setTextAlign(Paint.Align.CENTER); t.setTextSize(dp(24)); t.setColor(Color.BLACK);
         c.drawText("⌨",back.centerX(),back.centerY()+dp(8),t);
     }
@@ -129,7 +129,7 @@
             hits.add(new Hit(r,"KAO_CHAR",kaos[kaoOff+i]));
         }
         RectF back=new RectF(0,getHeight()-dp(62),dp(110),getHeight());
-        hits.add(new Hit(back,"MAIN","");
+        hits.add(new Hit(back,"MAIN",""));
         t.setTextAlign(Paint.Align.CENTER); t.setTextSize(dp(24)); t.setColor(Color.BLACK);
         c.drawText("⌨",back.centerX(),back.centerY()+dp(8),t);
     }
