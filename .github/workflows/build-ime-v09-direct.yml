@@ -1,4 +1,4 @@
-name: Build Ajo IME v0.9 Direct
+name: Build Ajo IME v0.9.1 Direct
 
 on:
   push:
@@ -62,14 +62,53 @@ jobs:
           echo "Stable signing key SHA256=$KEY_SHA"
           test "$KEY_SHA" = "9d3d3c77112475d20d2b032063a6fdb25b6712870d1c89115c98fe8a781a60fd"
 
-      - name: Normalize source
+      - name: Normalize v0.9.1 source
         run: |
+          set -e
           python3 - <<'PY'
           from pathlib import Path
+          import re
+
           p=Path('imeapp/app/src/main/java/tw/ajo/ime/PreciseKeyboardView.java')
           s=p.read_text(encoding='utf-8')
           s=s.replace('            case "可": default: return Collections.emptyList();','            default: return Collections.emptyList();')
+
+          marker='            case "為": return Arrays.asList("為什麼","為了","為何");\n'
+          if marker in s and 'case "非"' not in s:
+              s=s.replace(marker, marker+'            case "非": return Arrays.asList("非常","非法","非洲","非得","非必要");\n',1)
+
+          old='    private void choose(String s){ if(s==null||s.isEmpty()) return; svc.commit(s); learn(s); if(isPunctuation(s)) lastCommitted=""; cjCode=""; zyCode=""; candOff=0; expanded=false; syncComposition(); invalidate(); }'
+          new='''    private void choose(String s){
+        if(s==null||s.isEmpty()) return;
+        String commit=s;
+        if(!lastCommitted.isEmpty() && !isPunctuation(s)) {
+            if(s.length()>lastCommitted.length() && s.startsWith(lastCommitted)) {
+                commit=s.substring(lastCommitted.length());
+            } else {
+                String tail=lastCommitted.substring(lastCommitted.length()-1);
+                if(s.length()>tail.length() && s.startsWith(tail)) commit=s.substring(tail.length());
+            }
+        }
+        if(!commit.isEmpty()) svc.commit(commit);
+        learn(s);
+        if(isPunctuation(s)) lastCommitted="";
+        cjCode=""; zyCode=""; candOff=0; expanded=false; syncComposition(); invalidate();
+    }'''
+          if old not in s: raise SystemExit('choose() source not found')
+          s=s.replace(old,new,1)
           p.write_text(s,encoding='utf-8')
+
+          g=Path('imeapp/app/build.gradle')
+          gs=g.read_text(encoding='utf-8')
+          gs=re.sub(r'versionCode\s+\d+','versionCode 11',gs,count=1)
+          gs=re.sub(r"versionName\s+'[^']+'","versionName '0.9.1'",gs,count=1)
+          g.write_text(gs,encoding='utf-8')
+
+          m=Path('imeapp/app/src/main/java/tw/ajo/ime/MainActivity.java')
+          ms=m.read_text(encoding='utf-8')
+          ms=re.sub(r'version\.setText\("[^"]*"\);','version.setText("v0.9.1｜詞句候選修正版");',ms,count=1)
+          m.write_text(ms,encoding='utf-8')
+
           assert 'float x=116+i*116.5f' in s
           assert 'phraseSuggestions' in s
           assert 'cangjieTypoCandidates' in s
@@ -141,18 +180,18 @@ jobs:
           APK=imeapp/app/build/outputs/apk/debug/app-debug.apk
           BADGE=$(${ANDROID_HOME}/build-tools/35.0.0/aapt dump badging "$APK" | head -n 2)
           echo "$BADGE"
-          echo "$BADGE" | grep -q "versionCode='10' versionName='0.9'"
+          echo "$BADGE" | grep -q "versionCode='11' versionName='0.9.1'"
           ${ANDROID_HOME}/build-tools/35.0.0/apksigner verify --print-certs "$APK" | head -n 8
           APK_SHA=$(${ANDROID_HOME}/build-tools/35.0.0/apksigner verify --print-certs "$APK" | sed -n 's/Signer #1 certificate SHA-256 digest: //p' | head -n1 | tr '[:upper:]' '[:lower:]')
           echo "APK signer SHA256=$APK_SHA"
           test "$APK_SHA" = "9d3d3c77112475d20d2b032063a6fdb25b6712870d1c89115c98fe8a781a60fd"
 
       - name: Prepare artifact
-        run: cp imeapp/app/build/outputs/apk/debug/app-debug.apk '阿喬輸入法_v0.9_詞句表情版面修正版.apk'
+        run: cp imeapp/app/build/outputs/apk/debug/app-debug.apk '阿喬輸入法_v0.9.1_詞句表情版面修正版.apk'
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: ajo-ime-v0.9-direct-apk
-          path: '阿喬輸入法_v0.9_詞句表情版面修正版.apk'
+          name: ajo-ime-v0.9.1-apk
+          path: '阿喬輸入法_v0.9.1_詞句表情版面修正版.apk'
           if-no-files-found: error
