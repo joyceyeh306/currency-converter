@@ -1,0 +1,140 @@
+                new String[]{"#+=","。","，","、","？","！","．"};
+        float step = mode==Mode.ENGLISH ? 158f : 136f;
+        float width = mode==Mode.ENGLISH ? 138f : 116f;
+        for (int i=0;i<row3.length;i++) {
+            float x=18+i*step;
+            drawKey(c,x,318,x+width,444,row3[i],21,i==0?"SYM":"PUNCT",row3[i]);
+        }
+        drawKey(c,1017,318,1150,444,"⌫",24,"BACK","");
+        drawAltBottom(c);
+    }
+
+    private void drawSymbols(Canvas c) {
+        for (int i=0;i<10;i++) { float x=18+i*116.4f; drawKey(c,x,0,x+96,122,sy1[i],22,"PUNCT",sy1[i]); }
+        String[] row2 = mode==Mode.ENGLISH ? syE2 : syC2;
+        float cell = IW / row2.length;
+        for (int i=0;i<row2.length;i++) {
+            float x=i*cell+10;
+            drawKey(c,x,155,x+cell-20,282,row2[i],21,"PUNCT",row2[i]);
+        }
+        String[] row3 = mode==Mode.ENGLISH ?
+                new String[]{"123",".",",","?","!","'"} :
+                new String[]{"123","…","，","^_^","？","！","'"};
+        float step = mode==Mode.ENGLISH ? 158f : 136f;
+        float width = mode==Mode.ENGLISH ? 138f : 116f;
+        for (int i=0;i<row3.length;i++) {
+            float x=18+i*step;
+            String action = i==0 ? "NUM" : ((mode!=Mode.ENGLISH && i==3) ? "KAO" : "PUNCT");
+            drawKey(c,x,318,x+width,444,row3[i],20,action,row3[i]);
+        }
+        drawKey(c,1017,318,1150,444,"⌫",24,"BACK","");
+        drawAltBottom(c);
+    }
+
+    private void drawAltBottom(Canvas c) {
+        String returnLabel = mode==Mode.ENGLISH ? "ABC" : (mode==Mode.CANGJIE ? "倉頡" : "注音");
+        drawKey(c,18,518,145,647,returnLabel,returnLabel.length()>3?16:20,"MAIN","");
+        drawKey(c,160,518,287,647,"☺",23,"EMOJI","");
+        drawKey(c,303,518,864,647,"",22,"SPACE","");
+        drawKey(c,880,518,1150,647,"↩",25,"ENTER","");
+    }
+
+    private void drawCandidates(Canvas c) {
+        int h = candH();
+        int rows = expanded ? 3 : 1;
+        p.setColor(expanded ? Color.rgb(232,233,237) : BG);
+        c.drawRect(0,0,getWidth(),h*rows,p);
+
+        List<String> items = candidates();
+        float arrowW = dp(46);
+        int cols=7;
+        float cw=(getWidth()-arrowW)/cols;
+        int n=Math.min(items.size(), cols*rows);
+        t.setTextAlign(Paint.Align.CENTER);
+        t.setTextSize(dp(22*candScale()));
+        t.setColor(Color.BLACK);
+        for(int i=0;i<n;i++) {
+            int row=i/cols, col=i%cols;
+            RectF r=new RectF(col*cw,row*h,(col+1)*cw,(row+1)*h);
+            c.drawText(items.get(i),r.centerX(),row*h+h*.67f,t);
+            hits.add(new Hit(r,"CAND",items.get(i)));
+        }
+        RectF ar=new RectF(getWidth()-arrowW,0,getWidth(),h*rows);
+        t.setTextSize(dp(21));
+        t.setColor(Color.GRAY);
+        c.drawText(expanded?"⌃":"⌄",ar.centerX(),h*.68f,t);
+        hits.add(new Hit(ar,"EXPAND",""));
+    }
+
+    private void drawFooter(Canvas c) {
+        // Keep microphone left of ColorOS' system keyboard-switch control.
+        RectF globe=rect(28,682,175,838);
+        RectF mic=rect(835,675,1005,838);
+        hits.add(new Hit(globe,"GLOBE",""));
+        hits.add(new Hit(mic,"MIC",""));
+
+        t.setTextAlign(Paint.Align.CENTER);
+        t.setTextSize(dp(31));
+        t.setColor(Color.BLACK);
+        c.drawText("◎",globe.centerX(),globe.centerY()+dp(10),t);
+
+        float x=mic.centerX(), y=mic.centerY()-dp(5);
+        p.setColor(Color.BLACK);
+        p.setStyle(Paint.Style.STROKE);
+        p.setStrokeWidth(dp(2.2f));
+        c.drawRoundRect(new RectF(x-dp(6),y-dp(16),x+dp(6),y+dp(8)),dp(6),dp(6),p);
+        c.drawArc(new RectF(x-dp(13),y-dp(3),x+dp(13),y+dp(21)),0,180,false,p);
+        c.drawLine(x,y+dp(18),x,y+dp(29),p);
+        p.setStyle(Paint.Style.FILL);
+    }
+
+    private void drawEmoji(Canvas c) {
+        p.setColor(BG);
+        c.drawRect(0,0,getWidth(),getHeight(),p);
+        t.setColor(Color.DKGRAY);
+        t.setTextSize(dp(17));
+        t.setTextAlign(Paint.Align.LEFT);
+        c.drawText("搜尋表情符號",dp(18),dp(31),t);
+        int cols=7;
+        float top=dp(48), cellW=getWidth()/(float)cols, cellH=dp(48);
+        int max=Math.min(emojis.length, 42);
+        for(int i=0;i<max;i++) {
+            int row=i/cols,col=i%cols;
+            RectF r=new RectF(col*cellW,top+row*cellH,(col+1)*cellW,top+(row+1)*cellH);
+            t.setTextAlign(Paint.Align.CENTER);
+            t.setTextSize(dp(25));
+            t.setColor(Color.BLACK);
+            c.drawText(emojis[i],r.centerX(),r.centerY()+dp(9),t);
+            hits.add(new Hit(r,"EMOJI_CHAR",emojis[i]));
+        }
+        RectF back=new RectF(0,getHeight()-dp(62),dp(110),getHeight());
+        hits.add(new Hit(back,"MAIN",""));
+        t.setTextAlign(Paint.Align.CENTER); t.setTextSize(dp(24)); t.setTextColor(Color.BLACK);
+        c.drawText("⌨",back.centerX(),back.centerY()+dp(8),t);
+    }
+
+    private void drawKaomoji(Canvas c) {
+        p.setColor(BG);
+        c.drawRect(0,0,getWidth(),getHeight(),p);
+        int cols=3;
+        float top=dp(8), rowH=dp(46), cellW=getWidth()/(float)cols;
+        int count=Math.min(18,kaos.length-kaoOff);
+        for(int i=0;i<count;i++) {
+            int row=i/cols,col=i%cols;
+            RectF r=new RectF(col*cellW,top+row*rowH,(col+1)*cellW,top+(row+1)*rowH);
+            p.setColor(Color.rgb(205,206,211));
+            c.drawRect(r.left,r.bottom-1,r.right,r.bottom,p);
+            t.setColor(Color.BLACK); t.setTextAlign(Paint.Align.CENTER); t.setTextSize(dp(15));
+            c.drawText(kaos[kaoOff+i],r.centerX(),r.centerY()+dp(6),t);
+            hits.add(new Hit(r,"KAO_CHAR",kaos[kaoOff+i]));
+        }
+        RectF back=new RectF(0,getHeight()-dp(62),dp(110),getHeight());
+        hits.add(new Hit(back,"MAIN",""));
+        t.setTextAlign(Paint.Align.CENTER); t.setTextSize(dp(24)); t.setColor(Color.BLACK);
+        c.drawText("⌨",back.centerX(),back.centerY()+dp(8),t);
+    }
+
+    private void drawModeMenu(Canvas c) {
+        float w=getWidth()-dp(32), left=dp(16), bottom=getHeight()-dp(72), top=bottom-dp(64);
+        RectF bg=new RectF(left,top,left+w,bottom);
+        p.setColor(Color.argb(235,45,45,50));
