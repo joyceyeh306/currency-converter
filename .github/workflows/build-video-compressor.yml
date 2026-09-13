@@ -50,12 +50,18 @@ jobs:
       - name: Apply v1.8 state and system-bar fixes
         run: python3 video-compressor/ci_patch_v18.py
 
-      - name: Install selected app icon as static launcher bitmap
+      - name: Install selected artwork as standard launcher icons
         run: |
-          python3 video-compressor/ci_icon_v20.py
-          test -s video-compressor/app/src/main/res/mipmap-nodpi/ic_launcher_v20.jpg
-          file video-compressor/app/src/main/res/mipmap-nodpi/ic_launcher_v20.jpg
-          grep -q '@mipmap/ic_launcher_v20' video-compressor/app/src/main/AndroidManifest.xml
+          python3 video-compressor/ci_icon_v21.py
+          grep -q 'android:icon="@mipmap/ic_launcher"' video-compressor/app/src/main/AndroidManifest.xml
+          grep -q 'android:roundIcon="@mipmap/ic_launcher_round"' video-compressor/app/src/main/AndroidManifest.xml
+          test ! -e video-compressor/app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml
+          test ! -e video-compressor/app/src/main/res/mipmap-anydpi-v26/ic_launcher_round.xml
+          for d in mdpi hdpi xhdpi xxhdpi xxxhdpi; do
+            test -s "video-compressor/app/src/main/res/mipmap-$d/ic_launcher.jpg"
+            test -s "video-compressor/app/src/main/res/mipmap-$d/ic_launcher_round.jpg"
+            file "video-compressor/app/src/main/res/mipmap-$d/ic_launcher.jpg"
+          done
 
       - name: Add LAME native libraries
         run: |
@@ -69,18 +75,34 @@ jobs:
       - name: Build release APK
         run: gradle -p video-compressor :app:assembleRelease --stacktrace
 
+      - name: Verify packaged launcher icon is bitmap artwork
+        run: |
+          BT="$ANDROID_HOME/build-tools/35.0.0"
+          APK="video-compressor/app/build/outputs/apk/release/app-release-unsigned.apk"
+          "$BT/aapt" dump badging "$APK" | tee /tmp/badging.txt
+          grep '^application-icon-' /tmp/badging.txt
+          if grep '^application-icon-' /tmp/badging.txt | grep -q '\.xml'; then
+            echo 'ERROR: packaged launcher icon still resolves to adaptive XML'
+            exit 1
+          fi
+          if ! grep '^application-icon-' /tmp/badging.txt | grep -Eq '\.(jpg|png)'; then
+            echo 'ERROR: packaged launcher icon does not resolve to bitmap artwork'
+            exit 1
+          fi
+          "$BT/aapt2" dump resources "$APK" | grep -A 18 'mipmap/ic_launcher' | head -80
+
       - name: Sign APK with stable key
         run: |
           curl -fsSL 'https://android.googlesource.com/platform/build/+/refs/heads/main/target/product/security/testkey.pk8?format=TEXT' | base64 -d > /tmp/testkey.pk8
           curl -fsSL 'https://android.googlesource.com/platform/build/+/refs/heads/main/target/product/security/testkey.x509.pem?format=TEXT' | base64 -d > /tmp/testkey.x509.pem
           BT="$ANDROID_HOME/build-tools/35.0.0"
           "$BT/zipalign" -f -P 16 4 video-compressor/app/build/outputs/apk/release/app-release-unsigned.apk /tmp/video-compressor-aligned.apk
-          "$BT/apksigner" sign --key /tmp/testkey.pk8 --cert /tmp/testkey.x509.pem --out /tmp/video-compressor-v2.0.apk /tmp/video-compressor-aligned.apk
-          "$BT/apksigner" verify --verbose --print-certs /tmp/video-compressor-v2.0.apk
+          "$BT/apksigner" sign --key /tmp/testkey.pk8 --cert /tmp/testkey.x509.pem --out /tmp/video-compressor-v2.1.apk /tmp/video-compressor-aligned.apk
+          "$BT/apksigner" verify --verbose --print-certs /tmp/video-compressor-v2.1.apk
 
       - name: Upload signed APK
         uses: actions/upload-artifact@v4
         with:
-          name: video-compressor-v2.0-signed
-          path: /tmp/video-compressor-v2.0.apk
+          name: video-compressor-v2.1-signed
+          path: /tmp/video-compressor-v2.1.apk
           if-no-files-found: error
