@@ -1,4 +1,4 @@
-name: Build Ajo IME v0.5
+name: Build Ajo IME v0.5.1
 
 on:
   push:
@@ -136,15 +136,15 @@ jobs:
 
       - name: Verify APK metadata
         run: |
-          aapt dump badging imeapp/app/build/outputs/apk/debug/app-debug.apk | head -n 2
-          apksigner verify --print-certs imeapp/app/build/outputs/apk/debug/app-debug.apk | head -n 8
+          ${ANDROID_HOME}/build-tools/35.0.0/aapt dump badging imeapp/app/build/outputs/apk/debug/app-debug.apk | head -n 2
+          ${ANDROID_HOME}/build-tools/35.0.0/apksigner verify --print-certs imeapp/app/build/outputs/apk/debug/app-debug.apk | head -n 8
 
       - name: Prepare artifact
-        run: cp imeapp/app/build/outputs/apk/debug/app-debug.apk '阿喬輸入法_v0.5_精準按鍵修正版.apk'
+        run: cp imeapp/app/build/outputs/apk/debug/app-debug.apk '阿喬輸入法_v0.5.1_字根浮動窗修正版.apk'
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: ajo-ime-v0.5-apk
-          path: '阿喬輸入法_v0.5_精準按鍵修正版.apk'
+          name: ajo-ime-v0.5.1-apk
+          path: '阿喬輸入法_v0.5.1_字根浮動窗修正版.apk'
           if-no-files-found: error

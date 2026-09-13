@@ -6,8 +6,9 @@ import android.graphics.Color;
 import android.graphics.Paint;
 import android.graphics.RectF;
 import android.view.View;
+import android.view.ViewParent;
 
-/** Small transparent strip used only for showing the current Cangjie/Zhuyin composition above the keyboard. */
+/** Floating composition bubble above the keyboard, without occupying the candidate row. */
 public class CompositionCandidatesView extends View {
     private final Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint t = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -30,12 +31,15 @@ public class CompositionCandidatesView extends View {
         text = next;
         invalidate();
         requestLayout();
+        ViewParent parent = getParent();
+        if (parent != null) parent.requestLayout();
     }
 
     @Override
     protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
         int w = MeasureSpec.getSize(widthMeasureSpec);
-        setMeasuredDimension(w, text.isEmpty() ? 1 : dp(38));
+        // Zero height while idle; when typing it grows upward above the keyboard.
+        setMeasuredDimension(w, text.isEmpty() ? 0 : dp(38));
     }
 
     @Override
@@ -53,7 +57,7 @@ public class CompositionCandidatesView extends View {
         float right = Math.min(getWidth() - dp(12), left + tw + dp(24));
         float bottom = dp(35);
 
-        p.setColor(Color.argb(145, 42, 42, 48));
+        p.setColor(Color.argb(165, 42, 42, 48));
         canvas.drawRoundRect(new RectF(left, top, right, bottom), dp(10), dp(10), p);
 
         Paint.FontMetrics fm = t.getFontMetrics();

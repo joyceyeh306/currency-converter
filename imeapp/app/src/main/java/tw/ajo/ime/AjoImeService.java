@@ -5,22 +5,39 @@ import android.view.KeyEvent;
 import android.view.View;
 import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.InputConnection;
+import android.widget.LinearLayout;
 import android.widget.Toast;
 
 public class AjoImeService extends InputMethodService {
     private PreciseKeyboardView keyboard;
     private CompositionCandidatesView compositionView;
+    private LinearLayout inputRoot;
     private String pendingComposition = "";
 
     @Override public View onCreateInputView() {
+        inputRoot = new LinearLayout(this);
+        inputRoot.setOrientation(LinearLayout.VERTICAL);
+
+        // Put the composition bubble in the IME input view itself instead of the
+        // system candidates area. Some OPPO/ColorOS versions do not reliably
+        // show or re-measure InputMethodService's candidates view.
+        compositionView = new CompositionCandidatesView(this);
+        compositionView.setComposition(pendingComposition);
+        inputRoot.addView(compositionView, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT));
+
         keyboard = new PreciseKeyboardView(this, this);
-        return keyboard;
+        inputRoot.addView(keyboard, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT));
+        return inputRoot;
     }
 
     @Override public View onCreateCandidatesView() {
-        compositionView = new CompositionCandidatesView(this);
-        compositionView.setComposition(pendingComposition);
-        return compositionView;
+        // The keyboard already draws its own candidate row. Keeping this null
+        // prevents ColorOS from reserving an extra system candidates frame.
+        return null;
     }
 
     @Override public boolean onEvaluateFullscreenMode() { return false; }
@@ -39,7 +56,7 @@ public class AjoImeService extends InputMethodService {
     public void updateComposition(String s) {
         pendingComposition = s == null ? "" : s;
         if (compositionView != null) compositionView.setComposition(pendingComposition);
-        setCandidatesViewShown(!pendingComposition.isEmpty());
+        if (inputRoot != null) inputRoot.requestLayout();
     }
 
     public void commit(String s) {

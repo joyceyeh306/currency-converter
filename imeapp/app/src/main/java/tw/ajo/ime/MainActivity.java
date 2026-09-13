@@ -46,14 +46,14 @@ public class MainActivity extends Activity {
         root.addView(title);
 
         TextView version = new TextView(this);
-        version.setText("v0.5｜精準按鍵修正版");
+        version.setText("v0.5.1｜字根浮動窗修正版");
         version.setTextSize(16);
         version.setTextColor(Color.DKGRAY);
         version.setPadding(0, dp(8), 0, dp(18));
         root.addView(version);
 
         TextView intro = new TextView(this);
-        intro.setText("這版重做按鍵觸控判定：畫面上看到的每一顆按鍵，和實際可點擊區域使用同一組位置資料，避免縮放後按鍵看得到卻按不到。字根／注音仍顯示在鍵盤上方，不佔候選列。");
+        intro.setText("這版保留 v0.5 的精準按鍵觸控，並修正 OPPO／ColorOS 沒有顯示字根與注音組字浮動窗的問題。浮動窗改成直接屬於輸入法本身，顯示在候選列上方，不佔候選列，也不改動主鍵盤按鍵位置。");
         intro.setTextSize(17);
         intro.setTextColor(Color.rgb(35,35,38));
         intro.setLineSpacing(0, 1.16f);
