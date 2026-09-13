@@ -46,14 +46,14 @@ public class MainActivity extends Activity {
         root.addView(title);
 
         TextView version = new TextView(this);
-        version.setText("v0.4｜詞庫與版面修正版");
+        version.setText("v0.5｜精準按鍵修正版");
         version.setTextSize(16);
         version.setTextColor(Color.DKGRAY);
         version.setPadding(0, dp(8), 0, dp(18));
         root.addView(version);
 
         TextView intro = new TextView(this);
-        intro.setText("這版修正注音按鍵重疊、字根／注音顯示位置，並補強倉頡與注音單字詞庫。正在輸入的字根會顯示在鍵盤上方，不再遮住候選字或按鍵。");
+        intro.setText("這版重做按鍵觸控判定：畫面上看到的每一顆按鍵，和實際可點擊區域使用同一組位置資料，避免縮放後按鍵看得到卻按不到。字根／注音仍顯示在鍵盤上方，不佔候選列。");
         intro.setTextSize(17);
         intro.setTextColor(Color.rgb(35,35,38));
         intro.setLineSpacing(0, 1.16f);
@@ -71,7 +71,7 @@ public class MainActivity extends Activity {
         root.addView(choose);
 
         section(root, "鍵盤設定");
-        addSeek(root, "鍵盤高度", "調整整個鍵盤與格子的高度", "keyboard_height", 80, 110, 81, "%");
+        addSeek(root, "鍵盤高度", "調整整個鍵盤與格子的高度", "keyboard_height", 80, 110, 90, "%");
         addSeek(root, "按鍵字體", "只調整按鍵上的文字，不改格子位置", "key_text_size", 85, 120, 100, "%");
         addSeek(root, "候選字大小", "調整上方候選列的字體", "candidate_text_size", 85, 125, 100, "%");
         addSwitch(root, "按鍵音", "key_sound", true, true);
