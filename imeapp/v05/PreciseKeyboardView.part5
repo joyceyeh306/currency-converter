@@ -1,7 +1,3 @@
-        downHit=null;
-        return true;
-    }
-
     private final Runnable repeatBackspace=new Runnable() {
         @Override public void run() {
             if(downHit==null||!"BACK".equals(downHit.action)) return;
