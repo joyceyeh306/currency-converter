@@ -6,6 +6,7 @@ on:
     paths:
       - '.github/workflows/build-ime-v09.yml'
       - '.github/scripts/ime_v09_patch.py'
+      - '.github/scripts/run_v09_patch.py'
   workflow_dispatch:
 
 jobs:
@@ -92,9 +93,7 @@ jobs:
       - name: Apply v0.9 layout phrase emoji refinements
         run: |
           set -e
-          # Remove an accidental duplicate Java switch case in the patch source before execution.
-          sed -i '/case "可": return Arrays.asList("以","能","是");/d' .github/scripts/ime_v09_patch.py
-          python3 .github/scripts/ime_v09_patch.py
+          python3 .github/scripts/run_v09_patch.py
           grep -q 'float x=116+i\*116.5f' imeapp/app/src/main/java/tw/ajo/ime/PreciseKeyboardView.java
           grep -q 'commonContinuations' imeapp/app/src/main/java/tw/ajo/ime/PreciseKeyboardView.java
           grep -q 'cangjieMistypeCandidates' imeapp/app/src/main/java/tw/ajo/ime/PreciseKeyboardView.java
