@@ -1,0 +1,196 @@
+name: Build Ajo IME v0.9
+
+on:
+  push:
+    branches: [ ime-v01-build ]
+    paths:
+      - '.github/workflows/build-ime-v09.yml'
+      - '.github/scripts/ime_v09_patch.py'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android platform
+        run: sdkmanager 'platforms;android-35' 'build-tools;35.0.0'
+
+      - name: Set up Gradle 8.9
+        uses: gradle/actions/setup-gradle@v6
+        with:
+          gradle-version: '8.9'
+
+      - name: Restore stable IME debug signing key
+        uses: actions/cache@v4
+        with:
+          path: ~/.android/debug.keystore
+          key: ajo-ime-debug-keystore-v1
+
+      - name: Create signing key when missing
+        run: |
+          mkdir -p ~/.android
+          if [ ! -f ~/.android/debug.keystore ]; then
+            keytool -genkeypair -v \
+              -keystore ~/.android/debug.keystore \
+              -storepass android \
+              -alias androiddebugkey \
+              -keypass android \
+              -dname 'CN=Ajo IME,O=Android,C=TW' \
+              -keyalg RSA -keysize 2048 -validity 10000
+          fi
+
+      - name: Verify retained stable Ajo signing key
+        run: |
+          set -e
+          export LC_ALL=C
+          KEY_SHA=$(keytool -list -v -keystore ~/.android/debug.keystore -storepass android -alias androiddebugkey 2>/dev/null | sed -n 's/.*SHA256: //p' | head -n1 | tr -d ':' | tr '[:upper:]' '[:lower:]')
+          echo "Stable signing key SHA256=$KEY_SHA"
+          test "$KEY_SHA" = "9d3d3c77112475d20d2b032063a6fdb25b6712870d1c89115c98fe8a781a60fd"
+
+      - name: Assemble precise keyboard source
+        run: |
+          set -e
+          cat imeapp/v05/PreciseKeyboardView.part1 \
+              imeapp/v05/PreciseKeyboardView.part2 \
+              imeapp/v05/PreciseKeyboardView.part3 \
+              imeapp/v05/PreciseKeyboardView.part4 \
+              imeapp/v05/PreciseKeyboardView.part5 \
+              > imeapp/app/src/main/java/tw/ajo/ime/PreciseKeyboardView.java
+          grep -q 'class PreciseKeyboardView' imeapp/app/src/main/java/tw/ajo/ime/PreciseKeyboardView.java
+
+      - name: Reuse verified v0.8 interaction base
+        run: |
+          set -e
+          python3 - <<'PY'
+          from pathlib import Path
+          lines=Path('.github/workflows/build-ime-v01.yml').read_text(encoding='utf-8').splitlines()
+          marker=next(i for i,l in enumerate(lines) if '- name: Apply v0.8 interaction refinements' in l)
+          start=next(i for i in range(marker,len(lines)) if "python3 - <<'PY'" in lines[i])
+          end=next(i for i in range(start+1,len(lines)) if lines[i] == '          PY')
+          body=[]
+          for line in lines[start+1:end]:
+              body.append(line[10:] if line.startswith('          ') else line)
+          Path('/tmp/apply_v08.py').write_text('\n'.join(body)+'\n',encoding='utf-8')
+          print('Extracted v0.8 patch lines:',len(body))
+          PY
+          python3 /tmp/apply_v08.py
+          grep -q 'directSymbolLongPress' imeapp/app/src/main/java/tw/ajo/ime/PreciseKeyboardView.java
+          grep -q 'cjExact' imeapp/app/src/main/java/tw/ajo/ime/PreciseKeyboardView.java
+
+      - name: Apply v0.9 layout phrase emoji refinements
+        run: |
+          set -e
+          # Remove an accidental duplicate Java switch case in the patch source before execution.
+          sed -i '/case "可": return Arrays.asList("以","能","是");/d' .github/scripts/ime_v09_patch.py
+          python3 .github/scripts/ime_v09_patch.py
+          grep -q 'float x=116+i\*116.5f' imeapp/app/src/main/java/tw/ajo/ime/PreciseKeyboardView.java
+          grep -q 'commonContinuations' imeapp/app/src/main/java/tw/ajo/ime/PreciseKeyboardView.java
+          grep -q 'cangjieMistypeCandidates' imeapp/app/src/main/java/tw/ajo/ime/PreciseKeyboardView.java
+          grep -q 'scrollEmoji' imeapp/app/src/main/java/tw/ajo/ime/PreciseKeyboardView.java
+          grep -q 'versionCode 10' imeapp/app/build.gradle
+          grep -q "versionName '0.9'" imeapp/app/build.gradle
+
+      - name: Build complete Cangjie 3 prefix and exact dictionaries
+        run: |
+          set -e
+          mkdir -p imeapp/app/src/main/assets
+          curl -fL --retry 3 --retry-delay 1 \
+            https://raw.githubusercontent.com/CanCLID/yune/main/apps/yune-web/public/schema/cangjie3.dict.yaml \
+            -o /tmp/cangjie3.dict.yaml
+          python3 - <<'PY'
+          from collections import defaultdict
+          from pathlib import Path
+
+          src = Path('/tmp/cangjie3.dict.yaml').read_text(encoding='utf-8')
+          if '倉頡三代補完計畫' not in src:
+              raise SystemExit('Downloaded dictionary is not the expected Cangjie 3 source')
+          rows=defaultdict(list)
+          exact=defaultdict(list)
+          in_data=False
+          for raw in src.splitlines():
+              if raw.strip() == '...':
+                  in_data=True
+                  continue
+              if not in_data or not raw or raw.startswith('#'):
+                  continue
+              parts=raw.split('\t')
+              if len(parts)<2:
+                  continue
+              text,code=parts[0].strip(),parts[1].strip().lower()
+              if len(text)!=1 or not code or not code.isalpha():
+                  continue
+              if text not in exact[code]: exact[code].append(text)
+              for n in range(1,min(5,len(code))+1):
+                  key=code[:n]
+                  if text not in rows[key]: rows[key].append(text)
+          if '面' not in exact.get('mwyl',[]):
+              raise SystemExit('Cangjie 3 exact verification failed: 面 must be MWYL')
+          prefix_out=Path('imeapp/app/src/main/assets/cangjie_prefix.tsv')
+          exact_out=Path('imeapp/app/src/main/assets/cangjie_exact.tsv')
+          with prefix_out.open('w',encoding='utf-8') as f:
+              for key in sorted(rows): f.write(key+'\t'+' '.join(rows[key])+'\n')
+          with exact_out.open('w',encoding='utf-8') as f:
+              for key in sorted(exact): f.write(key+'\t'+' '.join(exact[key])+'\n')
+          print('Cangjie prefixes:',len(rows),'exact:',len(exact))
+          print('Verified exact: 面 = MWYL (一田卜中)')
+          PY
+
+      - name: Build complete Zhuyin single-character dictionary
+        run: |
+          set -e
+          curl -fL --retry 3 --retry-delay 1 \
+            https://raw.githubusercontent.com/chewing/libchewing-data/main/dict/chewing/word.csv \
+            -o /tmp/word.csv
+          python3 - <<'PY'
+          import csv
+          from collections import defaultdict
+          from pathlib import Path
+          rows=defaultdict(list)
+          with open('/tmp/word.csv','r',encoding='utf-8-sig',newline='') as f:
+              for row in csv.reader(f):
+                  if not row or row[0].startswith('#') or len(row)<3: continue
+                  text=row[0].strip(); zhuyin=row[2].strip()
+                  if len(text)!=1 or not zhuyin or ' ' in zhuyin: continue
+                  if text not in rows[zhuyin]: rows[zhuyin].append(text)
+          out=Path('imeapp/app/src/main/assets/zhuyin.tsv')
+          with out.open('w',encoding='utf-8') as f:
+              for key in sorted(rows): f.write(key+'\t'+' '.join(rows[key])+'\n')
+          print('Zhuyin syllables:',len(rows),'characters:',sum(map(len,rows.values())))
+          PY
+
+      - name: Build APK
+        run: gradle -p imeapp :app:assembleDebug --no-daemon
+
+      - name: Verify APK metadata and stable certificate
+        run: |
+          set -e
+          APK=imeapp/app/build/outputs/apk/debug/app-debug.apk
+          BADGE=$(${ANDROID_HOME}/build-tools/35.0.0/aapt dump badging "$APK" | head -n 2)
+          echo "$BADGE"
+          echo "$BADGE" | grep -q "versionCode='10' versionName='0.9'"
+          ${ANDROID_HOME}/build-tools/35.0.0/apksigner verify --print-certs "$APK" | head -n 8
+          APK_SHA=$(${ANDROID_HOME}/build-tools/35.0.0/apksigner verify --print-certs "$APK" | sed -n 's/Signer #1 certificate SHA-256 digest: //p' | head -n1 | tr '[:upper:]' '[:lower:]')
+          echo "APK signer SHA256=$APK_SHA"
+          test "$APK_SHA" = "9d3d3c77112475d20d2b032063a6fdb25b6712870d1c89115c98fe8a781a60fd"
+
+      - name: Prepare artifact
+        run: cp imeapp/app/build/outputs/apk/debug/app-debug.apk '阿喬輸入法_v0.9_詞彙與版面修正版.apk'
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: ajo-ime-v0.9-apk
+          path: '阿喬輸入法_v0.9_詞彙與版面修正版.apk'
+          if-no-files-found: error
