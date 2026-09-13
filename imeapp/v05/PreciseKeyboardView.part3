@@ -144,7 +144,7 @@
             hits.add(new Hit(r,"EMOJI_CHAR",emojis[i]));
         }
         RectF back=new RectF(0,listBottom,dp(110),safeBottom);
-        hits.add(new Hit(back,"MAIN","");
+        hits.add(new Hit(back,"MAIN",""));
         t.setTextAlign(Paint.Align.CENTER); t.setTextSize(dp(22)); t.setColor(Color.BLACK);
         android.graphics.Rect b=new android.graphics.Rect(); String label="⌨"; t.getTextBounds(label,0,label.length(),b);
         c.drawText(label,back.centerX(),back.centerY()-(b.top+b.bottom)/2f,t);
@@ -188,7 +188,7 @@
         float safeBottom=getHeight()-dp(70);
         float backTop=safeBottom-dp(48);
         RectF back=new RectF(0,backTop,dp(110),safeBottom);
-        hits.add(new Hit(back,"MAIN","");
+        hits.add(new Hit(back,"MAIN",""));
         t.setTextAlign(Paint.Align.CENTER); t.setTextSize(dp(22)); t.setColor(Color.BLACK);
         android.graphics.Rect b=new android.graphics.Rect(); String label="⌨"; t.getTextBounds(label,0,label.length(),b);
         c.drawText(label,back.centerX(),back.centerY()-(b.top+b.bottom)/2f,t);
