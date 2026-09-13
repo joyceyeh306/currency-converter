@@ -29,8 +29,17 @@ jobs:
       - name: Prepare built-in image assets
         run: |
           mkdir -p app/src/main/res/drawable app/src/main/res/drawable-nodpi
-          base64 -d app/icon/ic_launcher.webp.b64 > app/src/main/res/drawable/ic_launcher.webp
-          base64 -d app/icon/flags_sprite.png.b64 > app/src/main/res/drawable-nodpi/flags_sprite.png
+          python3 - <<'PY'
+          import base64
+          from pathlib import Path
+          for src, dst in [
+              ('app/icon/ic_launcher.webp.b64', 'app/src/main/res/drawable/ic_launcher.webp'),
+              ('app/icon/flags_sprite.png.b64', 'app/src/main/res/drawable-nodpi/flags_sprite.png'),
+          ]:
+              data = ''.join(Path(src).read_text().split())
+              data += '=' * ((4 - len(data) % 4) % 4)
+              Path(dst).write_bytes(base64.b64decode(data, validate=False))
+          PY
 
       - name: Apply built-in flag image patch
         run: python3 .github/patch_flags.py
