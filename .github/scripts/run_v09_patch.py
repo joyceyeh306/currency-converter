@@ -30,4 +30,19 @@ s = s[:m.start()] + replacement + s[m.end():]
 '''
 
 src = src[:start] + robust + src[end:]
-exec(compile(src, str(patch_path), 'exec'), {'__name__': '__main__'})
+ns = {'__name__': '__main__'}
+exec(compile(src, str(patch_path), 'exec'), ns)
+
+# re.sub replacement strings interpret backslashes, which corrupts kaomoji such as
+# shrug/table-flip. Rebuild those two generated Java arrays with a callable
+# replacement so Java receives literal escaped backslashes.
+java_path = Path('imeapp/app/src/main/java/tw/ajo/ime/PreciseKeyboardView.java')
+java = java_path.read_text(encoding='utf-8')
+for name in ('emojis', 'kaos'):
+    block = ns['java_array'](name, ns[name])
+    pattern = rf'    private final String\[\] {name} = \{{.*?\n    \}};'
+    java, count = re.subn(pattern, lambda m, block=block: block, java, count=1, flags=re.S)
+    if count != 1:
+        raise SystemExit(f'Could not repair generated Java array: {name}')
+java_path.write_text(java, encoding='utf-8')
+print('Repaired Java escaping for emoji/kaomoji arrays')
