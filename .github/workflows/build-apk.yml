@@ -26,6 +26,11 @@ jobs:
       - name: Apply source hotfix
         run: sed -i 's/private TextView makeResultRow/private LinearLayout makeResultRow/' app/src/main/java/com/joyce/currencyconverter/MainActivity.java
 
+      - name: Prepare launcher icon
+        run: |
+          mkdir -p app/src/main/res/drawable
+          base64 -d app/icon/ic_launcher.webp.b64 > app/src/main/res/drawable/ic_launcher.webp
+
       - name: Build debug APK
         run: gradle :app:assembleDebug
 
