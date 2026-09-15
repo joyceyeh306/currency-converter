@@ -15,4 +15,10 @@ if old_cursor not in src:
     raise SystemExit('v0.9.6 runner failed: cursor delta source not found')
 src = src.replace(old_cursor, new_cursor, 1)
 
+old_icon = "icon_path=res/'drawable'/'ic_launcher_ajo.png'"
+new_icon = "icon_path=res/'drawable-nodpi'/'ic_launcher_ajo.png'"
+if old_icon not in src:
+    raise SystemExit('v0.9.6 runner failed: icon source path not found')
+src = src.replace(old_icon, new_icon, 1)
+
 exec(compile(src, str(p), 'exec'), {'__name__': '__main__'})
