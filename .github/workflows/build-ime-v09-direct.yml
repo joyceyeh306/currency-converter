@@ -13,6 +13,7 @@ on:
       - '.github/scripts/v095_fix.py'
       - '.github/scripts/v095_runner.py'
       - '.github/scripts/v096_fix.py'
+      - '.github/scripts/v096_runner.py'
       - 'imeapp/app/src/main/java/tw/ajo/ime/PreciseKeyboardView.java'
       - 'imeapp/app/src/main/java/tw/ajo/ime/MainActivity.java'
       - 'imeapp/app/src/main/java/tw/ajo/ime/AjoImeService.java'
@@ -77,7 +78,7 @@ jobs:
           test "$KEY_SHA" = "9d3d3c77112475d20d2b032063a6fdb25b6712870d1c89115c98fe8a781a60fd"
 
       - name: Apply v0.9.6 revision
-        run: python3 .github/scripts/v096_fix.py
+        run: python3 .github/scripts/v096_runner.py
 
       - name: Build Cangjie 3 dictionaries
         run: |
