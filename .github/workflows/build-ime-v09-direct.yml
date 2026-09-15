@@ -1,4 +1,4 @@
-name: Build Ajo IME v0.9.4 Direct
+name: Build Ajo IME v0.9.5 Direct
 
 on:
   push:
@@ -10,9 +10,11 @@ on:
       - '.github/scripts/v093_fix.py'
       - '.github/scripts/v094_fix.py'
       - '.github/scripts/v094_note_fix.py'
+      - '.github/scripts/v095_fix.py'
       - 'imeapp/app/src/main/java/tw/ajo/ime/PreciseKeyboardView.java'
       - 'imeapp/app/src/main/java/tw/ajo/ime/MainActivity.java'
       - 'imeapp/app/src/main/java/tw/ajo/ime/AjoImeService.java'
+      - 'imeapp/app/src/main/AndroidManifest.xml'
       - 'imeapp/app/build.gradle'
   workflow_dispatch:
 
@@ -67,10 +69,8 @@ jobs:
           echo "Stable signing key SHA256=$KEY_SHA"
           test "$KEY_SHA" = "9d3d3c77112475d20d2b032063a6fdb25b6712870d1c89115c98fe8a781a60fd"
 
-      - name: Apply v0.9.4 common ranking and gesture correction
-        run: |
-          python3 .github/scripts/v094_fix.py
-          python3 .github/scripts/v094_note_fix.py
+      - name: Apply v0.9.5 revision
+        run: python3 .github/scripts/v095_fix.py
 
       - name: Build Cangjie 3 dictionaries
         run: |
@@ -136,18 +136,18 @@ jobs:
           APK=imeapp/app/build/outputs/apk/debug/app-debug.apk
           BADGE=$(${ANDROID_HOME}/build-tools/35.0.0/aapt dump badging "$APK" | head -n 2)
           echo "$BADGE"
-          echo "$BADGE" | grep -q "versionCode='14' versionName='0.9.4'"
+          echo "$BADGE" | grep -q "versionCode='15' versionName='0.9.5'"
           ${ANDROID_HOME}/build-tools/35.0.0/apksigner verify --print-certs "$APK" | head -n 8
           APK_SHA=$(${ANDROID_HOME}/build-tools/35.0.0/apksigner verify --print-certs "$APK" | sed -n 's/Signer #1 certificate SHA-256 digest: //p' | head -n1 | tr '[:upper:]' '[:lower:]')
           echo "APK signer SHA256=$APK_SHA"
           test "$APK_SHA" = "9d3d3c77112475d20d2b032063a6fdb25b6712870d1c89115c98fe8a781a60fd"
 
       - name: Prepare artifact
-        run: cp imeapp/app/build/outputs/apk/debug/app-debug.apk '阿喬輸入法_v0.9.4_常用字與手勢修正版.apk'
+        run: cp imeapp/app/build/outputs/apk/debug/app-debug.apk '阿喬輸入法_v0.9.5_常用字與操作修正版.apk'
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: ajo-ime-v0.9.4-apk
-          path: '阿喬輸入法_v0.9.4_常用字與手勢修正版.apk'
+          name: ajo-ime-v0.9.5-apk
+          path: '阿喬輸入法_v0.9.5_常用字與操作修正版.apk'
           if-no-files-found: error
