@@ -372,8 +372,8 @@ service_path=Path('imeapp/app/src/main/java/tw/ajo/ime/AjoImeService.java')
 service=service_path.read_text(encoding='utf-8')
 
 if 'import android.os.Handler;' not in service:
-    service=service.replace('import android.os.Build;\\n',
-                            'import android.os.Build;\\nimport android.os.Handler;\\nimport android.os.Looper;\\n',1)
+    service=service.replace('import android.os.Build;\n',
+                            'import android.os.Build;\nimport android.os.Handler;\nimport android.os.Looper;\n',1)
 
 old_fields = r'''    private SpeechRecognizer speechRecognizer;
     private boolean voiceListening=false;
@@ -652,7 +652,7 @@ service_path.write_text(service,encoding='utf-8')
 main_path=Path('imeapp/app/src/main/java/tw/ajo/ime/MainActivity.java')
 m=main_path.read_text(encoding='utf-8')
 
-voice_switch='        addSwitch(root, "語音輸入", "voice_enabled", true, true);\\n'
+voice_switch='        addSwitch(root, "語音輸入", "voice_enabled", true, true);\n'
 if voice_switch not in m:
     raise SystemExit('v0.9.9 patch failed: voice switch not found')
 voice_settings = voice_switch + '''        Button voiceRules = button("語音自訂轉換");
@@ -680,7 +680,7 @@ main_path.write_text(m,encoding='utf-8')
 # ---------------------------------------------------------------------------
 manifest_path=Path('imeapp/app/src/main/AndroidManifest.xml')
 ms=manifest_path.read_text(encoding='utf-8')
-anchor='        <activity\\n            android:name=".MicPermissionActivity"\\n'
+anchor='        <activity\n            android:name=".MicPermissionActivity"\n'
 if '.VoiceRulesActivity' not in ms:
     idx=ms.find(anchor)
     if idx<0:
