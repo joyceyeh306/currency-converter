@@ -322,7 +322,7 @@ public class VoiceRulesActivity extends Activity {
         output.setMaxLines(3);
         output.setInputType(InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_FLAG_MULTI_LINE);
         output.setText(old.output.replace("\n","\\n"));
-        output.setHint("例如：😂　（輸入 \\\\n 代表換行）");
+        output.setHint("例如：😂　（輸入 \\n 代表換行）");
         box.addView(output,new LinearLayout.LayoutParams(-1,dp(72)));
 
         AlertDialog dlg=new AlertDialog.Builder(this)
@@ -589,7 +589,7 @@ voice_block = r'''    private void setVoiceUi(boolean active){
 
     private String filterChineseAutoPunctuation(String input){
         if(input==null||input.isEmpty()) return "";
-        String s=input.replaceAll("\\\\.{2,}","……");
+        String s=input.replaceAll("\\.{2,}","……");
         StringBuilder out=new StringBuilder();
         for(int i=0;i<s.length();){
             int cp=s.codePointAt(i);
@@ -668,9 +668,9 @@ voice_settings = voice_switch + '''        Button voiceRules = button("語音自
 '''
 m=m.replace(voice_switch,voice_settings,1)
 
-m=re.sub(r'version\\.setText\\("[^"]*"\\);',
+m=re.sub(r'version\.setText\("[^"]*"\);',
          'version.setText("v0.9.9｜連續語音與自訂轉換版");',m,count=1)
-m=re.sub(r'intro\\.setText\\("[^"]*"\\);',
+m=re.sub(r'intro\.setText\("[^"]*"\);',
          'intro.setText("保留 v0.9.8 已穩定的候選、觸控與鍵盤操作。本版把語音改為連續聽寫：停頓只送出當前一段，之後會自動繼續收音，直到再次按麥克風才停止。中文語音可使用系統自動標點，但只保留指定的中文標點；新增「語音自訂轉換」，可自行建立口述文字到標點、Emoji、顏文字、固定文字或更正詞的轉換規則。");',
          m,count=1)
 main_path.write_text(m,encoding='utf-8')
@@ -698,8 +698,8 @@ manifest_path.write_text(ms,encoding='utf-8')
 # ---------------------------------------------------------------------------
 gradle=Path('imeapp/app/build.gradle')
 g=gradle.read_text(encoding='utf-8')
-g=re.sub(r'versionCode\\s+\\d+','versionCode 19',g,count=1)
-g=re.sub(r"versionName\\s+'[^']+'","versionName '0.9.9'",g,count=1)
+g=re.sub(r'versionCode\s+\d+','versionCode 19',g,count=1)
+g=re.sub(r"versionName\s+'[^']+'","versionName '0.9.9'",g,count=1)
 gradle.write_text(g,encoding='utf-8')
 
 # Sanity checks.
