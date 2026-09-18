@@ -417,10 +417,6 @@ service=service.replace(
 '''        stopVoiceSession();
 ''',1)
 
-voice_start=service.index('    private void setVoiceUi(boolean listening){')
-voice_end=service.index('    // Compatibility for older experimental keyboard views still compiled in the app.',voice_start)
-voice_end=service.index('\\n',service.index('    public void voiceComingSoon()',voice_end))+1
-
 voice_block = r'''    private void setVoiceUi(boolean active){
         if(keyboard!=null) keyboard.post(()->keyboard.setVoiceListening(active));
     }
@@ -639,7 +635,15 @@ voice_block = r'''    private void setVoiceUi(boolean active){
     // Compatibility for older experimental keyboard views still compiled in the app.
     public void voiceComingSoon(){ toggleVoiceInput("zh-TW"); }
 '''
-service=service[:voice_start]+voice_block+service[voice_end:]
+service,n=re.subn(
+    r'    private void setVoiceUi\(boolean listening\)\{.*?    public void voiceComingSoon\(\)\{ toggleVoiceInput\("zh-TW"\); \}\n?',
+    voice_block,
+    service,
+    count=1,
+    flags=re.S
+)
+if n!=1:
+    raise SystemExit(f'v0.9.9 patch failed: voice block matched {n}')
 service_path.write_text(service,encoding='utf-8')
 
 # ---------------------------------------------------------------------------
