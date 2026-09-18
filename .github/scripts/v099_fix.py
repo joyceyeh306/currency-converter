@@ -637,7 +637,7 @@ voice_block = r'''    private void setVoiceUi(boolean active){
 '''
 service,n=re.subn(
     r'    private void setVoiceUi\(boolean listening\)\{.*?    public void voiceComingSoon\(\)\{ toggleVoiceInput\("zh-TW"\); \}\n?',
-    voice_block,
+    lambda match: voice_block,
     service,
     count=1,
     flags=re.S
