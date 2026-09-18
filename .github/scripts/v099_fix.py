@@ -601,9 +601,9 @@ voice_block = r'''    private void setVoiceUi(boolean active){
                 while(i<s.length()&&s.codePointAt(i)=='…') i+=Character.charCount(s.codePointAt(i));
                 continue;
             }
-            if(cp=='\\n'||cp=='\\r'){
-                if(cp=='\\r'&&i+step<s.length()&&s.codePointAt(i+step)=='\\n') i+=step;
-                out.append('\\n');
+            if(cp=='\n'||cp=='\r'){
+                if(cp=='\r'&&i+step<s.length()&&s.codePointAt(i+step)=='\n') i+=step;
+                out.append('\n');
                 i+=step;
                 continue;
             }
