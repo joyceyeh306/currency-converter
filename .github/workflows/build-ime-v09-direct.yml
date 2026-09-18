@@ -1,4 +1,4 @@
-name: Build Ajo IME v0.9.7 Direct
+name: Build Ajo IME v0.9.8 Direct
 
 on:
   push:
@@ -15,10 +15,12 @@ on:
       - '.github/scripts/v096_fix.py'
       - '.github/scripts/v096_runner.py'
       - '.github/scripts/v097_fix.py'
+      - '.github/scripts/v098_fix.py'
       - '.github/assets/ajo_icon_144.webp.b64'
       - 'imeapp/app/src/main/java/tw/ajo/ime/PreciseKeyboardView.java'
       - 'imeapp/app/src/main/java/tw/ajo/ime/MainActivity.java'
       - 'imeapp/app/src/main/java/tw/ajo/ime/AjoImeService.java'
+      - 'imeapp/app/src/main/java/tw/ajo/ime/MicPermissionActivity.java'
       - 'imeapp/app/src/main/AndroidManifest.xml'
       - 'imeapp/app/build.gradle'
   workflow_dispatch:
@@ -79,8 +81,8 @@ jobs:
           echo "Stable signing key SHA256=$KEY_SHA"
           test "$KEY_SHA" = "9d3d3c77112475d20d2b032063a6fdb25b6712870d1c89115c98fe8a781a60fd"
 
-      - name: Apply v0.9.7 revision
-        run: python3 .github/scripts/v097_fix.py
+      - name: Apply v0.9.8 revision
+        run: python3 .github/scripts/v098_fix.py
 
       - name: Build Cangjie 3 dictionaries
         run: |
@@ -140,13 +142,13 @@ jobs:
       - name: Build APK
         run: gradle -p imeapp :app:assembleDebug --no-daemon
 
-      - name: Verify APK metadata, icon and certificate
+      - name: Verify APK metadata, icon, microphone permission and certificate
         run: |
           set -e
           APK=imeapp/app/build/outputs/apk/debug/app-debug.apk
           BADGE=$(${ANDROID_HOME}/build-tools/35.0.0/aapt dump badging "$APK" | head -n 2)
           echo "$BADGE"
-          echo "$BADGE" | grep -q "versionCode='17' versionName='0.9.7'"
+          echo "$BADGE" | grep -q "versionCode='18' versionName='0.9.8'"
           ICON=$(unzip -Z1 "$APK" | grep -E '^res/mipmap[^/]*/ic_launcher\.webp$' | head -n1)
           test -n "$ICON"
           unzip -p "$APK" "$ICON" >/tmp/ajo_launcher.webp
@@ -159,11 +161,11 @@ jobs:
           test "$APK_SHA" = "9d3d3c77112475d20d2b032063a6fdb25b6712870d1c89115c98fe8a781a60fd"
 
       - name: Prepare artifact
-        run: cp imeapp/app/build/outputs/apk/debug/app-debug.apk '阿喬輸入法_v0.9.7_顯示與操作修正版.apk'
+        run: cp imeapp/app/build/outputs/apk/debug/app-debug.apk '阿喬輸入法_v0.9.8_候選與語音輸入修正版.apk'
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: ajo-ime-v0.9.7-apk
-          path: '阿喬輸入法_v0.9.7_顯示與操作修正版.apk'
+          name: ajo-ime-v0.9.8-apk
+          path: '阿喬輸入法_v0.9.8_候選與語音輸入修正版.apk'
           if-no-files-found: error
