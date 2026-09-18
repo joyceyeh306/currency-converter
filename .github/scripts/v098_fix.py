@@ -374,6 +374,9 @@ new_voice = r'''    private void setVoiceUi(boolean listening){
             }
         }
     }
+
+    // Compatibility for older experimental keyboard views still compiled in the app.
+    public void voiceComingSoon(){ toggleVoiceInput("zh-TW"); }
 '''
 if old_voice not in service:
     raise SystemExit('v0.9.8 patch failed: voice placeholder missing')
@@ -494,6 +497,7 @@ assert 'rankCangjie(cjCode,ex,pr)' in s
 assert 'rootExactCandidate' in s and 'usefulExactCandidate' in s
 assert 'voiceListening?"⏹":"🎙️"' in s
 assert 'svc.toggleVoiceInput(mode==Mode.ENGLISH?"en-US":"zh-TW")' in s
+assert 'voiceComingSoon(){ toggleVoiceInput("zh-TW"); }' in service
 assert 'SpeechRecognizer.createSpeechRecognizer' in service
 assert 'SpeechRecognizer.createOnDeviceSpeechRecognizer' in service
 assert 'MicPermissionActivity.class' in service
