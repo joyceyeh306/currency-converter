@@ -74,6 +74,8 @@ jobs:
           cat travel_build/v106gzpart* | tr -d '\n' | base64 -d | gunzip > /tmp/apply-v106.py
           python3 -m py_compile /tmp/apply-v106.py
           python3 /tmp/apply-v106.py
+          python3 -m py_compile travel_build/apply-v106b.py
+          python3 travel_build/apply-v106b.py
           grep -q "versionName '1.0.6'" /tmp/ajo/ajo_build_min/app/build.gradle
           grep -q '交通／票券' /tmp/ajo/ajo_build_min/app/src/main/assets/index.html
           grep -q 'function openReminders' /tmp/ajo/ajo_build_min/app/src/main/assets/index.html
