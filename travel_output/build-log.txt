@@ -1,28 +1,28 @@
 Starting a Gradle Daemon (subsequent builds will be faster)
 > Task :app:preBuild UP-TO-DATE
 > Task :app:preReleaseBuild UP-TO-DATE
-> Task :app:generateReleaseResValues
-> Task :app:javaPreCompileRelease
 > Task :app:checkReleaseAarMetadata
+> Task :app:javaPreCompileRelease
+> Task :app:generateReleaseResValues
 > Task :app:mapReleaseSourceSetPaths
 > Task :app:generateReleaseResources
 > Task :app:packageReleaseResources
 > Task :app:mergeReleaseResources
 > Task :app:createReleaseCompatibleScreenManifests
 > Task :app:extractDeepLinksRelease
-> Task :app:parseReleaseLocalResources
 > Task :app:processReleaseMainManifest
+> Task :app:parseReleaseLocalResources
 > Task :app:processReleaseManifest
 > Task :app:extractProguardFiles
+> Task :app:processReleaseManifestForPackage
 > Task :app:mergeReleaseJniLibFolders
 > Task :app:mergeReleaseNativeLibs NO-SOURCE
 > Task :app:stripReleaseDebugSymbols NO-SOURCE
 > Task :app:extractReleaseNativeSymbolTables NO-SOURCE
-> Task :app:processReleaseManifestForPackage
 > Task :app:mergeReleaseNativeDebugMetadata NO-SOURCE
+> Task :app:checkReleaseDuplicateClasses
 > Task :app:desugarReleaseFileDependencies
 > Task :app:mergeReleaseStartupProfile
-> Task :app:checkReleaseDuplicateClasses
 > Task :app:mergeReleaseArtProfile
 > Task :app:mergeReleaseShaders
 > Task :app:compileReleaseShaders NO-SOURCE
@@ -37,25 +37,25 @@ Starting a Gradle Daemon (subsequent builds will be faster)
 > Task :app:mergeReleaseJavaResource
 
 > Task :app:compileReleaseJavaWithJavac
-Note: /tmp/ajo/ajo_build_min/app/src/main/java/tw/ajo/travelnotebook/MainActivity.java uses or overrides a deprecated API.
+Note: Some input files use or override a deprecated API.
 Note: Recompile with -Xlint:deprecation for details.
 
 > Task :app:generateReleaseLintVitalReportModel
 > Task :app:dexBuilderRelease
 > Task :app:mergeReleaseGlobalSynthetics
+> Task :app:mergeDexRelease
 > Task :app:sdkReleaseDependencyData
-> Task :app:optimizeReleaseResources
+> Task :app:compileReleaseArtProfile
 > Task :app:writeReleaseAppMetadata
 > Task :app:writeReleaseSigningConfigVersions
-> Task :app:mergeDexRelease
-> Task :app:compileReleaseArtProfile
+> Task :app:optimizeReleaseResources
 > Task :app:packageRelease
 > Task :app:createReleaseApkListingFileRedirect
 > Task :app:lintVitalAnalyzeRelease
 > Task :app:lintVitalReportRelease
 > Task :app:lintVitalRelease
 > Task :app:assembleRelease
-gradle/actions: Writing build results to /home/runner/work/_temp/.gradle-actions/build-results/buildapk-1789995663723.json
+gradle/actions: Writing build results to /home/runner/work/_temp/.gradle-actions/build-results/buildapk-1789996927488.json
 
-BUILD SUCCESSFUL in 28s
+BUILD SUCCESSFUL in 18s
 42 actionable tasks: 42 executed
