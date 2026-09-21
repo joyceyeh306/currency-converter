@@ -69,6 +69,27 @@ jobs:
           grep -q 'function passesForDay' /tmp/ajo/ajo_build_min/app/src/main/assets/index.html
           grep -q '票券／通行證' /tmp/ajo/ajo_build_min/app/src/main/assets/index.html
 
+      - name: Apply v1.0.6 travel workflow update
+        run: |
+          cat travel_build/v106gzpart* | tr -d '\n' | base64 -d | gunzip > /tmp/apply-v106.py
+          python3 -m py_compile /tmp/apply-v106.py
+          python3 /tmp/apply-v106.py
+          grep -q "versionName '1.0.6'" /tmp/ajo/ajo_build_min/app/build.gradle
+          grep -q '交通／票券' /tmp/ajo/ajo_build_min/app/src/main/assets/index.html
+          grep -q 'function openReminders' /tmp/ajo/ajo_build_min/app/src/main/assets/index.html
+          grep -q 'function openTripMemo' /tmp/ajo/ajo_build_min/app/src/main/assets/index.html
+          grep -q 'class AttachmentViewerActivity' /tmp/ajo/ajo_build_min/app/src/main/java/tw/ajo/travelnotebook/AttachmentViewerActivity.java
+          grep -q 'class ReminderReceiver' /tmp/ajo/ajo_build_min/app/src/main/java/tw/ajo/travelnotebook/ReminderReceiver.java
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          s=Path('/tmp/ajo/ajo_build_min/app/src/main/assets/index.html').read_text()
+          m=re.search(r'<script>(.*)</script>',s,re.S)
+          if not m: raise SystemExit('inline script not found')
+          Path('/tmp/travel-index.js').write_text(m.group(1))
+          PY
+          node --check /tmp/travel-index.js
+
       - name: Build unsigned release APK
         id: buildapk
         continue-on-error: true
@@ -83,15 +104,15 @@ jobs:
           curl -fsSL 'https://android.googlesource.com/platform/build/+/refs/heads/main/target/product/security/testkey.pk8?format=TEXT' | base64 -d > /tmp/testkey.pk8
           curl -fsSL 'https://android.googlesource.com/platform/build/+/refs/heads/main/target/product/security/testkey.x509.pem?format=TEXT' | base64 -d > /tmp/testkey.x509.pem
           BT="$ANDROID_HOME/build-tools/35.0.0"
-          "$BT/zipalign" -f -p 4 /tmp/ajo/ajo_build_min/app/build/outputs/apk/release/app-release-unsigned.apk /tmp/ajo-v105-aligned.apk
-          "$BT/apksigner" sign --key /tmp/testkey.pk8 --cert /tmp/testkey.x509.pem --out /tmp/ajo-travel-notebook-v1.0.5.apk /tmp/ajo-v105-aligned.apk
+          "$BT/zipalign" -f -p 4 /tmp/ajo/ajo_build_min/app/build/outputs/apk/release/app-release-unsigned.apk /tmp/ajo-v106-aligned.apk
+          "$BT/apksigner" sign --key /tmp/testkey.pk8 --cert /tmp/testkey.x509.pem --out /tmp/ajo-travel-notebook-v1.0.6.apk /tmp/ajo-v105-aligned.apk
           "$BT/apksigner" verify --verbose --print-certs /tmp/ajo-travel-notebook-v1.0.5.apk | tee /tmp/apk-signature.txt
 
       - name: Publish result to travel branch
         if: always()
         run: |
           mkdir -p travel_output
-          printf 'build=%s\nsign=%s\nsource=%s\nversion=1.0.5\n' '${{ steps.buildapk.outcome }}' '${{ steps.signapk.outcome }}' '${{ github.sha }}' > travel_output/status.txt
+          printf 'build=%s\nsign=%s\nsource=%s\nversion=1.0.6\n' '${{ steps.buildapk.outcome }}' '${{ steps.signapk.outcome }}' '${{ github.sha }}' > travel_output/status.txt
           if [ -f /tmp/ajo-build.log ]; then tail -n 250 /tmp/ajo-build.log > travel_output/build-log.txt; fi
           if [ -f /tmp/apk-signature.txt ]; then cat /tmp/apk-signature.txt > travel_output/signature.txt; fi
           if [ -f /tmp/ajo/ajo_build_min/app/src/main/assets/index.html ]; then
@@ -101,12 +122,12 @@ jobs:
             cp /tmp/ajo/ajo_build_min/app/src/main/java/tw/ajo/travelnotebook/MainActivity.java travel_output/current-MainActivity.java
           fi
           if [ -f /tmp/ajo-travel-notebook-v1.0.5.apk ]; then
-            cp /tmp/ajo-travel-notebook-v1.0.5.apk travel_output/ajo-travel-notebook-v1.0.5.apk
+            cp /tmp/ajo-travel-notebook-v1.0.5.apk travel_output/ajo-travel-notebook-v1.0.6.apk
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -- travel_output
-          git commit -m "Travel notebook v1.0.5 stable-signed build" || exit 0
+          git commit -m "Travel notebook v1.0.6 stable-signed build" || exit 0
           git push origin HEAD:travel-notebook-build
 
       - name: Fail if build or signing failed
