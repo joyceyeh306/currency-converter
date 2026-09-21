@@ -94,6 +94,12 @@ jobs:
           printf 'build=%s\nsign=%s\nsource=%s\nversion=1.0.5\n' '${{ steps.buildapk.outcome }}' '${{ steps.signapk.outcome }}' '${{ github.sha }}' > travel_output/status.txt
           if [ -f /tmp/ajo-build.log ]; then tail -n 250 /tmp/ajo-build.log > travel_output/build-log.txt; fi
           if [ -f /tmp/apk-signature.txt ]; then cat /tmp/apk-signature.txt > travel_output/signature.txt; fi
+          if [ -f /tmp/ajo/ajo_build_min/app/src/main/assets/index.html ]; then
+            cp /tmp/ajo/ajo_build_min/app/src/main/assets/index.html travel_output/current-index.html
+          fi
+          if [ -f /tmp/ajo/ajo_build_min/app/src/main/java/tw/ajo/travelnotebook/MainActivity.java ]; then
+            cp /tmp/ajo/ajo_build_min/app/src/main/java/tw/ajo/travelnotebook/MainActivity.java travel_output/current-MainActivity.java
+          fi
           if [ -f /tmp/ajo-travel-notebook-v1.0.5.apk ]; then
             cp /tmp/ajo-travel-notebook-v1.0.5.apk travel_output/ajo-travel-notebook-v1.0.5.apk
           fi
