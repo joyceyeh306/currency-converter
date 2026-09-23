@@ -13,6 +13,13 @@ def replace_once(old,new,label):
         raise SystemExit(f'v0.9.11 patch failed: {label} source not found')
     s=s.replace(old,new,1)
 
+def sub1(pattern,replacement,label):
+    global s
+    s2,n=re.subn(pattern,replacement,s,count=1,flags=re.S)
+    if n!=1:
+        raise SystemExit(f'v0.9.11 patch failed: {label} matched {n}')
+    s=s2
+
 replace_once(
 '''        // With 3+ roots the user has expressed much more intent. Keep ordinary
         // BMP Han exact matches (e.g. HAP -> 皂, 皀) ahead of prefix completions.
@@ -49,13 +56,9 @@ replace_once(
 'Cangjie period relocation'
 )
 
-replace_once(
-'''    private void drawBottom(Canvas c,String left,String mark){
-        drawFixedKey(c,18,518,145,647,left,22,"NUM",""); drawFixedKey(c,160,518,287,647,"☺",23,"EMOJI",""); drawFixedKey(c,303,518,864,647,"",22,"SPACE",""); drawFixedKey(c,880,518,1150,647,"↩",25,"ENTER","");
-        t.setColor(Color.rgb(190,190,194)); t.setTextSize(dp(12)); t.setTextAlign(Paint.Align.RIGHT); c.drawText(mark,sx(842),sy(626),t);
-    }
-''',
-'''    private void drawBottom(Canvas c,String left,String mark){
+sub1(
+    r'''    private void drawBottom\(Canvas c,String left,String mark\)\{.*?\n    \}''',
+    r'''    private void drawBottom(Canvas c,String left,String mark){
         drawFixedKey(c,18,518,145,647,left,22,"NUM","");
         drawFixedKey(c,160,518,287,647,"☺",23,"EMOJI","");
         if(mode==Mode.ENGLISH){
@@ -68,11 +71,9 @@ replace_once(
             drawFixedKey(c,880,518,1150,647,"↩",25,"ENTER","");
             t.setColor(secondaryTextColor()); t.setTextSize(dp(12)); t.setTextAlign(Paint.Align.RIGHT); c.drawText(mark,sx(738),sy(626),t);
         }
-    }
-''',
-'Chinese bottom-row period'
+    }''',
+    'Chinese bottom-row period'
 )
-
 replace_once(
 '''                // Borrow only a slim strip from the wide backspace key for 。.
                 // A tap actually inside the visible 。 key always remains 。.
