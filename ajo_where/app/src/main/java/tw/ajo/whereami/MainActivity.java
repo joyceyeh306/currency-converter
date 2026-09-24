@@ -36,7 +36,7 @@ import java.util.Locale;
 public class MainActivity extends Activity {
     private static final int REQ_LOCATION = 100;
     private static final int REQ_NOTIFY = 101;
-    private static final String VIEWER_BASE = "https://raw.githack.com/joyceyeh306/currency-converter/ajo-location-v1/viewer/index.html";
+    private static final String VIEWER_BASE = "https://joyceyeh306.github.io/currency-converter/";
 
     private TextView statusText;
     private TextView lastText;
