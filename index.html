@@ -77,8 +77,7 @@ async function refreshNow(){
    const r=await fetch('https://ntfy.sh/'+encodeURIComponent(code)+'/json?poll=1&since=latest&title=ajo-location&v=2',{cache:'no-store',signal:ctl.signal});
    clearTimeout(timer);
    if(!r.ok)throw new Error('HTTP '+r.status);
-   const txt=await r.text(); const rows=txt.split(/
-+/).filter(Boolean).map(x=>{try{return JSON.parse(x)}catch(e){return null}}).filter(Boolean);
+   const txt=await r.text(); const rows=txt.split(String.fromCharCode(10)).filter(Boolean).map(x=>{try{return JSON.parse(x)}catch(e){return null}}).filter(Boolean);
    const msgs=rows.filter(x=>x.event==='message'&&x.message).sort((a,b)=>(a.time||0)-(b.time||0));
    if(!msgs.length){st.textContent='尚未收到ㄚ喬的位置';document.getElementById('time').textContent='請確認 OPPO 上已按「開始分享位置」。';return}
    const p=JSON.parse(msgs[msgs.length-1].message); const lat=Number(p.lat),lon=Number(p.lon),t=Number(p.time||0); const age=Date.now()-t;
