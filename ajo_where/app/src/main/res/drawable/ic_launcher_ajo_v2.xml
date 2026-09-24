@@ -1,0 +1,49 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- 黃色圓角底 -->
+    <path
+        android:fillColor="#FFD51A"
+        android:pathData="M18,4 H90 C98,4 104,10 104,18 V90 C104,98 98,104 90,104 H18 C10,104 4,98 4,90 V18 C4,10 10,4 18,4 Z" />
+
+    <!-- 下方橘黃色波浪，對應選定圖示的亮黃橘層次 -->
+    <path
+        android:fillColor="#FFB20A"
+        android:pathData="M4,72 C28,58 50,79 72,75 C86,72 95,64 104,60 V90 C104,98 98,104 90,104 H18 C10,104 4,98 4,90 Z" />
+
+    <path
+        android:fillColor="#FFC51A"
+        android:pathData="M4,84 C31,74 54,92 78,86 C89,83 97,78 104,74 V90 C104,98 98,104 90,104 H18 C10,104 4,98 4,90 Z" />
+
+    <!-- 定位圖釘 -->
+    <path
+        android:fillColor="#FFF9EA"
+        android:pathData="M47,16 C30,16 20,29 20,44 C20,64 47,89 47,89 C47,89 74,64 74,44 C74,29 64,16 47,16 Z" />
+
+    <path
+        android:fillColor="#FFB400"
+        android:pathData="M47,30 A14,14 0,1 0,47 58 A14,14 0,1 0,47 30 Z" />
+
+    <!-- 愛心外白框 -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M85,86 C80,81 65,72 65,60 C65,51 71,46 78,46 C83,46 87,49 90,53 C93,49 97,46 102,46 C110,46 115,52 115,60 C115,72 100,81 90,88 Z" />
+
+    <!-- 愛心深藍框 -->
+    <path
+        android:fillColor="#08245F"
+        android:pathData="M85,83 C81,79 69,71 69,61 C69,54 73,50 79,50 C84,50 87,53 90,57 C93,53 96,50 101,50 C107,50 111,54 111,61 C111,71 99,79 90,85 Z" />
+
+    <!-- 愛心本體 -->
+    <path
+        android:fillColor="#FF5268"
+        android:pathData="M86,80 C82,76 73,70 73,62 C73,57 76,54 80,54 C84,54 87,57 90,61 C93,57 96,54 100,54 C104,54 107,57 107,62 C107,70 98,76 90,82 Z" />
+
+    <!-- 愛心高光 -->
+    <path
+        android:fillColor="#FFB2B6"
+        android:pathData="M79,57 C76,59 76,63 78,65 C80,66 82,64 83,62 C84,60 83,57 81,57 Z" />
+</vector>
