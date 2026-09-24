@@ -4,7 +4,6 @@
     android:viewportWidth="108"
     android:viewportHeight="108">
 
-    <!-- Keep the important artwork inside the adaptive-icon safe area. -->
     <group
         android:pivotX="54"
         android:pivotY="54"
@@ -20,20 +19,21 @@
             android:fillColor="#FFB400"
             android:pathData="M44,27A15,15 0,1 0,44,57A15,15 0,1 0,44,27Z"/>
 
+        <!-- Heart moved inward and slightly upward so OPPO's icon mask won't crop it. -->
         <path
             android:fillColor="#FFFFFF"
-            android:pathData="M79,91C75,87 59,77 59,63C59,53 65,47 73,47C79,47 83,50 87,55C91,50 95,47 101,47C110,47 116,54 116,63C116,77 99,87 87,94Z"/>
+            android:pathData="M72,88C68,84 52,74 52,60C52,50 58,44 66,44C72,44 76,47 80,52C84,47 88,44 94,44C103,44 109,51 109,60C109,74 92,84 80,91Z"/>
 
         <path
             android:fillColor="#09245F"
-            android:pathData="M80,87C76,83 64,75 64,64C64,57 68,52 74,52C79,52 83,55 87,60C91,55 95,52 100,52C106,52 111,57 111,64C111,75 99,83 87,90Z"/>
+            android:pathData="M73,84C69,80 57,72 57,61C57,54 61,49 67,49C72,49 76,52 80,57C84,52 88,49 93,49C99,49 104,54 104,61C104,72 92,80 80,87Z"/>
 
         <path
             android:fillColor="#FF5268"
-            android:pathData="M81,83C77,80 69,73 69,65C69,60 72,57 76,57C80,57 83,60 87,65C91,60 94,57 98,57C103,57 106,60 106,65C106,73 98,80 87,86Z"/>
+            android:pathData="M74,80C70,77 62,70 62,62C62,57 65,54 69,54C73,54 76,57 80,62C84,57 87,54 91,54C96,54 99,57 99,62C99,70 91,77 80,83Z"/>
 
         <path
             android:fillColor="#FFB8BB"
-            android:pathData="M76,60C73,62 73,66 75,68C77,69 80,67 81,64C82,62 80,59 78,59Z"/>
+            android:pathData="M69,57C66,59 66,63 68,65C70,66 73,64 74,61C75,59 73,56 71,56Z"/>
     </group>
 </vector>
