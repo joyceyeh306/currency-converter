@@ -1,11 +1,16 @@
 {
   "name": "ㄚ喬在哪裡",
   "short_name": "ㄚ喬在哪裡",
-  "start_url": "./index.html",
   "display": "standalone",
-  "background_color": "#f6faff",
+  "background_color": "#eaf4ff",
   "theme_color": "#eaf4ff",
+  "scope": "/currency-converter/",
   "icons": [
-    {"src":"https://raw.githubusercontent.com/joyceyeh306/currency-converter/ajo-location-v1/viewer/apple-touch-icon-180.png","sizes":"180x180","type":"image/png","purpose":"any"}
+    {
+      "src": "/currency-converter/ajo-icon-v108.png",
+      "sizes": "180x180",
+      "type": "image/png",
+      "purpose": "any"
+    }
   ]
 }
