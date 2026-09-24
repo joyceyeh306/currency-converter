@@ -58,6 +58,7 @@
 const qs=new URLSearchParams(location.search); const fromUrl=qs.get('code');
 if(fromUrl){localStorage.setItem('ajoWhereCode',fromUrl)}
 let code=localStorage.getItem('ajoWhereCode')||'';
+if(!fromUrl && code){const u=new URL(location.href);u.searchParams.set('code',code);u.searchParams.set('v','108');history.replaceState({},'',u.pathname+u.search)}
 let latestLat=null, latestLon=null;
 function openNavChooser(){if(latestLat===null||latestLon===null)return;document.getElementById('navsheet').classList.remove('hidden')}
 function closeNavChooser(){document.getElementById('navsheet').classList.add('hidden')}
