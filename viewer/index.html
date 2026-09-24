@@ -74,7 +74,10 @@ async function refreshNow(){
  if(!code){showSetup();return}
  const st=document.getElementById('status'); st.textContent='正在讀取位置…'; st.className='status';
  try{
-   const r=await fetch('https://ntfy.sh/'+encodeURIComponent(code)+'/json?poll=1&since=all&title=ajo-location',{cache:'no-store'});
+   const ctl=new AbortController();
+   const timer=setTimeout(()=>ctl.abort(),8000);
+   const r=await fetch('https://ntfy.sh/'+encodeURIComponent(code)+'/json?poll=1&since=latest&title=ajo-location&v=2',{cache:'no-store',signal:ctl.signal});
+   clearTimeout(timer);
    if(!r.ok)throw new Error('HTTP '+r.status);
    const txt=await r.text(); const rows=txt.split(/\n+/).filter(Boolean).map(x=>{try{return JSON.parse(x)}catch(e){return null}}).filter(Boolean);
    const msgs=rows.filter(x=>x.event==='message'&&x.message).sort((a,b)=>(a.time||0)-(b.time||0));
@@ -87,10 +90,16 @@ async function refreshNow(){
    const pad=.006; const bbox=[lon-pad,lat-pad*0.65,lon+pad,lat+pad*0.65].join(',');
    const map=document.getElementById('map'); map.src='https://www.openstreetmap.org/export/embed.html?bbox='+encodeURIComponent(bbox)+'&layer=mapnik&marker='+encodeURIComponent(lat+','+lon); map.classList.remove('hidden');
    document.getElementById('actions').classList.remove('hidden');
- }catch(e){st.textContent='讀取位置失敗';st.className='status bad';document.getElementById('time').textContent='請檢查網路後再重新整理。'}
+ }catch(e){
+   st.textContent='讀取位置失敗';
+   st.className='status bad';
+   document.getElementById('time').textContent=(e&&e.name==='AbortError')?'連線逾時，請按重新整理再試一次。':'無法讀取定位資料，請按重新整理再試一次。';
+ }
 }
 refreshNow();setInterval(refreshNow,60000);
-if('serviceWorker' in navigator)navigator.serviceWorker.register('sw.js').catch(()=>{});
+if('serviceWorker' in navigator){
+  navigator.serviceWorker.getRegistrations().then(rs=>rs.forEach(r=>r.unregister())).catch(()=>{});
+}
 </script>
 </body>
 </html>
