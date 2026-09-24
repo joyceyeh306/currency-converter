@@ -7,8 +7,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="ㄚ喬在哪裡">
-<link rel="apple-touch-icon" sizes="180x180" href="./ajo-touch-icon-v108.png">
-<link rel="icon" type="image/png" href="./ajo-touch-icon-v108.png">
+<link rel="manifest" href="./manifest.webmanifest?v=108">
 <title>ㄚ喬在哪裡</title>
 <style>
 :root{font-family:-apple-system,BlinkMacSystemFont,"Noto Sans TC","PingFang TC",sans-serif;color:#18304e;background:#f6faff}
@@ -57,7 +56,7 @@
 </div>
 <script>
 const qs=new URLSearchParams(location.search); const fromUrl=qs.get('code');
-if(fromUrl){localStorage.setItem('ajoWhereCode',fromUrl); history.replaceState({},'',location.pathname)}
+if(fromUrl){localStorage.setItem('ajoWhereCode',fromUrl)}
 let code=localStorage.getItem('ajoWhereCode')||'';
 let latestLat=null, latestLon=null;
 function openNavChooser(){if(latestLat===null||latestLon===null)return;document.getElementById('navsheet').classList.remove('hidden')}
