@@ -1,0 +1,46 @@
+name: Build Ajo Where v1
+
+on:
+  push:
+    branches: [ajo-location-v1]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Prepare Android source
+        run: |
+          rm -rf app build.gradle settings.gradle gradle.properties
+          unzip -o ajo_where_source.zip -d .
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK
+        run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: Build unsigned release APK
+        run: gradle :app:assembleRelease --no-daemon --stacktrace
+
+      - name: Collect release kit
+        run: |
+          cp app/build/outputs/apk/release/app-release-unsigned.apk app-release-unsigned.apk
+          cp "$ANDROID_HOME/build-tools/35.0.0/lib/apksigner.jar" apksigner.jar
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ajo-where-v1-release-kit
+          path: |
+            app-release-unsigned.apk
+            apksigner.jar
+          if-no-files-found: error
