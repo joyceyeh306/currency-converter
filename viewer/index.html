@@ -7,11 +7,6 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="ㄚ喬在哪裡">
-<link rel="manifest" href="manifest.webmanifest">
-<link rel="apple-touch-icon" sizes="180x180" href="https://raw.githubusercontent.com/joyceyeh306/currency-converter/ajo-location-v1/viewer/apple-touch-icon-180.png">
-<link rel="apple-touch-icon-precomposed" sizes="180x180" href="https://raw.githubusercontent.com/joyceyeh306/currency-converter/ajo-location-v1/viewer/apple-touch-icon-180.png">
-<link rel="icon" type="image/png" href="https://raw.githubusercontent.com/joyceyeh306/currency-converter/ajo-location-v1/viewer/apple-touch-icon-180.png">
-<link rel="shortcut icon" href="https://raw.githubusercontent.com/joyceyeh306/currency-converter/ajo-location-v1/viewer/apple-touch-icon-180.png">
 <title>ㄚ喬在哪裡</title>
 <style>
 :root{font-family:-apple-system,BlinkMacSystemFont,"Noto Sans TC","PingFang TC",sans-serif;color:#18304e;background:#f6faff}
@@ -98,9 +93,7 @@ async function refreshNow(){
  }
 }
 refreshNow();setInterval(refreshNow,60000);
-if('serviceWorker' in navigator){
-  navigator.serviceWorker.getRegistrations().then(rs=>rs.forEach(r=>r.unregister())).catch(()=>{});
-}
+
 </script>
 </body>
 </html>
