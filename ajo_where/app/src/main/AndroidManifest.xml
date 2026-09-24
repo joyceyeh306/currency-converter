@@ -10,9 +10,9 @@
 
     <application
         android:allowBackup="false"
-        android:icon="@drawable/ic_launcher_ajo"
+        android:icon="@drawable/ic_launcher_ajo_v2"
         android:label="ㄚ喬在哪裡"
-        android:roundIcon="@drawable/ic_launcher_ajo"
+        android:roundIcon="@drawable/ic_launcher_ajo_v2"
         android:supportsRtl="true"
         android:theme="@style/AppTheme"
         android:usesCleartextTraffic="false">
