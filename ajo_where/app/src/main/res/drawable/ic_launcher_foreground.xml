@@ -4,31 +4,36 @@
     android:viewportWidth="108"
     android:viewportHeight="108">
 
-    <!-- Large location pin -->
-    <path
-        android:fillColor="#FFFDF5"
-        android:pathData="M44,8C25,8 13,23 13,42C13,65 44,97 44,97C44,97 75,65 75,42C75,23 63,8 44,8Z"/>
+    <!-- Keep the important artwork inside the adaptive-icon safe area. -->
+    <group
+        android:pivotX="54"
+        android:pivotY="54"
+        android:scaleX="0.72"
+        android:scaleY="0.72"
+        android:translateX="-2">
 
-    <path
-        android:fillColor="#FFB400"
-        android:pathData="M44,27A15,15 0,1 0,44,57A15,15 0,1 0,44,27Z"/>
+        <path
+            android:fillColor="#FFFDF5"
+            android:pathData="M44,8C25,8 13,23 13,42C13,65 44,97 44,97C44,97 75,65 75,42C75,23 63,8 44,8Z"/>
 
-    <!-- Heart white border -->
-    <path
-        android:fillColor="#FFFFFF"
-        android:pathData="M79,91C75,87 59,77 59,63C59,53 65,47 73,47C79,47 83,50 87,55C91,50 95,47 101,47C110,47 116,54 116,63C116,77 99,87 87,94Z"/>
+        <path
+            android:fillColor="#FFB400"
+            android:pathData="M44,27A15,15 0,1 0,44,57A15,15 0,1 0,44,27Z"/>
 
-    <!-- Heart navy border -->
-    <path
-        android:fillColor="#09245F"
-        android:pathData="M80,87C76,83 64,75 64,64C64,57 68,52 74,52C79,52 83,55 87,60C91,55 95,52 100,52C106,52 111,57 111,64C111,75 99,83 87,90Z"/>
+        <path
+            android:fillColor="#FFFFFF"
+            android:pathData="M79,91C75,87 59,77 59,63C59,53 65,47 73,47C79,47 83,50 87,55C91,50 95,47 101,47C110,47 116,54 116,63C116,77 99,87 87,94Z"/>
 
-    <!-- Heart fill -->
-    <path
-        android:fillColor="#FF5268"
-        android:pathData="M81,83C77,80 69,73 69,65C69,60 72,57 76,57C80,57 83,60 87,65C91,60 94,57 98,57C103,57 106,60 106,65C106,73 98,80 87,86Z"/>
+        <path
+            android:fillColor="#09245F"
+            android:pathData="M80,87C76,83 64,75 64,64C64,57 68,52 74,52C79,52 83,55 87,60C91,55 95,52 100,52C106,52 111,57 111,64C111,75 99,83 87,90Z"/>
 
-    <path
-        android:fillColor="#FFB8BB"
-        android:pathData="M76,60C73,62 73,66 75,68C77,69 80,67 81,64C82,62 80,59 78,59Z"/>
+        <path
+            android:fillColor="#FF5268"
+            android:pathData="M81,83C77,80 69,73 69,65C69,60 72,57 76,57C80,57 83,60 87,65C91,60 94,57 98,57C103,57 106,60 106,65C106,73 98,80 87,86Z"/>
+
+        <path
+            android:fillColor="#FFB8BB"
+            android:pathData="M76,60C73,62 73,66 75,68C77,69 80,67 81,64C82,62 80,59 78,59Z"/>
+    </group>
 </vector>
