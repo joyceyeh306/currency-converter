@@ -20,6 +20,7 @@ import android.provider.Settings;
 import android.text.TextUtils;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.WindowInsets;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.LinearLayout;
@@ -54,7 +55,9 @@ public class MainActivity extends Activity {
     @Override
     protected void onCreate(Bundle state) {
         super.onCreate(state);
-        setContentView(buildUi());
+        View contentView = buildUi();
+        setContentView(contentView);
+        applySystemBarInsets(contentView);
         requestNotificationIfNeeded();
         refresh();
     }
@@ -187,6 +190,43 @@ public class MainActivity extends Activity {
         root.addView(note);
 
         return scroll;
+    }
+
+    private void applySystemBarInsets(View view) {
+        final int baseLeft = view.getPaddingLeft();
+        final int baseTop = view.getPaddingTop();
+        final int baseRight = view.getPaddingRight();
+        final int baseBottom = view.getPaddingBottom();
+
+        view.setOnApplyWindowInsetsListener((v, insets) -> {
+            int left;
+            int top;
+            int right;
+            int bottom;
+
+            if (Build.VERSION.SDK_INT >= 30) {
+                android.graphics.Insets bars = insets.getInsets(WindowInsets.Type.systemBars());
+                left = bars.left;
+                top = bars.top;
+                right = bars.right;
+                bottom = bars.bottom;
+            } else {
+                left = insets.getSystemWindowInsetLeft();
+                top = insets.getSystemWindowInsetTop();
+                right = insets.getSystemWindowInsetRight();
+                bottom = insets.getSystemWindowInsetBottom();
+            }
+
+            v.setPadding(
+                    baseLeft + left,
+                    baseTop + top,
+                    baseRight + right,
+                    baseBottom + bottom
+            );
+            return insets;
+        });
+
+        view.requestApplyInsets();
     }
 
     private TextView text(String s, int sp, boolean bold, int color) {
