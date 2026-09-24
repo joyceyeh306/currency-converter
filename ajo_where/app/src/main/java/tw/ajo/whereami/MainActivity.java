@@ -328,7 +328,7 @@ public class MainActivity extends Activity {
     }
 
     private void copyViewerUrl() {
-        String url = VIEWER_BASE + "?code=" + Uri.encode(Prefs.topic(this)) + "&v=107";
+        String url = VIEWER_BASE + "?code=" + Uri.encode(Prefs.topic(this)) + "&v=108";
         ClipboardManager cm = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
         cm.setPrimaryClip(ClipData.newPlainText("ㄚ喬在哪裡", url));
         Toast.makeText(this, "查看網址已複製，傳給人類即可", Toast.LENGTH_LONG).show();
