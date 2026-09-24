@@ -18,6 +18,15 @@ jobs:
           distribution: temurin
           java-version: '17'
 
+      - name: Normalize launcher PNG
+        run: |
+          if ! command -v convert >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y imagemagick
+          fi
+          convert ajo_where/app/src/main/res/drawable/ic_launcher_ajo.png -alpha on PNG32:/tmp/ic_launcher_ajo.png
+          mv /tmp/ic_launcher_ajo.png ajo_where/app/src/main/res/drawable/ic_launcher_ajo.png
+
       - name: Install Android command line tools
         run: |
           mkdir -p "$ANDROID_HOME/cmdline-tools"
