@@ -282,6 +282,10 @@ public class MainActivity extends Activity {
             }
             String mime = o.optString("mime", "");
             o.put("metadataWritable", editableMetadataMime(mime));
+            long albumMs = o.optLong("dateTaken", 0);
+            java.util.TimeZone tz = java.util.TimeZone.getDefault();
+            o.put("deviceTimeZoneId", tz.getID());
+            o.put("deviceOffsetMinutes", tz.getOffset(albumMs > 0 ? albumMs : System.currentTimeMillis()) / 60000);
         } catch (Exception e) {
             try { o.put("exifError", e.getMessage()); } catch (JSONException ignored) {}
         }
@@ -291,6 +295,194 @@ public class MainActivity extends Activity {
     private void putExif(JSONObject o, String key, ExifInterface exif, String tag) throws JSONException {
         String v = exif.getAttribute(tag);
         if (v != null) o.put(key, v);
+    }
+
+    private JSONObject previewField(String label, String before, String after) {
+        JSONObject f = new JSONObject();
+        try {
+            f.put("label", label);
+            f.put("before", safe(before));
+            f.put("after", safe(after));
+        } catch (JSONException ignored) {}
+        return f;
+    }
+
+    private JSONObject buildPreview(JSONArray ids, JSONObject action) {
+        JSONObject result = new JSONObject();
+        JSONArray items = new JSONArray();
+        int changed = 0, unchanged = 0, skipped = 0;
+        String type = action.optString("type", "");
+
+        try {
+            Map<String, Integer> duplicates = new HashMap<>();
+            Double copyLat = null, copyLon = null;
+            if ("gpsCopy".equals(type) && ids.length() > 0) {
+                JSONObject src = exifInfo(ids.optLong(0));
+                if (src.optBoolean("hasGps")) {
+                    copyLat = src.optDouble("lat");
+                    copyLon = src.optDouble("lon");
+                }
+            }
+
+            for (int i = 0; i < ids.length(); i++) {
+                long id = ids.optLong(i, -1);
+                if (id < 0) continue;
+                JSONObject before = exifInfo(id);
+                JSONObject p = new JSONObject();
+                JSONArray fields = new JSONArray();
+                String name = before.optString("name", "");
+                String mime = before.optString("mime", "");
+                String status = "change";
+                String message = "";
+
+                p.put("id", id);
+                p.put("name", name);
+                p.put("uri", before.optString("uri", ""));
+
+                if ("rename".equals(type)) {
+                    String source = action.optString("source", "filename");
+                    Date d = null;
+                    if ("filename".equals(source)) d = parseFilenameDate(name);
+                    if ("exif".equals(source)) {
+                        long ms = exifDateToMillis(before.optString("dateTimeOriginal"));
+                        if (ms > 0) d = new Date(ms);
+                    }
+                    if (d == null) {
+                        status = "skip";
+                        message = "找不到可用時間";
+                    } else {
+                        boolean seconds = action.optBoolean("seconds", false);
+                        String stem = (seconds ? fileDateSecond : fileDateMinute).format(d);
+                        String ext = extensionOf(name, mime);
+                        String key = stem + ext.toLowerCase(Locale.US);
+                        int n = duplicates.containsKey(key) ? duplicates.get(key) : 0;
+                        duplicates.put(key, n + 1);
+                        String newName = n == 0 ? stem + ext : stem + "-" + String.format(Locale.US, "%02d", n) + ext;
+                        fields.put(previewField("檔名", name, newName));
+                        if (name.equals(newName)) {
+                            status = "same";
+                            message = "檔名已經正確";
+                        }
+                    }
+                } else if ("dateFromFilename".equals(type)) {
+                    if (!editableMetadataMime(mime)) {
+                        status = "skip";
+                        message = "此格式只讀，為保護畫質不寫入";
+                    } else {
+                        Date d = parseFilenameDate(name);
+                        if (d == null) {
+                            status = "skip";
+                            message = "檔名沒有可辨識時間";
+                        } else {
+                            String newDate = exifDateFormat.format(d);
+                            String oldDate = before.optString("dateTimeOriginal", "—");
+                            fields.put(previewField("拍攝時間", oldDate, newDate));
+                            String offset = action.optString("offset", "");
+                            if (!offset.isEmpty()) {
+                                String oldOffset = before.optString("offsetTimeOriginal", "—");
+                                fields.put(previewField("時區", oldOffset, offset));
+                            }
+                            if (oldDate.equals(newDate) && (offset.isEmpty() || offset.equals(before.optString("offsetTimeOriginal", "")))) {
+                                status = "same";
+                                message = "拍攝時間已經正確";
+                            }
+                        }
+                    }
+                } else if ("shiftTime".equals(type)) {
+                    if (!editableMetadataMime(mime)) {
+                        status = "skip";
+                        message = "此格式只讀，為保護畫質不寫入";
+                    } else {
+                        String oldDate = before.optString("dateTimeOriginal", "");
+                        long oldMs = exifDateToMillis(oldDate);
+                        if (oldMs <= 0) {
+                            status = "skip";
+                            message = "沒有 EXIF 拍攝時間";
+                        } else {
+                            long newMs = oldMs + action.optLong("minutes", 0) * 60000L;
+                            String newDate = exifDateFormat.format(new Date(newMs));
+                            fields.put(previewField("拍攝時間", oldDate, newDate));
+                            String offset = action.optString("offset", "");
+                            if (!offset.isEmpty()) fields.put(previewField("時區", before.optString("offsetTimeOriginal", "—"), offset));
+                            if (oldMs == newMs && (offset.isEmpty() || offset.equals(before.optString("offsetTimeOriginal", "")))) {
+                                status = "same";
+                                message = "沒有變更";
+                            }
+                        }
+                    }
+                } else if ("gpsSet".equals(type)) {
+                    if (!editableMetadataMime(mime)) {
+                        status = "skip";
+                        message = "此格式只讀，為保護畫質不寫入";
+                    } else {
+                        double lat = action.optDouble("lat");
+                        double lon = action.optDouble("lon");
+                        String oldGps = before.optBoolean("hasGps")
+                                ? String.format(Locale.US, "%.6f, %.6f", before.optDouble("lat"), before.optDouble("lon"))
+                                : "無定位";
+                        String newGps = String.format(Locale.US, "%.6f, %.6f", lat, lon);
+                        fields.put(previewField("GPS", oldGps, newGps));
+                        if (oldGps.equals(newGps)) {
+                            status = "same";
+                            message = "GPS 已經相同";
+                        }
+                    }
+                } else if ("gpsCopy".equals(type)) {
+                    if (!editableMetadataMime(mime)) {
+                        status = "skip";
+                        message = "此格式只讀，為保護畫質不寫入";
+                    } else if (copyLat == null || copyLon == null) {
+                        status = "skip";
+                        message = "第一張照片沒有 GPS";
+                    } else if (i == 0) {
+                        status = "same";
+                        message = "GPS 來源照片，不修改";
+                    } else {
+                        String oldGps = before.optBoolean("hasGps")
+                                ? String.format(Locale.US, "%.6f, %.6f", before.optDouble("lat"), before.optDouble("lon"))
+                                : "無定位";
+                        String newGps = String.format(Locale.US, "%.6f, %.6f", copyLat, copyLon);
+                        fields.put(previewField("GPS", oldGps, newGps));
+                        if (oldGps.equals(newGps)) {
+                            status = "same";
+                            message = "GPS 已經相同";
+                        }
+                    }
+                } else if ("gpsClear".equals(type)) {
+                    if (!editableMetadataMime(mime)) {
+                        status = "skip";
+                        message = "此格式只讀，為保護畫質不寫入";
+                    } else if (!before.optBoolean("hasGps")) {
+                        status = "same";
+                        message = "原本就沒有 GPS";
+                    } else {
+                        String oldGps = String.format(Locale.US, "%.6f, %.6f", before.optDouble("lat"), before.optDouble("lon"));
+                        fields.put(previewField("GPS", oldGps, "清除定位"));
+                    }
+                } else {
+                    status = "skip";
+                    message = "尚未支援此預覽操作";
+                }
+
+                p.put("status", status);
+                p.put("message", message);
+                p.put("fields", fields);
+                items.put(p);
+                if ("change".equals(status)) changed++;
+                else if ("same".equals(status)) unchanged++;
+                else skipped++;
+            }
+
+            result.put("ok", true);
+            result.put("type", type);
+            result.put("changed", changed);
+            result.put("unchanged", unchanged);
+            result.put("skipped", skipped);
+            result.put("items", items);
+        } catch (Exception e) {
+            return errorResult("預覽失敗：" + e.getMessage());
+        }
+        return result;
     }
 
     private void logHistory(JSONObject entry) {
@@ -697,6 +889,15 @@ public class MainActivity extends Activity {
                 } catch (JSONException ignored) {}
             }
             return r.toString();
+        }
+
+        @JavascriptInterface
+        public String previewAction(String idsJson, String actionJson) {
+            try {
+                return buildPreview(new JSONArray(idsJson), new JSONObject(actionJson)).toString();
+            } catch (Exception e) {
+                return errorResult("預覽資料錯誤：" + e.getMessage()).toString();
+            }
         }
 
         @JavascriptInterface
