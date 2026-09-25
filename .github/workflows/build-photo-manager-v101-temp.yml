@@ -1,10 +1,10 @@
-name: Build Ajo Photo Manager v1.0.1
+name: Build Ajo Photo Manager v1.1.0 Preview
 
 on:
   push:
     branches: [ main ]
     paths:
-      - '.github/workflows/build-photo-manager-v101-temp.yml'
+      - '.github/workflows/build-photo-manager-v110-temp.yml'
   workflow_dispatch:
 
 permissions:
@@ -44,9 +44,9 @@ jobs:
           cp /tmp/ajo-photo-icon.png photo_manager_app/app/src/main/res/drawable/app_icon.png
           cp /tmp/ajo-photo-icon.png photo_manager_app/app/src/main/assets/icon.png
 
-      - name: Verify v1.0.1 sources
+      - name: Verify v1.1.0 sources
         run: |
-          grep -q "versionName '1.0.1'" photo_manager_app/app/build.gradle
+          grep -q "versionName '1.1.0'" photo_manager_app/app/build.gradle
           grep -q "setWebChromeClient" photo_manager_app/app/src/main/java/tw/ajo/photomanager/MainActivity.java
           python3 - <<'PY'
           from pathlib import Path
@@ -62,33 +62,33 @@ jobs:
         working-directory: photo_manager_app
         run: |
           set -o pipefail
-          gradle :app:assembleRelease --stacktrace 2>&1 | tee /tmp/photo-manager-build-v101.log
+          gradle :app:assembleRelease --stacktrace 2>&1 | tee /tmp/photo-manager-build-v110.log
 
       - name: Sign APK
         run: |
           curl -fsSL 'https://android.googlesource.com/platform/build/+/refs/heads/main/target/product/security/testkey.pk8?format=TEXT' | base64 -d > /tmp/testkey.pk8
           curl -fsSL 'https://android.googlesource.com/platform/build/+/refs/heads/main/target/product/security/testkey.x509.pem?format=TEXT' | base64 -d > /tmp/testkey.x509.pem
           BT="$ANDROID_HOME/build-tools/35.0.0"
-          "$BT/zipalign" -f -p 4 photo_manager_app/app/build/outputs/apk/release/app-release-unsigned.apk /tmp/ajo-photo-manager-v1.0.1-aligned.apk
-          "$BT/apksigner" sign --key /tmp/testkey.pk8 --cert /tmp/testkey.x509.pem --out /tmp/ajo-photo-manager-v1.0.1.apk /tmp/ajo-photo-manager-v1.0.1-aligned.apk
-          "$BT/apksigner" verify --verbose --print-certs /tmp/ajo-photo-manager-v1.0.1.apk | tee /tmp/photo-manager-signature-v101.txt
+          "$BT/zipalign" -f -p 4 photo_manager_app/app/build/outputs/apk/release/app-release-unsigned.apk /tmp/ajo-photo-manager-v1.1.0-aligned.apk
+          "$BT/apksigner" sign --key /tmp/testkey.pk8 --cert /tmp/testkey.x509.pem --out /tmp/ajo-photo-manager-v1.1.0.apk /tmp/ajo-photo-manager-v1.1.0-aligned.apk
+          "$BT/apksigner" verify --verbose --print-certs /tmp/ajo-photo-manager-v1.1.0.apk | tee /tmp/photo-manager-signature-v110.txt
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ajo-photo-manager-v1.0.1
-          path: /tmp/ajo-photo-manager-v1.0.1.apk
+          name: ajo-photo-manager-v1.1.0
+          path: /tmp/ajo-photo-manager-v1.1.0.apk
           retention-days: 30
 
       - name: Publish status to source branch
         run: |
           mkdir -p photo_manager_output
-          printf 'version=1.0.1\nbuild=success\nsign=success\nrun_id=%s\nsource=%s\n' '${{ github.run_id }}' '${{ github.sha }}' > photo_manager_output/status-v101.txt
-          cp /tmp/photo-manager-signature-v101.txt photo_manager_output/signature-v101.txt
+          printf 'version=1.1.0\nbuild=success\nsign=success\nrun_id=%s\nsource=%s\n' '${{ github.run_id }}' '${{ github.sha }}' > photo_manager_output/status-v110.txt
+          cp /tmp/photo-manager-signature-v110.txt photo_manager_output/signature-v110.txt
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -- photo_manager_output
-          git commit -m "Publish ㄚ喬照片管家 v1.0.1 build status" || exit 0
+          git commit -m "Publish ㄚ喬照片管家 v1.1.0 build status" || exit 0
           git push origin HEAD:photo-manager-v1
 
-# trigger v1.0.1 build
+# trigger v1.1.0 build
