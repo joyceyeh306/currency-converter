@@ -62,7 +62,7 @@ jobs:
           PY
           node --check /tmp/photo-manager.js
           grep -q "android.useAndroidX=true" photo_manager_app/gradle.properties
-          grep -q "versionName '1.0.0'" photo_manager_app/app/build.gradle
+          grep -q "versionName '1.0.1'" photo_manager_app/app/build.gradle
           grep -q "ㄚ喬照片管家" photo_manager_app/app/src/main/AndroidManifest.xml
 
       - name: Build unsigned release APK
@@ -82,17 +82,17 @@ jobs:
           curl -fsSL 'https://android.googlesource.com/platform/build/+/refs/heads/main/target/product/security/testkey.pk8?format=TEXT' | base64 -d > /tmp/testkey.pk8
           curl -fsSL 'https://android.googlesource.com/platform/build/+/refs/heads/main/target/product/security/testkey.x509.pem?format=TEXT' | base64 -d > /tmp/testkey.x509.pem
           BT="$ANDROID_HOME/build-tools/35.0.0"
-          "$BT/zipalign" -f -p 4 photo_manager_app/app/build/outputs/apk/release/app-release-unsigned.apk /tmp/ajo-photo-manager-v1.0.0-aligned.apk
-          "$BT/apksigner" sign --key /tmp/testkey.pk8 --cert /tmp/testkey.x509.pem --out /tmp/ajo-photo-manager-v1.0.0.apk /tmp/ajo-photo-manager-v1.0.0-aligned.apk
-          "$BT/apksigner" verify --verbose --print-certs /tmp/ajo-photo-manager-v1.0.0.apk | tee /tmp/photo-manager-signature.txt
+          "$BT/zipalign" -f -p 4 photo_manager_app/app/build/outputs/apk/release/app-release-unsigned.apk /tmp/ajo-photo-manager-v1.0.1-aligned.apk
+          "$BT/apksigner" sign --key /tmp/testkey.pk8 --cert /tmp/testkey.x509.pem --out /tmp/ajo-photo-manager-v1.0.1.apk /tmp/ajo-photo-manager-v1.0.1-aligned.apk
+          "$BT/apksigner" verify --verbose --print-certs /tmp/ajo-photo-manager-v1.0.1.apk | tee /tmp/photo-manager-signature.txt
 
       - name: Upload APK artifact
         id: uploadapk
         if: steps.signapk.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
-          name: ajo-photo-manager-v1.0.0
-          path: /tmp/ajo-photo-manager-v1.0.0.apk
+          name: ajo-photo-manager-v1.0.1
+          path: /tmp/ajo-photo-manager-v1.0.1.apk
           if-no-files-found: error
           retention-days: 30
 
@@ -100,7 +100,7 @@ jobs:
         if: always()
         run: |
           mkdir -p photo_manager_output
-          printf 'version=1.0.0\nbuild=%s\nsign=%s\nrun_id=%s\nsource=%s\n' \
+          printf 'version=1.0.1\nbuild=%s\nsign=%s\nrun_id=%s\nsource=%s\n' \
             '${{ steps.buildapk.outcome }}' '${{ steps.signapk.outcome }}' '${{ github.run_id }}' '${{ github.sha }}' \
             > photo_manager_output/status.txt
           if [ -f /tmp/photo-manager-build.log ]; then tail -n 300 /tmp/photo-manager-build.log > photo_manager_output/build-log.txt; fi
@@ -108,7 +108,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -- photo_manager_output
-          git commit -m "Publish ㄚ喬照片管家 v1.0.0 build status" || exit 0
+          git commit -m "Publish ㄚ喬照片管家 v1.0.1 build status" || exit 0
           git push origin HEAD:photo-manager-v1
 
       - name: Fail if build or signing failed
