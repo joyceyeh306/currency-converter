@@ -90,3 +90,5 @@ jobs:
           git add -- photo_manager_output
           git commit -m "Publish ㄚ喬照片管家 v1.0.1 build status" || exit 0
           git push origin HEAD:photo-manager-v1
+
+# trigger v1.0.1 build
