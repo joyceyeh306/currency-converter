@@ -17,6 +17,7 @@ import android.os.ParcelFileDescriptor;
 import android.provider.MediaStore;
 import android.webkit.JavascriptInterface;
 import android.webkit.WebSettings;
+import android.webkit.WebChromeClient;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 
@@ -69,6 +70,7 @@ public class MainActivity extends Activity {
         settings.setUseWideViewPort(true);
 
         webView.addJavascriptInterface(new Bridge(), "Android");
+        webView.setWebChromeClient(new WebChromeClient());
         webView.setWebViewClient(new WebViewClient() {
             @Override
             public void onPageFinished(WebView view, String url) {
