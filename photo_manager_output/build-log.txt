@@ -14,17 +14,14 @@ Starting a Gradle Daemon (subsequent builds will be faster)
 > Task :app:processReleaseMainManifest
 > Task :app:processReleaseManifest
 > Task :app:extractProguardFiles
+> Task :app:processReleaseManifestForPackage
 > Task :app:mergeReleaseJniLibFolders
 > Task :app:mergeReleaseNativeLibs NO-SOURCE
 > Task :app:stripReleaseDebugSymbols NO-SOURCE
 > Task :app:extractReleaseNativeSymbolTables NO-SOURCE
 > Task :app:mergeReleaseNativeDebugMetadata NO-SOURCE
-> Task :app:desugarReleaseFileDependencies
-> Task :app:processReleaseManifestForPackage
-> Task :app:checkReleaseDuplicateClasses
-> Task :app:mergeReleaseStartupProfile
 > Task :app:processReleaseResources
-> Task :app:mergeExtDexRelease
+> Task :app:checkReleaseDuplicateClasses
 
 > Task :app:compileReleaseJavaWithJavac
 warning: unknown enum constant Scope.LIBRARY
@@ -39,6 +36,8 @@ Note: Recompile with -Xlint:deprecation for details.
 
 > Task :app:generateReleaseLintVitalReportModel
 > Task :app:dexBuilderRelease
+> Task :app:desugarReleaseFileDependencies
+> Task :app:mergeReleaseStartupProfile
 > Task :app:mergeReleaseArtProfile
 > Task :app:mergeReleaseGlobalSynthetics
 > Task :app:mergeReleaseShaders
@@ -46,23 +45,24 @@ Note: Recompile with -Xlint:deprecation for details.
 > Task :app:generateReleaseAssets UP-TO-DATE
 > Task :app:mergeReleaseAssets
 > Task :app:compressReleaseAssets
-> Task :app:mergeDexRelease
 > Task :app:extractReleaseVersionControlInfo
-> Task :app:compileReleaseArtProfile
+> Task :app:mergeExtDexRelease
 > Task :app:processReleaseJavaRes NO-SOURCE
+> Task :app:mergeReleaseJavaResource
+> Task :app:mergeDexRelease
 > Task :app:collectReleaseDependencies
-> Task :app:optimizeReleaseResources
+> Task :app:compileReleaseArtProfile
 > Task :app:sdkReleaseDependencyData
 > Task :app:writeReleaseAppMetadata
-> Task :app:mergeReleaseJavaResource
 > Task :app:writeReleaseSigningConfigVersions
+> Task :app:optimizeReleaseResources
 > Task :app:packageRelease
 > Task :app:createReleaseApkListingFileRedirect
 > Task :app:lintVitalAnalyzeRelease
 > Task :app:lintVitalReportRelease
 > Task :app:lintVitalRelease
 > Task :app:assembleRelease
-gradle/actions: Writing build results to /home/runner/work/_temp/.gradle-actions/build-results/buildapk-1790349971899.json
+gradle/actions: Writing build results to /home/runner/work/_temp/.gradle-actions/build-results/buildapk-1790354357099.json
 
-BUILD SUCCESSFUL in 23s
+BUILD SUCCESSFUL in 19s
 42 actionable tasks: 42 executed
