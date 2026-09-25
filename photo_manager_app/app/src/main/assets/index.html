@@ -44,6 +44,23 @@ input:focus,select:focus{border-color:#65b8ef}
 .photo .check{position:absolute;right:6px;top:6px;width:24px;height:24px;border-radius:50%;background:rgba(0,0,0,.45);color:white;display:grid;place-items:center;font-size:15px;font-weight:bold;border:1px solid rgba(255,255,255,.8)}
 .photo.sel .check{background:var(--blue)}
 .photo .caption{position:absolute;left:0;right:0;bottom:0;padding:20px 6px 5px;background:linear-gradient(transparent,rgba(0,0,0,.68));color:white;font-size:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.photos.preview-mode{grid-template-columns:repeat(2,1fr);gap:10px}
+.preview-card{background:white;border:1px solid #d9e8f2;border-radius:15px;overflow:hidden;box-shadow:0 5px 18px rgba(25,86,130,.08)}
+.preview-img{position:relative;aspect-ratio:1.15/1;background:#dfeaf1;overflow:hidden}
+.preview-img img{width:100%;height:100%;object-fit:cover;display:block}
+.preview-status{position:absolute;right:7px;top:7px;border-radius:999px;padding:5px 8px;font-size:10px;font-weight:800;background:#168cf4;color:#fff}
+.preview-status.same{background:#6f8295}.preview-status.skip{background:#e69a17}
+.preview-info{padding:9px 9px 10px}
+.preview-name{font-size:11px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-bottom:7px}
+.preview-field{border-top:1px solid #edf3f7;padding:6px 0}.preview-field:first-of-type{border-top:0}
+.preview-field b{display:block;font-size:10px;color:#567086;margin-bottom:3px}
+.preview-before{font-size:10px;color:#7b8b98;word-break:break-all}.preview-arrow{font-size:10px;color:#6c8da7;margin:1px 0}.preview-after{font-size:11px;color:#0870d8;font-weight:800;word-break:break-all}
+.preview-msg{font-size:10px;line-height:1.4;color:#7b8b98}.preview-msg.skip{color:#b16b00}
+.preview-summary{border:2px solid #9dd3f6;background:linear-gradient(180deg,#f7fcff,#eef8ff)}
+.preview-summary h2{color:#0b70c8}.preview-big{font-size:13px;font-weight:800;margin-top:5px}.preview-safe{font-size:12px;color:#08785c;font-weight:700;margin-top:7px}
+.info-block{margin-top:12px;border:1px solid #dceaf3;border-radius:14px;padding:11px;background:#fff}
+.info-block h4{margin:0 0 9px;font-size:14px}.info-block.album{background:#f4f9ff;border-color:#cfe5f7}.info-block.exif{background:#f4fcfa;border-color:#c9ece4}
+.interpret{margin-top:8px;border-radius:10px;padding:9px 10px;font-size:12px;line-height:1.5;background:#eaf4ff;color:#25516f}.interpret.ok{background:#eaf9f4;color:#08785c}.interpret.warn{background:#fff5df;color:#8d5c00}
 .empty{text-align:center;padding:30px 12px;color:var(--muted)}
 .sheet{display:none;position:fixed;inset:0;z-index:100;background:rgba(9,31,49,.48);align-items:flex-end}
 .sheet.show{display:flex}.sheetbox{width:100%;max-height:88vh;overflow:auto;background:#f8fcff;border-radius:24px 24px 0 0;padding:16px 14px calc(20px + env(safe-area-inset-bottom));box-shadow:0 -12px 40px rgba(0,0,0,.18)}
@@ -66,7 +83,7 @@ input:focus,select:focus{border-color:#65b8ef}
 <div class="top">
   <div class="brand">
     <img src="icon.png" alt="">
-    <div><h1>ㄚ喬照片管家</h1><small>v1.0.1・整理資料，不動照片畫質</small></div>
+    <div><h1>ㄚ喬照片管家</h1><small>v1.1.0・整理資料，不動照片畫質</small></div>
     <div class="protect">無損保護</div>
   </div>
 </div>
@@ -94,6 +111,8 @@ input:focus,select:focus{border-color:#65b8ef}
     <div class="hint" style="margin-top:9px">可先指定旅行日期區段再掃描；v1 最多一次顯示 5,000 張。</div>
   </div>
 
+  <div class="card preview-summary" id="previewSummary" style="display:none"></div>
+
   <div class="photo-toolbar" id="toolbar" style="display:none">
     <div class="count" id="selCount">已選 0 張</div>
     <button class="btn" onclick="toggleAll()">全選／取消</button>
@@ -104,10 +123,15 @@ input:focus,select:focus{border-color:#65b8ef}
   <div class="empty" id="empty">設定條件後按「掃描照片」。</div>
 </div>
 
-<div class="footerbar">
+<div class="footerbar" id="normalFooter">
   <button class="btn" onclick="openHealth()">資料健檢</button>
   <button class="btn" onclick="openHistory()">修改紀錄</button>
   <button class="btn primary" onclick="openTools()">批次整理</button>
+</div>
+<div class="footerbar" id="previewFooter" style="display:none">
+  <button class="btn" onclick="backToTools()">返回設定</button>
+  <button class="btn" onclick="cancelPreview()">取消預覽</button>
+  <button class="btn primary" id="confirmPreviewBtn" onclick="confirmPreview()">確認修改</button>
 </div>
 
 <div class="sheet" id="detailSheet" onclick="sheetBackdrop(event,'detailSheet')">
@@ -129,18 +153,18 @@ input:focus,select:focus{border-color:#65b8ef}
       <div><label>格式</label><select id="renameSeconds"><option value="0">2026-09-24-2147.JPG</option><option value="1">2026-09-24-214707.JPG</option></select></div>
     </div>
     <div class="hint" style="margin:7px 0">同一分鐘多張照片會自動加 -01、-02…，避免檔名重複。</div>
-    <button class="btn primary" onclick="doRename()">預覽並批次改檔名</button>
+    <button class="btn primary" onclick="doRename()">預覽改檔名</button>
   </div>
 
   <div class="section">
     <h4>拍攝時間</h4>
     <div class="grid2">
       <div><label>拍攝地時區</label><input id="timeOffset" value="+08:00" placeholder="+08:00"></div>
-      <div style="display:flex;align-items:end"><button class="btn primary" style="width:100%" onclick="dateFromFilename()">依檔名修正 EXIF 時間</button></div>
+      <div style="display:flex;align-items:end"><button class="btn primary" style="width:100%" onclick="dateFromFilename()">預覽 EXIF 時間修正</button></div>
     </div>
     <div class="grid2" style="margin-top:9px">
       <div><label>整批加／減分鐘</label><input id="shiftMinutes" type="number" value="0" step="30"></div>
-      <div style="display:flex;align-items:end"><button class="btn" style="width:100%" onclick="shiftTime()">套用時間差</button></div>
+      <div style="display:flex;align-items:end"><button class="btn" style="width:100%" onclick="shiftTime()">預覽時間差</button></div>
     </div>
   </div>
 
@@ -151,9 +175,9 @@ input:focus,select:focus{border-color:#65b8ef}
       <div><label>經度 Longitude</label><input id="gpsLon" type="number" step="0.000001" placeholder="129.010000"></div>
     </div>
     <div class="actions">
-      <button class="btn primary" onclick="gpsSet()">套用指定 GPS</button>
-      <button class="btn" onclick="gpsCopy()">複製第一張 GPS 到其他照片</button>
-      <button class="btn danger" onclick="gpsClear()">清除 GPS</button>
+      <button class="btn primary" onclick="gpsSet()">預覽指定 GPS</button>
+      <button class="btn" onclick="gpsCopy()">預覽複製 GPS</button>
+      <button class="btn danger" onclick="gpsClear()">預覽清除 GPS</button>
     </div>
   </div>
 
@@ -181,7 +205,7 @@ input:focus,select:focus{border-color:#65b8ef}
 </div>
 
 <script>
-var state={items:[],selected:new Set(),total:0};
+var state={items:[],selected:new Set(),total:0,preview:null,previewAction:null,previewIds:[]};
 
 function byId(id){return document.getElementById(id)}
 function esc(s){return String(s==null?"":s).replace(/[&<>"']/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]})}
@@ -194,9 +218,17 @@ function sheetBackdrop(e,id){if(e.target===byId(id))hideSheet(id)}
 function askPermission(){if(window.Android)Android.requestPermissions()}
 window.onPermissionChanged=function(ok){byId("permText").textContent=ok?"已取得照片讀取權限，可以開始掃描。":"需要照片讀取權限才能整理手機相簿。";byId("permCard").style.borderColor=ok?"#b9eadc":"#dcebf5"}
 
+function resetPreviewUi(){
+ state.preview=null;state.previewAction=null;state.previewIds=[];
+ byId("previewSummary").style.display="none";
+ byId("previewFooter").style.display="none";
+ byId("normalFooter").style.display="flex";
+ byId("photos").classList.remove("preview-mode");
+}
 function scan(){
  if(!window.Android){alert("Android 介面尚未就緒");return}
  if(!Android.hasPermission()){askPermission();return}
+ resetPreviewUi();
  var s=byId("startDate").value?new Date(byId("startDate").value+"T00:00:00").getTime():0;
  var e=byId("endDate").value?new Date(byId("endDate").value+"T23:59:59").getTime():0;
  var raw=Android.scanPhotos(s,e,byId("keyword").value,Number(byId("limit").value));
@@ -210,19 +242,36 @@ function scan(){
 
 function renderPhotos(){
  var box=byId("photos"),html="";
- for(var i=0;i<state.items.length;i++){
-  var o=state.items[i],sel=state.selected.has(String(o.id));
-  html+='<div class="photo '+(sel?'sel':'')+'" data-id="'+o.id+'" onclick="photoTap(event,'+o.id+')">'+
-   '<img loading="lazy" src="'+esc(o.uri)+'" onerror="this.style.opacity=.18">'+
-   '<div class="check">'+(sel?'✓':'')+'</div>'+
-   '<div class="caption">'+esc(o.name)+'</div></div>';
+ if(state.preview){
+  box.classList.add("preview-mode");
+  var list=state.preview.items||[];
+  for(var i=0;i<list.length;i++){
+   var p=list[i],status=p.status||"change";
+   var statusText=status==="change"?"將修改":(status==="same"?"不需修改":"略過");
+   var fields="";
+   for(var j=0;j<(p.fields||[]).length;j++){
+    var f=p.fields[j];
+    fields+='<div class="preview-field"><b>'+esc(f.label)+'</b><div class="preview-before">原：'+esc(f.before)+'</div><div class="preview-arrow">↓</div><div class="preview-after">新：'+esc(f.after)+'</div></div>';
+   }
+   if(!fields)fields='<div class="preview-msg '+(status==="skip"?"skip":"")+'">'+esc(p.message||"沒有資料變更")+'</div>';
+   html+='<div class="preview-card" onclick="openDetail('+p.id+')"><div class="preview-img"><img loading="lazy" src="'+esc(p.uri)+'" onerror="this.style.opacity=.18"><div class="preview-status '+status+'">'+statusText+'</div></div><div class="preview-info"><div class="preview-name">'+esc(p.name)+'</div>'+fields+(p.message&&fields?'<div class="preview-msg '+(status==="skip"?"skip":"")+'" style="margin-top:5px">'+esc(p.message)+'</div>':'')+'</div></div>';
+  }
+ }else{
+  box.classList.remove("preview-mode");
+  for(var k=0;k<state.items.length;k++){
+   var o=state.items[k],sel=state.selected.has(String(o.id));
+   html+='<div class="photo '+(sel?'sel':'')+'" data-id="'+o.id+'" onclick="photoTap(event,'+o.id+')">'+
+    '<img loading="lazy" src="'+esc(o.uri)+'" onerror="this.style.opacity=.18">'+
+    '<div class="check">'+(sel?'✓':'')+'</div>'+
+    '<div class="caption">'+esc(o.name)+'</div></div>';
+  }
  }
  box.innerHTML=html;
- byId("empty").style.display=state.items.length?"none":"block";
+ byId("empty").style.display=(state.preview?(state.preview.items||[]).length:state.items.length)?"none":"block";
  updateSelected();
 }
-
 function photoTap(e,id){
+ if(state.preview){openDetail(id);return}
  if(e.target.tagName==="IMG" && !e.ctrlKey){openDetail(id);return}
  var key=String(id);
  if(state.selected.has(key))state.selected.delete(key);else state.selected.add(key);
@@ -230,10 +279,39 @@ function photoTap(e,id){
  if(el){el.classList.toggle("sel",state.selected.has(key));el.querySelector(".check").textContent=state.selected.has(key)?"✓":""}
  updateSelected();
 }
-function updateSelected(){byId("selCount").textContent="已選 "+state.selected.size+" 張"}
-function toggleAll(){if(state.selected.size===state.items.length)state.selected.clear();else state.items.forEach(function(o){state.selected.add(String(o.id))});renderPhotos()}
+function updateSelected(){byId("selCount").textContent=state.preview?"修改預覽":("已選 "+state.selected.size+" 張")}
+function toggleAll(){if(state.preview)return;if(state.selected.size===state.items.length)state.selected.clear();else state.items.forEach(function(o){state.selected.add(String(o.id))});renderPhotos()}
 function selectedIds(){return Array.from(state.selected).map(Number)}
 function requireSelected(){var a=selectedIds();if(!a.length){alert("請先選擇照片");return null}return a}
+
+function parseExifWall(s){
+ if(!s)return 0;var p=String(s).match(/(\d{4}):(\d{2}):(\d{2}) (\d{2}):(\d{2}):(\d{2})/);
+ if(!p)return 0;return new Date(Number(p[1]),Number(p[2])-1,Number(p[3]),Number(p[4]),Number(p[5]),Number(p[6])).getTime();
+}
+function albumWall(ms){
+ if(!ms)return 0;var d=new Date(Number(ms));return new Date(d.getFullYear(),d.getMonth(),d.getDate(),d.getHours(),d.getMinutes(),d.getSeconds()).getTime();
+}
+function offsetMinutes(s){
+ var m=String(s||"").match(/^([+-])(\d{2}):(\d{2})$/);if(!m)return null;
+ var v=Number(m[2])*60+Number(m[3]);return m[1]==="-"?-v:v;
+}
+function formatOffsetMinutes(m){
+ if(m==null||!isFinite(m))return "—";var sign=m<0?"-":"+";m=Math.abs(Math.round(m));return sign+pad(Math.floor(m/60))+":"+pad(m%60);
+}
+function albumInterpretation(info){
+ var exifWall=parseExifWall(info.dateTimeOriginal), sysWall=albumWall(info.dateTaken);
+ if(!exifWall||!sysWall)return {diff:null,text:"資料不足，無法比較相簿時間與原始 EXIF。",cls:"warn"};
+ var diff=Math.round((sysWall-exifWall)/60000);
+ if(diff===0)return {diff:0,text:"相簿顯示時間與原始 EXIF 拍攝時間一致。",cls:"ok"};
+ var photoOff=offsetMinutes(info.offsetTimeOriginal),deviceOff=Number(info.deviceOffsetMinutes);
+ var sign=diff>0?"+":"";
+ var text="相簿顯示比原始 EXIF "+sign+(diff/60).toFixed(Math.abs(diff)%60?1:0)+" 小時。";
+ if(photoOff!=null&&isFinite(deviceOff)){
+  var expected=deviceOff-photoOff;
+  if(Math.abs(expected-diff)<=1)text+=" 符合時區換算："+info.offsetTimeOriginal+" → "+formatOffsetMinutes(deviceOff)+"。照片原始拍攝時間本身沒有錯。";
+ }
+ return {diff:diff,text:text,cls:"warn"};
+}
 
 function openDetail(id){
  var info=JSON.parse(Android.getPhotoInfo(id));
@@ -248,70 +326,90 @@ function openDetail(id){
  var overlay='<b>'+esc(shooting||"沒有拍攝時間")+'</b><br>'+esc(place);
  if(device)overlay+='<br>'+esc(device);
  if(exposure.length)overlay+='<br>'+esc(exposure.join(" · "));
- var rows=[
-  ["檔名",info.name],["相簿時間",fmt(info.dateTaken)],["EXIF 拍攝",info.dateTimeOriginal||"—"],["時區",info.offsetTimeOriginal||"—"],
-  ["GPS",place],["裝置",device||"—"],["鏡頭",info.lensModel||"—"],["焦距",focal||"—"],["曝光",exposure.join(" · ")||"—"],
-  ["尺寸",(info.width||0)+" × "+(info.height||0)],["大小",fsize(info.size)],["格式",info.mime],["可無損寫入 metadata",info.metadataWritable?"是":"否（只讀保護）"]
+
+ var originalRows=[
+  ["EXIF 拍攝時間",info.dateTimeOriginal||"—"],["拍攝地時區",info.offsetTimeOriginal||"—"],["GPS",place],
+  ["裝置",device||"—"],["鏡頭",info.lensModel||"—"],["焦距",focal||"—"],["曝光",exposure.join(" · ")||"—"]
  ];
- var meta=rows.map(function(r){return "<b>"+esc(r[0])+"</b><span>"+esc(r[1])+"</span>"}).join("");
- byId("detailBody").innerHTML='<div class="detail-photo"><img src="'+esc(info.uri)+'"><div class="overlay">'+overlay+'</div></div><div class="meta">'+meta+'</div>'+
- '<div class="hint" style="margin-top:12px">這個資訊層只顯示在 App 畫面上，不會寫進照片像素。</div>';
+ var albumRows=[
+  ["相簿顯示時間",fmt(info.dateTaken)],["目前系統時區",formatOffsetMinutes(Number(info.deviceOffsetMinutes))],
+  ["系統時區名稱",info.deviceTimeZoneId||"—"]
+ ];
+ var fileRows=[
+  ["檔名",info.name],["尺寸",(info.width||0)+" × "+(info.height||0)],["大小",fsize(info.size)],["格式",info.mime],
+  ["可無損寫入 metadata",info.metadataWritable?"是":"否（只讀保護）"]
+ ];
+ function rowsHtml(rows){return '<div class="meta">'+rows.map(function(r){return "<b>"+esc(r[0])+"</b><span>"+esc(r[1])+"</span>"}).join("")+'</div>'}
+ var interp=albumInterpretation(info);
+ byId("detailBody").innerHTML=
+  '<div class="detail-photo"><img src="'+esc(info.uri)+'"><div class="overlay">'+overlay+'</div></div>'+
+  '<div class="info-block exif"><h4>原始 EXIF 資訊</h4>'+rowsHtml(originalRows)+'</div>'+
+  '<div class="info-block album"><h4>系統相簿解讀</h4>'+rowsHtml(albumRows)+'<div class="interpret '+interp.cls+'">'+esc(interp.text)+'</div></div>'+
+  '<div class="info-block"><h4>檔案資訊</h4>'+rowsHtml(fileRows)+'</div>'+
+  '<div class="hint" style="margin-top:12px">資訊層只顯示在 App 畫面上，不會寫進照片像素。</div>';
  showSheet("detailSheet");
 }
 
 function openTools(){if(!requireSelected())return;showSheet("toolsSheet")}
-function previewRenameName(item,source,seconds){
- var ms=0;
- if(source==="filename")ms=item.filenameTime||0;
- else{
-   try{var info=JSON.parse(Android.getPhotoInfo(item.id));if(info.dateTimeOriginal){var p=info.dateTimeOriginal.match(/(\d{4}):(\d{2}):(\d{2}) (\d{2}):(\d{2}):(\d{2})/);if(p)ms=new Date(Number(p[1]),Number(p[2])-1,Number(p[3]),Number(p[4]),Number(p[5]),Number(p[6])).getTime()}}catch(e){}
- }
- if(!ms)return "（無法預覽）";
- var d=new Date(ms),ext=(item.name.match(/\.[^.]+$/)||[".JPG"])[0];
- return d.getFullYear()+"-"+pad(d.getMonth()+1)+"-"+pad(d.getDate())+"-"+pad(d.getHours())+pad(d.getMinutes())+(seconds?pad(d.getSeconds()):"")+ext;
+function validOffset(v){return /^[+-]\d{2}:\d{2}$/.test(v)}
+function actionName(type){
+ return {rename:"重新命名",dateFromFilename:"依檔名修正拍攝時間",shiftTime:"整批調整拍攝時間",gpsSet:"設定 GPS",gpsCopy:"複製 GPS",gpsClear:"清除 GPS"}[type]||"批次修改";
+}
+function startPreview(action){
+ var ids=requireSelected();if(!ids)return;
+ var r=JSON.parse(Android.previewAction(JSON.stringify(ids),JSON.stringify(action)));
+ if(!r.ok){alert(r.message||"無法建立預覽");return}
+ state.preview=r;state.previewAction=action;state.previewIds=ids.slice();
+ hideSheet("toolsSheet");
+ byId("toolbar").style.display="flex";
+ byId("normalFooter").style.display="none";
+ byId("previewFooter").style.display="flex";
+ byId("confirmPreviewBtn").textContent="確認修改 "+r.changed+" 張";
+ byId("previewSummary").style.display="block";
+ byId("previewSummary").innerHTML='<h2>修改預覽｜'+esc(actionName(action.type))+'</h2>'+
+  '<div class="preview-big">選取 '+ids.length+' 張・將修改 '+r.changed+' 張・不需修改 '+r.unchanged+' 張・略過 '+r.skipped+' 張</div>'+
+  '<div class="preview-safe">目前只是預覽，尚未寫入任何照片。</div>';
+ renderPhotos();
+ setTimeout(function(){byId("previewSummary").scrollIntoView({behavior:"smooth",block:"start"})},80);
+}
+function backToTools(){resetPreviewUi();renderPhotos();byId("toolbar").style.display=state.items.length?"flex":"none";showSheet("toolsSheet")}
+function cancelPreview(){resetPreviewUi();renderPhotos();byId("toolbar").style.display=state.items.length?"flex":"none"}
+function confirmPreview(){
+ if(!state.preview||!state.previewAction)return;
+ if((state.preview.changed||0)<=0){alert("這批照片沒有需要修改的項目。");return}
+ Android.requestAction(JSON.stringify(state.previewIds),JSON.stringify(state.previewAction));
 }
 function doRename(){
- var ids=requireSelected();if(!ids)return;
  var source=byId("renameSource").value,seconds=byId("renameSeconds").value==="1";
- var first=state.items.find(function(x){return String(x.id)===String(ids[0])});
- var sample=first?first.name+" → "+previewRenameName(first,source,seconds):"";
- if(!confirm("將重新命名 "+ids.length+" 張照片。\n\n範例：\n"+sample+"\n\n照片像素不會被重存。"))return;
- Android.requestAction(JSON.stringify(ids),JSON.stringify({type:"rename",source:source,seconds:seconds}));
+ startPreview({type:"rename",source:source,seconds:seconds});
 }
-function validOffset(v){return /^[+-]\d{2}:\d{2}$/.test(v)}
 function dateFromFilename(){
- var ids=requireSelected();if(!ids)return;var off=byId("timeOffset").value.trim();
+ var off=byId("timeOffset").value.trim();
  if(off && !validOffset(off)){alert("時區格式請輸入 +08:00、+09:00 這種格式");return}
- if(!confirm("將依檔名解析時間並寫入 "+ids.length+" 張照片的 EXIF 拍攝時間。\n\n無法保證無損寫入的格式會自動略過。"))return;
- Android.requestAction(JSON.stringify(ids),JSON.stringify({type:"dateFromFilename",offset:off}));
+ startPreview({type:"dateFromFilename",offset:off});
 }
 function shiftTime(){
- var ids=requireSelected();if(!ids)return;var m=Number(byId("shiftMinutes").value)||0,off=byId("timeOffset").value.trim();
+ var m=Number(byId("shiftMinutes").value)||0,off=byId("timeOffset").value.trim();
  if(!m){alert("請輸入要加減的分鐘數，例如 -360 或 60");return}
- if(!confirm("將 "+ids.length+" 張照片的 EXIF 拍攝時間 "+(m>0?"增加 ":"減少 ")+Math.abs(m)+" 分鐘。"))return;
- Android.requestAction(JSON.stringify(ids),JSON.stringify({type:"shiftTime",minutes:m,offset:off}));
+ if(off && !validOffset(off)){alert("時區格式請輸入 +08:00、+09:00 這種格式");return}
+ startPreview({type:"shiftTime",minutes:m,offset:off});
 }
 function gpsSet(){
- var ids=requireSelected();if(!ids)return;var lat=Number(byId("gpsLat").value),lon=Number(byId("gpsLon").value);
+ var lat=Number(byId("gpsLat").value),lon=Number(byId("gpsLon").value);
  if(!isFinite(lat)||!isFinite(lon)||lat>90||lat<-90||lon>180||lon<-180){alert("請輸入正確的 GPS 經緯度");return}
- if(!confirm("將指定 GPS 套用到 "+ids.length+" 張照片。"))return;
- Android.requestAction(JSON.stringify(ids),JSON.stringify({type:"gpsSet",lat:lat,lon:lon}));
+ startPreview({type:"gpsSet",lat:lat,lon:lon});
 }
 function gpsCopy(){
  var ids=requireSelected();if(!ids)return;if(ids.length<2){alert("至少選兩張；第一張是 GPS 來源");return}
- if(!confirm("將第一張照片的 GPS 複製到其餘 "+(ids.length-1)+" 張。"))return;
- Android.requestAction(JSON.stringify(ids),JSON.stringify({type:"gpsCopy"}));
+ startPreview({type:"gpsCopy"});
 }
-function gpsClear(){
- var ids=requireSelected();if(!ids)return;if(!confirm("確定要清除 "+ids.length+" 張照片的 GPS？"))return;
- Android.requestAction(JSON.stringify(ids),JSON.stringify({type:"gpsClear"}));
-}
+function gpsClear(){startPreview({type:"gpsClear"})}
+
 window.onActionResult=function(r){
- var box=byId("actionResult");box.style.display="block";
- var lines=[r.message||"操作完成"];
- if(r.details){for(var i=0;i<Math.min(r.details.length,40);i++){var d=r.details[i];lines.push((d.before||"")+" → "+(d.after||"")+"　"+(d.status||""))}if(r.details.length>40)lines.push("…另有 "+(r.details.length-40)+" 筆")}
- box.textContent=lines.join("\n");
+ var msg=r.message||"操作完成";
+ resetPreviewUi();
  scan();
+ setTimeout(function(){alert(msg+"\n\nApp 已重新讀取照片資料進行驗證。")},120);
 }
 
 function openHealth(){
