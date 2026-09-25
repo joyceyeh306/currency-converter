@@ -48,6 +48,7 @@ jobs:
 
       - name: Sanity check sources
         run: |
+          test -f photo_manager_app/gradle.properties
           test -f photo_manager_app/app/src/main/java/tw/ajo/photomanager/MainActivity.java
           test -f photo_manager_app/app/src/main/assets/index.html
           test -s photo_manager_app/app/src/main/res/drawable/app_icon.png
@@ -60,6 +61,7 @@ jobs:
           Path('/tmp/photo-manager.js').write_text(m.group(1))
           PY
           node --check /tmp/photo-manager.js
+          grep -q "android.useAndroidX=true" photo_manager_app/gradle.properties
           grep -q "versionName '1.0.0'" photo_manager_app/app/build.gradle
           grep -q "ㄚ喬照片管家" photo_manager_app/app/src/main/AndroidManifest.xml
 
@@ -67,7 +69,10 @@ jobs:
         id: buildapk
         continue-on-error: true
         working-directory: photo_manager_app
-        run: gradle :app:assembleRelease --stacktrace 2>&1 | tee /tmp/photo-manager-build.log
+        shell: bash
+        run: |
+          set -o pipefail
+          gradle :app:assembleRelease --stacktrace 2>&1 | tee /tmp/photo-manager-build.log
 
       - name: Sign APK with stable AOSP test key
         id: signapk
