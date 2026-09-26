@@ -1,10 +1,10 @@
-name: Build Ajo Photo Manager v1.3.0
+name: Build Ajo Photo Manager v1.3.1
 
 on:
   push:
     branches: [ main ]
     paths:
-      - '.github/workflows/build-photo-manager-v130-temp.yml'
+      - '.github/workflows/build-photo-manager-v131-temp.yml'
   workflow_dispatch:
 
 permissions:
@@ -44,11 +44,11 @@ jobs:
           cp /tmp/ajo-photo-icon.png photo_manager_app/app/src/main/res/drawable/app_icon.png
           cp /tmp/ajo-photo-icon.png photo_manager_app/app/src/main/assets/icon.png
 
-      - name: Verify v1.3.0 sources
+      - name: Verify v1.3.1 sources
         run: |
           grep -q "versionName '1.3.0'" photo_manager_app/app/build.gradle
           grep -q "localTimeDisplay" photo_manager_app/app/src/main/java/tw/ajo/photomanager/MainActivity.java
-          grep -q "當地時間顯示模式" photo_manager_app/app/src/main/assets/index.html
+          grep -q "當地時間資料模式" photo_manager_app/app/src/main/assets/index.html
           python3 - <<'PY'
           from pathlib import Path
           import re
@@ -63,20 +63,20 @@ jobs:
         working-directory: photo_manager_app
         run: |
           set -o pipefail
-          gradle :app:assembleRelease --stacktrace 2>&1 | tee /tmp/photo-manager-build-v130.log
+          gradle :app:assembleRelease --stacktrace 2>&1 | tee /tmp/photo-manager-build-v131.log
 
       - name: Sign APK
         run: |
           curl -fsSL 'https://android.googlesource.com/platform/build/+/refs/heads/main/target/product/security/testkey.pk8?format=TEXT' | base64 -d > /tmp/testkey.pk8
           curl -fsSL 'https://android.googlesource.com/platform/build/+/refs/heads/main/target/product/security/testkey.x509.pem?format=TEXT' | base64 -d > /tmp/testkey.x509.pem
           BT="$ANDROID_HOME/build-tools/35.0.0"
-          "$BT/zipalign" -f -p 4 photo_manager_app/app/build/outputs/apk/release/app-release-unsigned.apk /tmp/ajo-photo-manager-v1.3.0-aligned.apk
-          "$BT/apksigner" sign --key /tmp/testkey.pk8 --cert /tmp/testkey.x509.pem --out /tmp/ajo-photo-manager-v1.3.0.apk /tmp/ajo-photo-manager-v1.3.0-aligned.apk
-          "$BT/apksigner" verify --verbose --print-certs /tmp/ajo-photo-manager-v1.3.0.apk
+          "$BT/zipalign" -f -p 4 photo_manager_app/app/build/outputs/apk/release/app-release-unsigned.apk /tmp/ajo-photo-manager-v1.3.1-aligned.apk
+          "$BT/apksigner" sign --key /tmp/testkey.pk8 --cert /tmp/testkey.x509.pem --out /tmp/ajo-photo-manager-v1.3.1.apk /tmp/ajo-photo-manager-v1.3.1-aligned.apk
+          "$BT/apksigner" verify --verbose --print-certs /tmp/ajo-photo-manager-v1.3.1.apk
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ajo-photo-manager-v1.3.0
-          path: /tmp/ajo-photo-manager-v1.3.0.apk
+          name: ajo-photo-manager-v1.3.1
+          path: /tmp/ajo-photo-manager-v1.3.1.apk
           retention-days: 30
