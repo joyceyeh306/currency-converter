@@ -7,6 +7,11 @@ exec(compile(base,'.github/scripts/v0913_fix.py','exec'),{'__name__':'__main__'}
 java_path=Path('imeapp/app/src/main/java/tw/ajo/ime/PreciseKeyboardView.java')
 s=java_path.read_text(encoding='utf-8')
 
+if 'import java.util.HashSet;' not in s:
+    s=s.replace('import java.util.HashMap;\n','import java.util.HashMap;\nimport java.util.HashSet;\n',1)
+if 'import java.util.Set;' not in s:
+    s=s.replace('import java.util.List;\n','import java.util.List;\nimport java.util.Set;\n',1)
+
 def replace_once(old,new,label):
     global s
     if old not in s:
