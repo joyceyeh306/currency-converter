@@ -152,30 +152,6 @@ jobs:
               for key in sorted(rows): f.write(key+'\t'+' '.join(rows[key])+'\n')
           print('Zhuyin chars',len(rows),out.stat().st_size)
 
-          # Build a Taiwan Traditional Chinese common-character rank from
-          # libchewing word frequencies. The top 4500 single characters are
-          # enough to promote normal daily-use two-root exacts while keeping
-          # obscure exact-code characters behind useful prefix candidates.
-          freq={}
-          with open('/tmp/word.csv','r',encoding='utf-8-sig',newline='') as f:
-              for row in csv.reader(f):
-                  if not row or row[0].startswith('#') or len(row)<2: continue
-                  text=row[0].strip()
-                  if len(text)!=1: continue
-                  try: weight=int(row[1].strip())
-                  except Exception: continue
-                  if weight>freq.get(text,-1): freq[text]=weight
-          ranked=sorted(freq.items(),key=lambda kv:(-kv[1],kv[0]))
-          common=[ch for ch,_ in ranked[:4500]]
-          for must in ['占','干','甘']:
-              if must not in common:
-                  raise SystemExit(f'Common-character verification failed: {must} not in top 4500')
-          common_out=Path('imeapp/app/src/main/assets/common_chars.tsv')
-          with common_out.open('w',encoding='utf-8') as f:
-              total=len(common)
-              for idx,ch in enumerate(common):
-                  f.write(f'{ch}\t{total-idx}\n')
-          print('Common chars',len(common),common_out.stat().st_size,'占 rank=',common.index('占')+1)
 
 
           # Build "first Bopomofo symbol of every syllable" phrase keys.
@@ -222,6 +198,28 @@ jobs:
           with out2.open('w',encoding='utf-8') as f:
               for key in sorted(initials_rows): f.write(key+'\t'+' '.join(initials_rows[key])+'\n')
           print('Zhuyin initials',len(initials_rows),out2.stat().st_size,'ㄨㄇ=',sample[:10])
+          PY
+
+      - name: Build Taiwan MOE common character set
+        run: |
+          set -e
+          mkdir -p imeapp/app/src/main/assets
+          curl -fL --retry 3 --retry-delay 1 \
+            https://raw.githubusercontent.com/gitqwerty777/Chinese-Characters-Standards/master/Data/variant-WordCharacter.json \
+            -o /tmp/variant-WordCharacter.json
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          data=json.loads(Path('/tmp/variant-WordCharacter.json').read_text(encoding='utf-8'))
+          chars=[ch for key,ch in data.items() if key.startswith('A')]
+          if len(chars)!=4808:
+              raise SystemExit(f'MOE common-character verification failed: expected 4808, got {len(chars)}')
+          for must in ['占','干','甘']:
+              if must not in chars:
+                  raise SystemExit(f'MOE common-character verification failed: missing {must}')
+          out=Path('imeapp/app/src/main/assets/moe_common_chars.txt')
+          out.write_text('\n'.join(chars)+'\n',encoding='utf-8')
+          print('MOE common chars',len(chars),out.stat().st_size,'verified 占 干 甘')
           PY
 
       - name: Build APK
