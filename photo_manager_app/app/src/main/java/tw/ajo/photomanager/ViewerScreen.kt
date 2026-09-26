@@ -125,6 +125,7 @@ fun ViewerScreen(
     var infoVisible by remember { mutableStateOf(false) }
     var showExif by remember { mutableStateOf(false) }
     var detail by remember { mutableStateOf<DetailInfo?>(null) }
+    var placeName by remember { mutableStateOf<String?>(null) }
     var favoriteVersion by remember { mutableIntStateOf(0) }
     var zoomed by remember { mutableStateOf(false) }
     var moreOpen by remember { mutableStateOf(false) }
@@ -136,7 +137,11 @@ fun ViewerScreen(
 
     LaunchedEffect(current.key) {
         detail = null
+        placeName = null
         zoomed = false
+
+        placeName = repository.resolvePlace(current)
+
         if (infoVisible) {
             detail = withContext(Dispatchers.IO) { repository.readDetail(current) }
         }
@@ -256,16 +261,34 @@ fun ViewerScreen(
                     Modifier.weight(1f),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
+                    placeName?.let { place ->
+                        Text(
+                            place,
+                            color = Color.White,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1
+                        )
+                    }
                     Text(
-                        formatDateOnly(current.wallTime),
-                        color = Color.White,
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                    Text(
-                        current.wallTime.toLocalTime().toString(),
-                        color = Color.White.copy(alpha = 0.78f),
-                        fontSize = 11.sp
+                        formatDateOnly(current.wallTime) +
+                            "  " +
+                            String.format(
+                                Locale.TAIWAN,
+                                "%02d:%02d",
+                                current.wallTime.hour,
+                                current.wallTime.minute
+                            ),
+                        color = Color.White.copy(
+                            alpha = if (placeName == null) 1f else 0.82f
+                        ),
+                        fontSize = if (placeName == null) 14.sp else 11.sp,
+                        fontWeight = if (placeName == null) {
+                            FontWeight.SemiBold
+                        } else {
+                            FontWeight.Normal
+                        },
+                        maxLines = 1
                     )
                 }
 
