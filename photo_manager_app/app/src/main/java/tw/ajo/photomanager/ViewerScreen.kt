@@ -129,7 +129,7 @@ fun ViewerScreen(
     var infoVisible by remember { mutableStateOf(false) }
     var showExif by remember { mutableStateOf(false) }
     var detail by remember { mutableStateOf<DetailInfo?>(null) }
-    var placeName by remember { mutableStateOf<String?>(null) }
+    var headerLabel by remember { mutableStateOf<String?>(null) }
     var favoriteVersion by remember { mutableIntStateOf(0) }
     var zoomed by remember { mutableStateOf(false) }
     var moreOpen by remember { mutableStateOf(false) }
@@ -139,12 +139,34 @@ fun ViewerScreen(
         repository.isFavorite(current.key)
     }
 
+    val sharedVideoPlayer = remember(context) {
+        ExoPlayer.Builder(context).build()
+    }
+
+    DisposableEffect(sharedVideoPlayer) {
+        onDispose {
+            sharedVideoPlayer.release()
+        }
+    }
+
     LaunchedEffect(current.key) {
         detail = null
-        placeName = null
+        headerLabel = null
         zoomed = false
 
-        placeName = repository.resolvePlace(current)
+        headerLabel = repository.sourceLabel(current) ?: repository.resolvePlace(current)
+
+        if (current.kind == MediaKind.VIDEO) {
+            sharedVideoPlayer.stop()
+            sharedVideoPlayer.clearMediaItems()
+            sharedVideoPlayer.setMediaItem(PlayerMediaItem.fromUri(current.uri))
+            sharedVideoPlayer.prepare()
+            sharedVideoPlayer.playWhenReady = false
+        } else {
+            sharedVideoPlayer.pause()
+            sharedVideoPlayer.stop()
+            sharedVideoPlayer.clearMediaItems()
+        }
 
         if (infoVisible) {
             detail = withContext(Dispatchers.IO) { repository.readDetail(current) }
@@ -222,10 +244,11 @@ fun ViewerScreen(
                     }
                 )
             } else {
-                InlineVideoPlayer(
-                    item = item,
-                    active = page == pagerState.currentPage
-                )
+                if (page == pagerState.currentPage) {
+                    SharedVideoPlayer(sharedVideoPlayer)
+                } else {
+                    VideoThumbnail(item)
+                }
             }
         }
 
@@ -260,7 +283,7 @@ fun ViewerScreen(
                     Modifier.weight(1f),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    placeName?.let { place ->
+                    headerLabel?.let { place ->
                         Text(
                             place,
                             color = Color.White,
@@ -279,10 +302,10 @@ fun ViewerScreen(
                                 current.wallTime.minute
                             ),
                         color = Color.White.copy(
-                            alpha = if (placeName == null) 1f else 0.82f
+                            alpha = if (headerLabel == null) 1f else 0.82f
                         ),
-                        fontSize = if (placeName == null) 14.sp else 11.sp,
-                        fontWeight = if (placeName == null) {
+                        fontSize = if (headerLabel == null) 14.sp else 11.sp,
+                        fontWeight = if (headerLabel == null) {
                             FontWeight.SemiBold
                         } else {
                             FontWeight.Normal
@@ -541,31 +564,9 @@ private fun ZoomablePhoto(
 }
 
 @Composable
-private fun InlineVideoPlayer(
-    item: MediaItem,
-    active: Boolean
+private fun SharedVideoPlayer(
+    player: ExoPlayer
 ) {
-    val context = LocalContext.current
-    val player = remember(item.key) {
-        ExoPlayer.Builder(context).build().apply {
-            setMediaItem(PlayerMediaItem.fromUri(item.uri))
-            prepare()
-            playWhenReady = false
-        }
-    }
-
-    LaunchedEffect(active) {
-        if (!active) {
-            player.pause()
-        }
-    }
-
-    DisposableEffect(player) {
-        onDispose {
-            player.release()
-        }
-    }
-
     AndroidView(
         factory = { viewContext ->
             PlayerView(viewContext).apply {
@@ -582,6 +583,38 @@ private fun InlineVideoPlayer(
         },
         modifier = Modifier.fillMaxSize()
     )
+}
+
+@Composable
+private fun VideoThumbnail(
+    item: MediaItem
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black),
+        contentAlignment = Alignment.Center
+    ) {
+        AsyncImage(
+            model = item.uri,
+            contentDescription = item.name,
+            contentScale = ContentScale.Fit,
+            modifier = Modifier.fillMaxSize()
+        )
+        Surface(
+            shape = CircleShape,
+            color = Color.Black.copy(alpha = 0.50f)
+        ) {
+            Icon(
+                Icons.Default.PlayArrow,
+                contentDescription = "影片",
+                tint = Color.White,
+                modifier = Modifier
+                    .padding(12.dp)
+                    .size(30.dp)
+            )
+        }
+    }
 }
 
 @Composable
