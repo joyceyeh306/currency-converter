@@ -1,4 +1,4 @@
-name: Build Ajo IME v0.9.13 Direct
+name: Build Ajo IME v0.9.14 Direct
 
 on:
   push:
@@ -21,6 +21,7 @@ on:
       - '.github/scripts/v0911_fix.py'
       - '.github/scripts/v0912_fix.py'
       - '.github/scripts/v0913_fix.py'
+      - '.github/scripts/v0914_fix.py'
       - '.github/assets/ajo_icon_144.webp.b64'
       - 'imeapp/app/src/main/java/tw/ajo/ime/PreciseKeyboardView.java'
       - 'imeapp/app/src/main/java/tw/ajo/ime/MainActivity.java'
@@ -86,8 +87,8 @@ jobs:
           echo "Stable signing key SHA256=$KEY_SHA"
           test "$KEY_SHA" = "9d3d3c77112475d20d2b032063a6fdb25b6712870d1c89115c98fe8a781a60fd"
 
-      - name: Apply v0.9.13 revision
-        run: python3 .github/scripts/v0913_fix.py
+      - name: Apply v0.9.14 revision
+        run: python3 .github/scripts/v0914_fix.py
 
       - name: Build Cangjie 3 dictionaries
         run: |
@@ -116,6 +117,7 @@ jobs:
           if '面' not in exact.get('mwyl',[]): raise SystemExit('Cangjie 3 verification failed: 面 must be MWYL')
           if '干' not in exact.get('mj',[]): raise SystemExit('Cangjie 3 verification failed: 干 must be MJ')
           if '甘' not in exact.get('tm',[]): raise SystemExit('Cangjie 3 verification failed: 甘 must be TM')
+          if '占' not in exact.get('yr',[]): raise SystemExit('Cangjie 3 verification failed: 占 must be YR')
           for name,rows in [('cangjie_prefix.tsv',pref),('cangjie_exact.tsv',exact)]:
               out=Path('imeapp/app/src/main/assets')/name
               with out.open('w',encoding='utf-8') as f:
@@ -149,6 +151,32 @@ jobs:
           with out.open('w',encoding='utf-8') as f:
               for key in sorted(rows): f.write(key+'\t'+' '.join(rows[key])+'\n')
           print('Zhuyin chars',len(rows),out.stat().st_size)
+
+          # Build a Taiwan Traditional Chinese common-character rank from
+          # libchewing word frequencies. The top 4500 single characters are
+          # enough to promote normal daily-use two-root exacts while keeping
+          # obscure exact-code characters behind useful prefix candidates.
+          freq={}
+          with open('/tmp/word.csv','r',encoding='utf-8-sig',newline='') as f:
+              for row in csv.reader(f):
+                  if not row or row[0].startswith('#') or len(row)<2: continue
+                  text=row[0].strip()
+                  if len(text)!=1: continue
+                  try: weight=int(row[1].strip())
+                  except Exception: continue
+                  if weight>freq.get(text,-1): freq[text]=weight
+          ranked=sorted(freq.items(),key=lambda kv:(-kv[1],kv[0]))
+          common=[ch for ch,_ in ranked[:4500]]
+          for must in ['占','干','甘']:
+              if must not in common:
+                  raise SystemExit(f'Common-character verification failed: {must} not in top 4500')
+          common_out=Path('imeapp/app/src/main/assets/common_chars.tsv')
+          with common_out.open('w',encoding='utf-8') as f:
+              total=len(common)
+              for idx,ch in enumerate(common):
+                  f.write(f'{ch}\t{total-idx}\n')
+          print('Common chars',len(common),common_out.stat().st_size,'占 rank=',common.index('占')+1)
+
 
           # Build "first Bopomofo symbol of every syllable" phrase keys.
           # Example: 我們 = ㄨㄛˇ ㄇㄣ˙ -> ㄨㄇ.
@@ -205,7 +233,7 @@ jobs:
           APK=imeapp/app/build/outputs/apk/debug/app-debug.apk
           BADGE=$(${ANDROID_HOME}/build-tools/35.0.0/aapt dump badging "$APK" | head -n 2)
           echo "$BADGE"
-          echo "$BADGE" | grep -q "versionCode='23' versionName='0.9.13'"
+          echo "$BADGE" | grep -q "versionCode='24' versionName='0.9.14'"
           ICON=$(unzip -Z1 "$APK" | grep -E '^res/mipmap[^/]*/ic_launcher\.webp$' | head -n1)
           test -n "$ICON"
           unzip -p "$APK" "$ICON" >/tmp/ajo_launcher.webp
@@ -218,11 +246,11 @@ jobs:
           test "$APK_SHA" = "9d3d3c77112475d20d2b032063a6fdb25b6712870d1c89115c98fe8a781a60fd"
 
       - name: Prepare artifact
-        run: cp imeapp/app/build/outputs/apk/debug/app-debug.apk '阿喬輸入法_v0.9.13_長停頓語音修正版.apk'
+        run: cp imeapp/app/build/outputs/apk/debug/app-debug.apk '阿喬輸入法_v0.9.14_二碼完整字排序修正版.apk'
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: ajo-ime-v0.9.13-apk
-          path: '阿喬輸入法_v0.9.13_長停頓語音修正版.apk'
+          name: ajo-ime-v0.9.14-apk
+          path: '阿喬輸入法_v0.9.14_二碼完整字排序修正版.apk'
           if-no-files-found: error
