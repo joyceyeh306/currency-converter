@@ -1,4 +1,6 @@
-@file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)\n\npackage tw.ajo.photomanager
+@file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+
+package tw.ajo.photomanager
 
 import android.app.Activity
 import android.content.Context
