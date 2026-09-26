@@ -86,7 +86,7 @@ input:focus,select:focus{border-color:#65b8ef}
 <div class="top">
   <div class="brand">
     <img src="icon.png" alt="">
-    <div><h1>ㄚ喬照片管家</h1><small>v1.2.1・整理資料，不動照片畫質</small></div>
+    <div><h1>ㄚ喬照片管家</h1><small>v1.3.0・整理資料，不動照片畫質</small></div>
     <div class="protect">無損保護</div>
   </div>
 </div>
@@ -174,13 +174,25 @@ input:focus,select:focus{border-color:#65b8ef}
     </div>
 
     <div class="info-block album" style="margin-top:13px">
-      <h4>相簿顯示時間實驗</h4>
-      <div class="hint">只選 1 張照片後，建立 3 張測試副本：A 完整保留原始 EXIF、B 只移除時區、C 只把測試副本時區改為 +08:00。原始照片完全不動。請到 OPPO 相簿看看三張各顯示幾點，就能確認 Find X9 Pro 的實際規則。</div>
-      <div class="actions">
-        <button class="btn teal" onclick="createAlbumTimeTest()">建立 3 張測試副本</button>
-        <button class="btn danger" id="deleteTestBtn" style="display:none" onclick="deleteAlbumTimeTests()">刪除測試副本</button>
+      <h4>當地時間顯示模式</h4>
+      <div class="hint">保留 EXIF 拍攝時間本身，只把 EXIF 時區改成妳指定的顯示基準，讓 OPPO 相簿以照片當地拍攝時間顯示與排序。原始拍攝時間與原始時區會先存成極小的 App 紀錄，不會複製照片。</div>
+      <div class="grid2" style="margin-top:10px">
+        <div><label>相簿顯示基準時區</label><input id="albumTargetOffset" value="+08:00" placeholder="+08:00"></div>
+        <div style="display:flex;align-items:end"><button class="btn primary" style="width:100%" onclick="localTimeDisplay()">預覽當地時間顯示</button></div>
       </div>
-      <div id="albumTestResult" class="result" style="display:none;margin-top:9px"></div>
+      <div class="actions">
+        <button class="btn" onclick="restoreOriginalTime()">預覽還原原始時區</button>
+      </div>
+      <div class="note warn" style="margin-top:10px">例如義大利照片 16:47 +02:00 → 16:47 +08:00。照片像素不變，但標準 EXIF 時區會改變；App 會保存原本的 +02:00 供日後還原。</div>
+      <details style="margin-top:12px">
+        <summary class="hint" style="font-weight:800;cursor:pointer">測試工具：A／B／C 相簿時間實驗</summary>
+        <div class="hint" style="margin-top:8px">一次只選 1 張照片，另外建立 3 張測試副本。這只是研究 OPPO 相簿規則，平常不需要使用。</div>
+        <div class="actions">
+          <button class="btn teal" onclick="createAlbumTimeTest()">建立 3 張測試副本</button>
+          <button class="btn danger" id="deleteTestBtn" style="display:none" onclick="deleteAlbumTimeTests()">刪除測試副本</button>
+        </div>
+        <div id="albumTestResult" class="result" style="display:none;margin-top:9px"></div>
+      </details>
     </div>
   </div>
 
@@ -198,8 +210,8 @@ input:focus,select:focus{border-color:#65b8ef}
   </div>
 
   <div class="section">
-    <h4>v1.2 測試重點</h4>
-    <div class="hint">時區預設改為「保留原始值」，避免把正確的旅行 EXIF 時區誤改成台灣 +08:00；另外新增「相簿顯示時間實驗」，用三張測試副本確認 OPPO 相簿如何解讀 DateTimeOriginal 與 OffsetTimeOriginal。所有實驗都不碰原始照片。</div>
+    <h4>v1.3 測試重點</h4>
+    <div class="hint">新增「當地時間顯示模式」：不建立照片副本，只修改時區 metadata，並在 App 內保存原始拍攝時間與原始時區，可預覽後套用，也可預覽還原。照片選取效能修正與分批載入仍保留。</div>
   </div>
   <div id="actionResult" class="result" style="display:none"></div>
  </div>
@@ -405,7 +417,8 @@ function openDetail(id){
  ];
  var fileRows=[
   ["檔名",info.name],["尺寸",(info.width||0)+" × "+(info.height||0)],["大小",fsize(info.size)],["格式",info.mime],
-  ["可無損寫入 metadata",info.metadataWritable?"是":"否（只讀保護）"]
+  ["可無損寫入 metadata",info.metadataWritable?"是":"否（只讀保護）"],
+  ["原始時間備份",info.hasOriginalTimeBackup?((info.backedUpOriginalDateTime||"—")+" "+(info.backedUpOriginalOffset||"")):"尚未建立"]
  ];
  function rowsHtml(rows){return '<div class="meta">'+rows.map(function(r){return "<b>"+esc(r[0])+"</b><span>"+esc(r[1])+"</span>"}).join("")+'</div>'}
  var interp=albumInterpretation(info);
@@ -453,7 +466,7 @@ function deleteAlbumTimeTests(){
  }
 }
 function actionName(type){
- return {rename:"重新命名",dateFromFilename:"依檔名修正拍攝時間",shiftTime:"整批調整拍攝時間",gpsSet:"設定 GPS",gpsCopy:"複製 GPS",gpsClear:"清除 GPS"}[type]||"批次修改";
+ return {rename:"重新命名",dateFromFilename:"依檔名修正拍攝時間",shiftTime:"整批調整拍攝時間",localTimeDisplay:"當地時間顯示模式",restoreOriginalTime:"還原原始時區",gpsSet:"設定 GPS",gpsCopy:"複製 GPS",gpsClear:"清除 GPS"}[type]||"批次修改";
 }
 function startPreview(action){
  var ids=requireSelected();if(!ids)return;
@@ -495,6 +508,13 @@ function shiftTime(){
  if(off && !validOffset(off)){alert("時區格式請輸入 +08:00、+09:00 這種格式");return}
  startPreview({type:"shiftTime",minutes:m,offset:off});
 }
+function localTimeDisplay(){
+ var off=byId("albumTargetOffset").value.trim();
+ if(!validOffset(off)){alert("顯示基準時區請輸入 +08:00、+09:00 這種格式");return}
+ startPreview({type:"localTimeDisplay",targetOffset:off});
+}
+function restoreOriginalTime(){startPreview({type:"restoreOriginalTime"})}
+
 function gpsSet(){
  var lat=Number(byId("gpsLat").value),lon=Number(byId("gpsLon").value);
  if(!isFinite(lat)||!isFinite(lon)||lat>90||lat<-90||lon>180||lon<-180){alert("請輸入正確的 GPS 經緯度");return}
