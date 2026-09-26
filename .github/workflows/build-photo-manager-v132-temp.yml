@@ -46,7 +46,7 @@ jobs:
 
       - name: Verify v1.3.2 sources
         run: |
-          grep -q "versionName '1.3.1'" photo_manager_app/app/build.gradle
+          grep -q "versionName '1.3.2'" photo_manager_app/app/build.gradle
           grep -q "localTimeDisplay" photo_manager_app/app/src/main/java/tw/ajo/photomanager/MainActivity.java
           grep -q "當地時間資料模式" photo_manager_app/app/src/main/assets/index.html
           python3 - <<'PY'
