@@ -18,11 +18,19 @@ import java.time.LocalDateTime
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
-import java.util.concurrent.ConcurrentHashMap
 import java.util.regex.Pattern
 
 enum class GroupMode(val label: String) { YEAR("年"), MONTH("月"), DAY("日"), ALL("全部") }
 enum class MediaKind { IMAGE, VIDEO }
+enum class MediaFilter(val label: String) { ALL("全部"), PHOTO("照片"), VIDEO("影片") }
+enum class SortField(val label: String) {
+    CAPTURE_TIME("拍攝時間"),
+    FILE_NAME("檔名"),
+    FILE_SIZE("檔案大小"),
+    MODIFIED_TIME("修改時間"),
+    ADDED_TIME("加入手機時間"),
+    RESOLUTION("解析度")
+}
 
 data class MediaItem(
     val key: String,
@@ -32,6 +40,7 @@ data class MediaItem(
     val mime: String,
     val kind: MediaKind,
     val dateTaken: Long,
+    val dateAdded: Long,
     val dateModified: Long,
     val size: Long,
     val width: Int,
@@ -42,6 +51,13 @@ data class MediaItem(
 )
 
 data class AlbumSection(val key: String, val title: String, val items: List<MediaItem>)
+data class MonthBucket(
+    val key: String,
+    val year: Int,
+    val month: Int,
+    val items: List<MediaItem>
+)
+
 data class ExifRow(val label: String, val value: String, val rawTag: String)
 
 data class DetailInfo(
@@ -65,8 +81,8 @@ class AlbumRepository(private val context: Context) {
     private val filename14 = Pattern.compile("((?:19|20)\\d{12})")
     private val filenameFormatter = DateTimeFormatter.ofPattern("yyyyMMddHHmmss", Locale.US)
     private val exifFormatter = DateTimeFormatter.ofPattern("yyyy:MM:dd HH:mm:ss", Locale.US)
-    private val exifCache = ConcurrentHashMap<String, Pair<Long, LocalDateTime>>()
     private val favoritePrefs = context.getSharedPreferences("ajo_album_favorites", Context.MODE_PRIVATE)
+    private val timeIndexPrefs = context.getSharedPreferences("ajo_album_time_index", Context.MODE_PRIVATE)
 
     fun requiredPermissions(): Array<String> {
         return if (Build.VERSION.SDK_INT >= 33) {
@@ -102,36 +118,34 @@ class AlbumRepository(private val context: Context) {
 
     suspend fun refineOriginalTimes(
         source: List<MediaItem>,
-        onProgress: suspend (List<MediaItem>, Int, Int) -> Unit
+        onBatch: suspend (List<MediaItem>) -> Unit
     ) {
-        val images = source.filter { it.kind == MediaKind.IMAGE }
-        if (images.isEmpty()) {
-            onProgress(source, 0, 0)
-            return
+        val pendingImages = source.filter {
+            it.kind == MediaKind.IMAGE && !hasFreshIndex(it.key, it.dateModified)
         }
+        if (pendingImages.isEmpty()) return
+
         var working = source
-        val pending = mutableMapOf<String, MediaItem>()
-        var done = 0
-        for (item in images) {
-            val cached = exifCache[item.key]
-            val original = if (cached != null && cached.first == item.dateModified) {
-                cached.second
-            } else {
-                val value = withContext(Dispatchers.IO) { readOriginalTime(item.uri) }
-                if (value != null) exifCache[item.key] = item.dateModified to value
-                value
+        val updates = mutableMapOf<String, MediaItem>()
+        var processed = 0
+
+        for (item in pendingImages) {
+            val original = withContext(Dispatchers.IO) { readOriginalTime(item.uri) }
+            saveIndex(item.key, item.dateModified, original)
+            if (original != null && (original != item.wallTime || item.timeSource != "EXIF 原始拍攝時間")) {
+                updates[item.key] = item.copy(
+                    wallTime = original,
+                    timeSource = "EXIF 原始拍攝時間"
+                )
             }
-            if (original != null && original != item.wallTime) {
-                pending[item.key] = item.copy(wallTime = original, timeSource = "EXIF 原始拍攝時間")
-            }
-            done += 1
-            if (done % 80 == 0 || done == images.size) {
-                if (pending.isNotEmpty()) {
-                    val batch = pending.toMap()
+            processed += 1
+            if (processed % 80 == 0 || processed == pendingImages.size) {
+                if (updates.isNotEmpty()) {
+                    val batch = updates.toMap()
                     working = working.map { batch[it.key] ?: it }.sortedByDescending { it.wallTime }
-                    pending.clear()
+                    updates.clear()
+                    onBatch(working)
                 }
-                onProgress(working, done, images.size)
             }
         }
     }
@@ -139,8 +153,19 @@ class AlbumRepository(private val context: Context) {
     fun readDetail(item: MediaItem): DetailInfo {
         if (item.kind == MediaKind.VIDEO) {
             return DetailInfo(
-                item, "", "", "", "", "", "", "", false, null, null, null,
-                listOf(
+                item = item,
+                make = "",
+                model = "",
+                lens = "",
+                focal35 = "",
+                aperture = "",
+                exposure = "",
+                iso = "",
+                hasGps = false,
+                lat = null,
+                lon = null,
+                altitude = null,
+                rows = listOf(
                     ExifRow("檔名", item.name, "DISPLAY_NAME"),
                     ExifRow("格式", item.mime, "MIME_TYPE"),
                     ExifRow("影片長度", formatDuration(item.duration), "DURATION"),
@@ -166,6 +191,7 @@ class AlbumRepository(private val context: Context) {
         try {
             resolver.openInputStream(item.uri)?.use { stream ->
                 val exif = ExifInterface(stream)
+
                 fun add(label: String, tag: String): String {
                     val value = exif.getAttribute(tag).orEmpty()
                     if (value.isNotBlank()) rows.add(ExifRow(label, value, tag))
@@ -221,8 +247,19 @@ class AlbumRepository(private val context: Context) {
         }
 
         return DetailInfo(
-            item, make, model, lens, focal35, aperture, exposure, iso,
-            hasGps, lat, lon, altitude, rows
+            item = item,
+            make = make,
+            model = model,
+            lens = lens,
+            focal35 = focal35,
+            aperture = aperture,
+            exposure = exposure,
+            iso = iso,
+            hasGps = hasGps,
+            lat = lat,
+            lon = lon,
+            altitude = altitude,
+            rows = rows
         )
     }
 
@@ -246,7 +283,10 @@ class AlbumRepository(private val context: Context) {
             return MediaStore.createTrashRequest(resolver, items.map { it.uri }, true)
         }
         items.forEach {
-            try { resolver.delete(it.uri, null, null) } catch (_: Exception) { }
+            try {
+                resolver.delete(it.uri, null, null)
+            } catch (_: Exception) {
+            }
         }
         return null
     }
@@ -261,6 +301,7 @@ class AlbumRepository(private val context: Context) {
             MediaStore.Images.Media._ID,
             MediaStore.Images.Media.DISPLAY_NAME,
             MediaStore.Images.Media.DATE_TAKEN,
+            MediaStore.Images.Media.DATE_ADDED,
             MediaStore.Images.Media.DATE_MODIFIED,
             MediaStore.Images.Media.MIME_TYPE,
             MediaStore.Images.Media.SIZE,
@@ -280,6 +321,7 @@ class AlbumRepository(private val context: Context) {
             MediaStore.Video.Media._ID,
             MediaStore.Video.Media.DISPLAY_NAME,
             MediaStore.Video.Media.DATE_TAKEN,
+            MediaStore.Video.Media.DATE_ADDED,
             MediaStore.Video.Media.DATE_MODIFIED,
             MediaStore.Video.Media.MIME_TYPE,
             MediaStore.Video.Media.SIZE,
@@ -290,7 +332,12 @@ class AlbumRepository(private val context: Context) {
         return queryMedia(uri, projection, MediaKind.VIDEO, true)
     }
 
-    private fun queryMedia(baseUri: Uri, projection: Array<String>, kind: MediaKind, hasDuration: Boolean): List<MediaItem> {
+    private fun queryMedia(
+        baseUri: Uri,
+        projection: Array<String>,
+        kind: MediaKind,
+        hasDuration: Boolean
+    ): List<MediaItem> {
         val output = mutableListOf<MediaItem>()
         resolver.query(
             baseUri,
@@ -303,37 +350,87 @@ class AlbumRepository(private val context: Context) {
                 val id = cursor.longOrZero(0)
                 val name = cursor.stringOrEmpty(1)
                 val dateTaken = cursor.longOrZero(2)
-                val modified = cursor.longOrZero(3) * 1000L
-                val mime = cursor.stringOrEmpty(4)
-                val size = cursor.longOrZero(5)
-                val width = cursor.intOrZero(6)
-                val height = cursor.intOrZero(7)
-                val duration = if (hasDuration) cursor.longOrZero(8) else 0L
+                val added = cursor.longOrZero(3) * 1000L
+                val modified = cursor.longOrZero(4) * 1000L
+                val mime = cursor.stringOrEmpty(5)
+                val size = cursor.longOrZero(6)
+                val width = cursor.intOrZero(7)
+                val height = cursor.intOrZero(8)
+                val duration = if (hasDuration) cursor.longOrZero(9) else 0L
                 val itemUri = ContentUris.withAppendedId(baseUri, id)
+                val key = kind.name + ":" + id.toString()
+
+                val cached = if (kind == MediaKind.IMAGE) readIndexedTime(key, modified) else null
                 val filenameTime = parseFilenameTime(name)
-                val fallbackMillis = if (dateTaken > 0L) dateTaken else if (modified > 0L) modified else System.currentTimeMillis()
-                val fallback = LocalDateTime.ofInstant(Instant.ofEpochMilli(fallbackMillis), ZoneId.systemDefault())
+                val fallbackMillis = when {
+                    dateTaken > 0L -> dateTaken
+                    modified > 0L -> modified
+                    added > 0L -> added
+                    else -> System.currentTimeMillis()
+                }
+                val fallback = LocalDateTime.ofInstant(
+                    Instant.ofEpochMilli(fallbackMillis),
+                    ZoneId.systemDefault()
+                )
+                val effective = cached ?: filenameTime ?: fallback
+                val source = when {
+                    cached != null -> "EXIF 原始拍攝時間"
+                    filenameTime != null -> "檔名時間"
+                    else -> "Android MediaStore"
+                }
+
                 output.add(
                     MediaItem(
-                        kind.name + ":" + id.toString(),
-                        id,
-                        itemUri,
-                        name,
-                        mime,
-                        kind,
-                        dateTaken,
-                        modified,
-                        size,
-                        width,
-                        height,
-                        duration,
-                        filenameTime ?: fallback,
-                        if (filenameTime != null) "檔名時間" else "Android MediaStore"
+                        key = key,
+                        id = id,
+                        uri = itemUri,
+                        name = name,
+                        mime = mime,
+                        kind = kind,
+                        dateTaken = dateTaken,
+                        dateAdded = added,
+                        dateModified = modified,
+                        size = size,
+                        width = width,
+                        height = height,
+                        duration = duration,
+                        wallTime = effective,
+                        timeSource = source
                     )
                 )
             }
         }
         return output
+    }
+
+    private fun cacheKey(key: String): String = "time_" + key
+
+    private fun hasFreshIndex(key: String, modified: Long): Boolean {
+        val raw = timeIndexPrefs.getString(cacheKey(key), null) ?: return false
+        val separator = raw.indexOf('|')
+        if (separator <= 0) return false
+        val storedModified = raw.substring(0, separator).toLongOrNull() ?: return false
+        return storedModified == modified
+    }
+
+    private fun readIndexedTime(key: String, modified: Long): LocalDateTime? {
+        val raw = timeIndexPrefs.getString(cacheKey(key), null) ?: return null
+        val separator = raw.indexOf('|')
+        if (separator <= 0) return null
+        val storedModified = raw.substring(0, separator).toLongOrNull() ?: return null
+        if (storedModified != modified) return null
+        val value = raw.substring(separator + 1)
+        if (value == "NONE") return null
+        return try {
+            LocalDateTime.parse(value)
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    private fun saveIndex(key: String, modified: Long, time: LocalDateTime?) {
+        val value = modified.toString() + "|" + (time?.toString() ?: "NONE")
+        timeIndexPrefs.edit().putString(cacheKey(key), value).apply()
     }
 
     private fun parseFilenameTime(name: String): LocalDateTime? {
@@ -359,15 +456,40 @@ class AlbumRepository(private val context: Context) {
         }
     }
 
-    private fun Cursor.stringOrEmpty(index: Int): String = if (isNull(index)) "" else getString(index).orEmpty()
-    private fun Cursor.longOrZero(index: Int): Long = if (isNull(index)) 0L else getLong(index)
-    private fun Cursor.intOrZero(index: Int): Int = if (isNull(index)) 0 else getInt(index)
+    private fun Cursor.stringOrEmpty(index: Int): String =
+        if (isNull(index)) "" else getString(index).orEmpty()
+
+    private fun Cursor.longOrZero(index: Int): Long =
+        if (isNull(index)) 0L else getLong(index)
+
+    private fun Cursor.intOrZero(index: Int): Int =
+        if (isNull(index)) 0 else getInt(index)
+}
+
+fun filterMedia(items: List<MediaItem>, filter: MediaFilter): List<MediaItem> {
+    return when (filter) {
+        MediaFilter.ALL -> items
+        MediaFilter.PHOTO -> items.filter { it.kind == MediaKind.IMAGE }
+        MediaFilter.VIDEO -> items.filter { it.kind == MediaKind.VIDEO }
+    }
+}
+
+fun sortMedia(items: List<MediaItem>, field: SortField, descending: Boolean): List<MediaItem> {
+    val comparator = when (field) {
+        SortField.CAPTURE_TIME -> compareBy<MediaItem> { it.wallTime }
+        SortField.FILE_NAME -> compareBy(String.CASE_INSENSITIVE_ORDER) { it.name }
+        SortField.FILE_SIZE -> compareBy<MediaItem> { it.size }
+        SortField.MODIFIED_TIME -> compareBy<MediaItem> { it.dateModified }
+        SortField.ADDED_TIME -> compareBy<MediaItem> { it.dateAdded }
+        SortField.RESOLUTION -> compareBy<MediaItem> { it.width.toLong() * it.height.toLong() }
+    }
+    return if (descending) items.sortedWith(comparator.reversed()) else items.sortedWith(comparator)
 }
 
 fun buildSections(items: List<MediaItem>, mode: GroupMode): List<AlbumSection> {
-    val sorted = items.sortedByDescending { it.wallTime }
-    if (mode == GroupMode.ALL) return listOf(AlbumSection("all", "全部照片", sorted))
-    val grouped = sorted.groupBy {
+    if (mode == GroupMode.ALL) return listOf(AlbumSection("all", "全部照片", items))
+
+    val grouped = items.groupBy {
         when (mode) {
             GroupMode.YEAR -> it.wallTime.format(DateTimeFormatter.ofPattern("yyyy"))
             GroupMode.MONTH -> it.wallTime.format(DateTimeFormatter.ofPattern("yyyy-MM"))
@@ -375,16 +497,34 @@ fun buildSections(items: List<MediaItem>, mode: GroupMode): List<AlbumSection> {
             GroupMode.ALL -> "all"
         }
     }
-    return grouped.entries.map { entry ->
-        val first = entry.value.first().wallTime
-        val title = when (mode) {
-            GroupMode.YEAR -> first.year.toString() + "年"
-            GroupMode.MONTH -> first.year.toString() + "年" + first.monthValue.toString() + "月"
-            GroupMode.DAY -> first.year.toString() + "年" + first.monthValue.toString() + "月" + first.dayOfMonth.toString() + "日"
-            GroupMode.ALL -> "全部照片"
+
+    return grouped.entries
+        .sortedByDescending { it.key }
+        .map { entry ->
+            val first = entry.value.first().wallTime
+            val title = when (mode) {
+                GroupMode.YEAR -> first.year.toString() + "年"
+                GroupMode.MONTH -> first.year.toString() + "年" + first.monthValue.toString() + "月"
+                GroupMode.DAY -> first.year.toString() + "年" + first.monthValue.toString() + "月" + first.dayOfMonth.toString() + "日"
+                GroupMode.ALL -> "全部照片"
+            }
+            AlbumSection(entry.key, title, entry.value)
         }
-        AlbumSection(entry.key, title, entry.value)
-    }
+}
+
+fun buildMonthBuckets(items: List<MediaItem>): List<Pair<Int, List<MonthBucket>>> {
+    val buckets = items
+        .groupBy { it.wallTime.format(DateTimeFormatter.ofPattern("yyyy-MM")) }
+        .map { (key, list) ->
+            val dt = list.maxByOrNull { it.wallTime }?.wallTime ?: list.first().wallTime
+            MonthBucket(key, dt.year, dt.monthValue, list.sortedByDescending { it.wallTime })
+        }
+        .sortedByDescending { it.key }
+
+    return buckets.groupBy { it.year }
+        .entries
+        .sortedByDescending { it.key }
+        .map { it.key to it.value.sortedByDescending { bucket -> bucket.month } }
 }
 
 fun formatDateTime(value: LocalDateTime): String =
