@@ -6,6 +6,7 @@ import android.content.ContentUris
 import android.content.Context
 import android.content.pm.PackageManager
 import android.database.Cursor
+import android.location.Geocoder
 import android.net.Uri
 import android.os.Build
 import android.provider.MediaStore
@@ -83,22 +84,67 @@ class AlbumRepository(private val context: Context) {
     private val exifFormatter = DateTimeFormatter.ofPattern("yyyy:MM:dd HH:mm:ss", Locale.US)
     private val favoritePrefs = context.getSharedPreferences("ajo_album_favorites", Context.MODE_PRIVATE)
     private val timeIndexPrefs = context.getSharedPreferences("ajo_album_time_index", Context.MODE_PRIVATE)
+    private val placePrefs = context.getSharedPreferences("ajo_album_place_cache", Context.MODE_PRIVATE)
 
-    fun requiredPermissions(): Array<String> {
+    fun hasImagePermission(): Boolean {
         return if (Build.VERSION.SDK_INT >= 33) {
-            arrayOf(Manifest.permission.READ_MEDIA_IMAGES, Manifest.permission.READ_MEDIA_VIDEO)
+            ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.READ_MEDIA_IMAGES
+            ) == PackageManager.PERMISSION_GRANTED
         } else {
-            arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE)
+            ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.READ_EXTERNAL_STORAGE
+            ) == PackageManager.PERMISSION_GRANTED
         }
     }
 
-    fun hasAnyMediaPermission(): Boolean {
+    fun hasVideoPermission(): Boolean {
         return if (Build.VERSION.SDK_INT >= 33) {
-            ContextCompat.checkSelfPermission(context, Manifest.permission.READ_MEDIA_IMAGES) == PackageManager.PERMISSION_GRANTED ||
-                ContextCompat.checkSelfPermission(context, Manifest.permission.READ_MEDIA_VIDEO) == PackageManager.PERMISSION_GRANTED
+            ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.READ_MEDIA_VIDEO
+            ) == PackageManager.PERMISSION_GRANTED
         } else {
-            ContextCompat.checkSelfPermission(context, Manifest.permission.READ_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED
+            ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.READ_EXTERNAL_STORAGE
+            ) == PackageManager.PERMISSION_GRANTED
         }
+    }
+
+    fun hasAllMediaPermissions(): Boolean =
+        hasImagePermission() && hasVideoPermission()
+
+    fun hasAnyMediaPermission(): Boolean =
+        hasImagePermission() || hasVideoPermission()
+
+    fun requiredPermissions(): Array<String> {
+        val result = mutableListOf<String>()
+
+        if (Build.VERSION.SDK_INT >= 33) {
+            if (!hasImagePermission()) {
+                result.add(Manifest.permission.READ_MEDIA_IMAGES)
+            }
+            if (!hasVideoPermission()) {
+                result.add(Manifest.permission.READ_MEDIA_VIDEO)
+            }
+        } else if (!hasImagePermission()) {
+            result.add(Manifest.permission.READ_EXTERNAL_STORAGE)
+        }
+
+        if (
+            Build.VERSION.SDK_INT >= 29 &&
+            ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.ACCESS_MEDIA_LOCATION
+            ) != PackageManager.PERMISSION_GRANTED
+        ) {
+            result.add(Manifest.permission.ACCESS_MEDIA_LOCATION)
+        }
+
+        return result.toTypedArray()
     }
 
     suspend fun loadBase(): List<MediaItem> = withContext(Dispatchers.IO) {
@@ -148,6 +194,49 @@ class AlbumRepository(private val context: Context) {
                 }
             }
         }
+    }
+
+    suspend fun resolvePlace(item: MediaItem): String? = withContext(Dispatchers.IO) {
+        if (item.kind != MediaKind.IMAGE) return@withContext null
+
+        val detail = readDetail(item)
+        val lat = detail.lat ?: return@withContext null
+        val lon = detail.lon ?: return@withContext null
+
+        val cacheKey = String.format(Locale.US, "%.5f,%.5f", lat, lon)
+        placePrefs.getString(cacheKey, null)?.let { cached ->
+            if (cached.isNotBlank()) return@withContext cached
+        }
+
+        val address = try {
+            @Suppress("DEPRECATION")
+            Geocoder(context, Locale.TAIWAN)
+                .getFromLocation(lat, lon, 1)
+                ?.firstOrNull()
+        } catch (_: Exception) {
+            null
+        } ?: return@withContext null
+
+        val countryCode = address.countryCode.orEmpty()
+        val parts = if (countryCode.equals("TW", ignoreCase = true)) {
+            listOf(
+                address.adminArea,
+                address.subLocality ?: address.subAdminArea ?: address.locality
+            )
+        } else {
+            listOf(
+                address.locality ?: address.subAdminArea ?: address.adminArea,
+                address.countryName
+            )
+        }
+            .mapNotNull { it?.trim()?.takeIf(String::isNotBlank) }
+            .distinct()
+
+        val place = parts.joinToString("・").takeIf { it.isNotBlank() }
+        if (place != null) {
+            placePrefs.edit().putString(cacheKey, place).apply()
+        }
+        place
     }
 
     fun readDetail(item: MediaItem): DetailInfo {
