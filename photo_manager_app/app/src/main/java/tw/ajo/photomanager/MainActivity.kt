@@ -1,24 +1,23 @@
-@file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+@file:OptIn(
+    androidx.compose.material3.ExperimentalMaterial3Api::class,
+    androidx.compose.foundation.ExperimentalFoundationApi::class
+)
 
 package tw.ajo.photomanager
 
 import android.app.Activity
 import android.content.Context
-import android.content.Intent
-import android.net.Uri
 import android.os.Bundle
 import android.view.Window
 import androidx.activity.ComponentActivity
-import androidx.activity.compose.setContent
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.compose.setContent
 import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
-import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.isSystemInDarkTheme
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -27,27 +26,32 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.LazyGridState
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items as gridItems
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
-import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Map
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Sort
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.VideoLibrary
 import androidx.compose.material3.AlertDialog
@@ -59,10 +63,8 @@ import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -79,12 +81,14 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -97,7 +101,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.util.Locale
 
 class MainActivity : ComponentActivity() {
     private var resumeVersion by mutableIntStateOf(0)
@@ -141,6 +144,7 @@ private fun AjoAlbumTheme(window: Window, content: @Composable () -> Unit) {
         surfaceVariant = Color(0xFF24272A),
         onSurfaceVariant = Color(0xFFBEC2C5)
     )
+
     DisposableEffect(dark) {
         window.statusBarColor = if (dark) 0xFF111315.toInt() else 0xFFFAFAF8.toInt()
         window.navigationBarColor = if (dark) 0xFF111315.toInt() else 0xFFFAFAF8.toInt()
@@ -150,29 +154,74 @@ private fun AjoAlbumTheme(window: Window, content: @Composable () -> Unit) {
         }
         onDispose { }
     }
-    MaterialTheme(colorScheme = if (dark) darkScheme else lightScheme, content = content)
+
+    MaterialTheme(
+        colorScheme = if (dark) darkScheme else lightScheme,
+        content = content
+    )
 }
 
 @Composable
 private fun AlbumApp(repository: AlbumRepository, resumeVersion: Int) {
     val context = LocalContext.current
+    val activity = context as? Activity
     val haptic = LocalHapticFeedback.current
     val scope = rememberCoroutineScope()
+    val prefs = remember {
+        context.getSharedPreferences("ajo_album_settings", Context.MODE_PRIVATE)
+    }
 
     var media by remember { mutableStateOf<List<MediaItem>>(emptyList()) }
-    var groupMode by remember { mutableStateOf(GroupMode.DAY) }
+    var loading by remember { mutableStateOf(false) }
+
+    var groupMode by remember {
+        mutableStateOf(
+            runCatching {
+                GroupMode.valueOf(prefs.getString("groupMode", GroupMode.DAY.name)!!)
+            }.getOrDefault(GroupMode.DAY)
+        )
+    }
+    var sortField by remember {
+        mutableStateOf(
+            runCatching {
+                SortField.valueOf(prefs.getString("sortField", SortField.CAPTURE_TIME.name)!!)
+            }.getOrDefault(SortField.CAPTURE_TIME)
+        )
+    }
+    var sortDescending by remember {
+        mutableStateOf(prefs.getBoolean("sortDescending", true))
+    }
+    var mediaFilter by remember {
+        mutableStateOf(
+            runCatching {
+                MediaFilter.valueOf(prefs.getString("mediaFilter", MediaFilter.ALL.name)!!)
+            }.getOrDefault(MediaFilter.ALL)
+        )
+    }
+    var customColumns by remember {
+        val saved = prefs.getInt("gridColumns", 0)
+        mutableStateOf(if (saved in listOf(4, 6, 8, 12, 16, 24, 40)) saved else null)
+    }
+
     var selected by remember { mutableStateOf<Set<String>>(emptySet()) }
     var selectionMode by remember { mutableStateOf(false) }
     var searchOpen by remember { mutableStateOf(false) }
     var searchText by remember { mutableStateOf("") }
-    var detailItem by remember { mutableStateOf<MediaItem?>(null) }
-    var detailInfo by remember { mutableStateOf<DetailInfo?>(null) }
-    var showExif by remember { mutableStateOf(false) }
+    var viewerKey by remember { mutableStateOf<String?>(null) }
+
     var menuOpen by remember { mutableStateOf(false) }
-    var loading by remember { mutableStateOf(false) }
-    var progress by remember { mutableStateOf(0 to 0) }
+    var sortDialog by remember { mutableStateOf(false) }
+    var densityDialog by remember { mutableStateOf(false) }
+    var yearDialog by remember { mutableStateOf(false) }
     var permissionDialog by remember { mutableStateOf(false) }
+    var exitDialog by remember { mutableStateOf(false) }
     var infoDialog by remember { mutableStateOf<String?>(null) }
+    var previousGroupMode by remember { mutableStateOf<GroupMode?>(null) }
+    var targetMonthKey by remember { mutableStateOf<String?>(null) }
+    var targetYear by remember { mutableStateOf<Int?>(null) }
+
+    val gridState = rememberLazyGridState()
+    val yearGridState = rememberLazyGridState()
 
     suspend fun reload() {
         if (!repository.hasAnyMediaPermission()) return
@@ -180,10 +229,10 @@ private fun AlbumApp(repository: AlbumRepository, resumeVersion: Int) {
         val base = repository.loadBase()
         media = base
         loading = false
-        repository.refineOriginalTimes(base) { updated, done, total ->
+
+        repository.refineOriginalTimes(base) { updated ->
             withContext(Dispatchers.Main) {
                 media = updated
-                progress = done to total
             }
         }
     }
@@ -191,8 +240,12 @@ private fun AlbumApp(repository: AlbumRepository, resumeVersion: Int) {
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) {
-        if (repository.hasAnyMediaPermission()) scope.launch { reload() }
+        if (repository.hasAnyMediaPermission()) {
+            scope.launch { reload() }
+        }
     }
+
+    var viewerDeletePending by remember { mutableStateOf(false) }
 
     val trashLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartIntentSenderForResult()
@@ -202,9 +255,13 @@ private fun AlbumApp(repository: AlbumRepository, resumeVersion: Int) {
             selected = emptySet()
             selectionMode = false
             scope.launch {
-                delay(250)
+                delay(200)
                 reload()
             }
+        }
+        if (viewerDeletePending) {
+            viewerDeletePending = false
+            viewerKey = null
         }
     }
 
@@ -220,7 +277,9 @@ private fun AlbumApp(repository: AlbumRepository, resumeVersion: Int) {
         AlertDialog(
             onDismissRequest = { permissionDialog = false },
             title = { Text("允許ㄚ喬的相簿讀取照片") },
-            text = { Text("權限只在需要時跳出一次。照片與影片仍留在手機原本的位置，不會另外複製。") },
+            text = {
+                Text("照片與影片仍留在手機原本的位置，不會另外複製。")
+            },
             confirmButton = {
                 TextButton(onClick = {
                     haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
@@ -234,74 +293,168 @@ private fun AlbumApp(repository: AlbumRepository, resumeVersion: Int) {
         )
     }
 
+    if (sortDialog) {
+        SortDialog(
+            field = sortField,
+            descending = sortDescending,
+            onField = {
+                sortField = it
+                sortDescending = it != SortField.FILE_NAME
+                prefs.edit()
+                    .putString("sortField", it.name)
+                    .putBoolean("sortDescending", sortDescending)
+                    .apply()
+                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+            },
+            onDirection = {
+                sortDescending = it
+                prefs.edit().putBoolean("sortDescending", it).apply()
+                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+            },
+            onDismiss = { sortDialog = false }
+        )
+    }
+
+    if (densityDialog) {
+        DensityDialog(
+            current = customColumns,
+            onChoose = { value ->
+                customColumns = value
+                prefs.edit().putInt("gridColumns", value ?: 0).apply()
+                densityDialog = false
+                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+            },
+            onDismiss = { densityDialog = false }
+        )
+    }
+
+    val years = remember(media) {
+        media.map { it.wallTime.year }.distinct().sortedDescending()
+    }
+
+    if (yearDialog) {
+        YearPickerDialog(
+            years = years,
+            onChoose = { year ->
+                yearDialog = false
+                targetYear = year
+                previousGroupMode = groupMode
+                groupMode = GroupMode.YEAR
+                prefs.edit().putString("groupMode", GroupMode.YEAR.name).apply()
+                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+            },
+            onDismiss = { yearDialog = false }
+        )
+    }
+
+    if (exitDialog) {
+        AlertDialog(
+            onDismissRequest = { exitDialog = false },
+            title = { Text("要離開「ㄚ喬的相簿」嗎？") },
+            confirmButton = {
+                TextButton(onClick = { activity?.finish() }) { Text("離開") }
+            },
+            dismissButton = {
+                TextButton(onClick = { exitDialog = false }) { Text("取消") }
+            }
+        )
+    }
+
     infoDialog?.let { message ->
         AlertDialog(
             onDismissRequest = { infoDialog = null },
             title = { Text("ㄚ喬的相簿") },
             text = { Text(message) },
             confirmButton = {
-                TextButton(onClick = {
-                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                    infoDialog = null
-                }) { Text("知道了") }
+                TextButton(onClick = { infoDialog = null }) { Text("知道了") }
             }
         )
     }
 
-    val currentDetail = detailItem
-    if (currentDetail != null) {
-        LaunchedEffect(currentDetail.key) {
-            detailInfo = withContext(Dispatchers.IO) { repository.readDetail(currentDetail) }
-        }
-        if (showExif && detailInfo != null) {
-            ExifScreen(
-                detail = detailInfo!!,
-                onBack = {
-                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                    showExif = false
-                }
-            )
+    val filteredByType = remember(media, mediaFilter) {
+        filterMedia(media, mediaFilter)
+    }
+
+    val searched = remember(filteredByType, searchText) {
+        val query = searchText.trim()
+        if (query.isBlank()) {
+            filteredByType
         } else {
-            DetailScreen(
-                item = currentDetail,
-                detail = detailInfo,
-                favorite = repository.isFavorite(currentDetail.key),
-                onBack = {
-                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                    detailItem = null
-                    detailInfo = null
-                },
-                onFavorite = {
-                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                    repository.toggleFavorite(currentDetail.key)
-                    detailItem = currentDetail.copy()
-                },
-                onExif = {
-                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                    showExif = true
-                },
-                onMap = { lat, lon ->
-                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                    openGoogleMaps(context, lat, lon)
-                },
-                onAdjust = {
-                    infoDialog = "相簿時間調整與批次整理會在下一階段接上。這一版先把原始拍攝時間、瀏覽與 EXIF 核心做穩。"
-                }
-            )
+            filteredByType.filter {
+                it.name.contains(query, true) ||
+                    formatDateTime(it.wallTime).contains(query, true) ||
+                    formatDateOnly(it.wallTime).contains(query, true) ||
+                    it.wallTime.year.toString().contains(query)
+            }
         }
+    }
+
+    val ordered = remember(searched, sortField, sortDescending) {
+        sortMedia(searched, sortField, sortDescending)
+    }
+
+    val currentViewerKey = viewerKey
+    if (currentViewerKey != null) {
+        ViewerScreen(
+            items = ordered,
+            startKey = currentViewerKey,
+            repository = repository,
+            onBack = {
+                viewerKey = null
+            },
+            onShare = { item ->
+                shareItems(context, listOf(item))
+            },
+            onOrganize = {
+                infoDialog = "照片整理工具會在下一階段接回時間、GPS、檔名與 Metadata。"
+            },
+            onTrash = { item ->
+                val request = repository.trashRequest(listOf(item))
+                if (request != null) {
+                    viewerDeletePending = true
+                    trashLauncher.launch(
+                        IntentSenderRequest.Builder(request.intentSender).build()
+                    )
+                } else {
+                    viewerKey = null
+                    scope.launch { reload() }
+                }
+            }
+        )
         return
     }
 
-    val filtered = remember(media, searchText) {
-        val query = searchText.trim()
-        if (query.isBlank()) media
-        else media.filter {
-            it.name.contains(query, true) ||
-                formatDateTime(it.wallTime).contains(query, true) ||
-                formatDateOnly(it.wallTime).contains(query, true)
+    BackHandler {
+        when {
+            menuOpen -> menuOpen = false
+            selectionMode -> {
+                selectionMode = false
+                selected = emptySet()
+            }
+            searchOpen -> {
+                searchOpen = false
+                searchText = ""
+            }
+            previousGroupMode != null -> {
+                groupMode = previousGroupMode!!
+                previousGroupMode = null
+                prefs.edit().putString("groupMode", groupMode.name).apply()
+            }
+            else -> exitDialog = true
         }
     }
-    val sections = remember(filtered, groupMode) { buildSections(filtered, groupMode) }
+
+    val sections = remember(ordered, groupMode) {
+        buildSections(ordered, groupMode)
+    }
+
+    val defaultColumns = when (groupMode) {
+        GroupMode.MONTH -> 8
+        GroupMode.DAY -> 4
+        GroupMode.ALL -> 4
+        GroupMode.YEAR -> 3
+    }
+    val columns = customColumns ?: defaultColumns
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
@@ -309,7 +462,7 @@ private fun AlbumApp(repository: AlbumRepository, resumeVersion: Int) {
             when {
                 selectionMode -> SelectionTopBar(
                     selectedCount = selected.size,
-                    allSelected = filtered.isNotEmpty() && selected.size == filtered.size,
+                    allSelected = ordered.isNotEmpty() && selected.size == ordered.size,
                     onClose = {
                         haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                         selectionMode = false
@@ -317,14 +470,15 @@ private fun AlbumApp(repository: AlbumRepository, resumeVersion: Int) {
                     },
                     onAll = {
                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                        selected = if (filtered.isNotEmpty() && selected.size == filtered.size) {
+                        selected = if (ordered.isNotEmpty() && selected.size == ordered.size) {
                             emptySet()
                         } else {
-                            filtered.map { it.key }.toSet()
+                            ordered.map { it.key }.toSet()
                         }
                     }
                 )
-                searchOpen -> SearchBar(
+
+                searchOpen -> SearchTopBar(
                     query = searchText,
                     onQuery = { searchText = it },
                     onClose = {
@@ -333,38 +487,140 @@ private fun AlbumApp(repository: AlbumRepository, resumeVersion: Int) {
                         searchText = ""
                     }
                 )
+
                 else -> CenterAlignedTopAppBar(
-                    title = { Text("圖庫", fontSize = 23.sp, fontWeight = FontWeight.SemiBold) },
+                    title = {
+                        Text(
+                            "圖庫",
+                            fontSize = 23.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    },
                     navigationIcon = {
                         Box {
                             IconButton(onClick = {
                                 haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                 menuOpen = true
-                            }) { Icon(Icons.Default.MoreVert, contentDescription = "更多") }
-                            DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                            }) {
+                                Icon(Icons.Default.MoreVert, contentDescription = "更多")
+                            }
+                            DropdownMenu(
+                                expanded = menuOpen,
+                                onDismissRequest = { menuOpen = false }
+                            ) {
+                                DropdownMenuItem(
+                                    text = {
+                                        Text(
+                                            "檢視方式：" + groupMode.label,
+                                            fontWeight = FontWeight.SemiBold
+                                        )
+                                    },
+                                    onClick = { }
+                                )
+                                GroupMode.entries.forEach { mode ->
+                                    DropdownMenuItem(
+                                        text = { Text(mode.label) },
+                                        trailingIcon = {
+                                            if (mode == groupMode) {
+                                                Icon(
+                                                    Icons.Default.Check,
+                                                    contentDescription = null,
+                                                    modifier = Modifier.size(18.dp)
+                                                )
+                                            }
+                                        },
+                                        onClick = {
+                                            groupMode = mode
+                                            previousGroupMode = null
+                                            prefs.edit().putString("groupMode", mode.name).apply()
+                                            menuOpen = false
+                                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                        }
+                                    )
+                                }
+
+                                HorizontalDivider()
+
+                                DropdownMenuItem(
+                                    text = { Text("跳到年份") },
+                                    onClick = {
+                                        menuOpen = false
+                                        yearDialog = true
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = {
+                                        Text(
+                                            "縮圖密度：" +
+                                                (customColumns?.let { it.toString() + " 欄" } ?: "自動")
+                                        )
+                                    },
+                                    onClick = {
+                                        menuOpen = false
+                                        densityDialog = true
+                                    }
+                                )
+
+                                HorizontalDivider()
+
+                                DropdownMenuItem(
+                                    text = {
+                                        Text(
+                                            "顯示內容：" + mediaFilter.label,
+                                            fontWeight = FontWeight.SemiBold
+                                        )
+                                    },
+                                    onClick = { }
+                                )
+                                MediaFilter.entries.forEach { filter ->
+                                    DropdownMenuItem(
+                                        text = { Text(filter.label) },
+                                        trailingIcon = {
+                                            if (filter == mediaFilter) {
+                                                Icon(
+                                                    Icons.Default.Check,
+                                                    contentDescription = null,
+                                                    modifier = Modifier.size(18.dp)
+                                                )
+                                            }
+                                        },
+                                        onClick = {
+                                            mediaFilter = filter
+                                            prefs.edit().putString("mediaFilter", filter.name).apply()
+                                            menuOpen = false
+                                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                        }
+                                    )
+                                }
+
+                                HorizontalDivider()
+
                                 DropdownMenuItem(
                                     text = { Text("地圖相簿・即將開放") },
-                                    leadingIcon = { Icon(Icons.Default.Map, contentDescription = null) },
+                                    leadingIcon = {
+                                        Icon(Icons.Default.Map, contentDescription = null)
+                                    },
                                     onClick = {
-                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                         menuOpen = false
-                                        infoDialog = "地圖相簿的入口先保留，後續版本再正式開放。"
+                                        infoDialog = "地圖相簿入口先保留，後續版本再正式開放。"
                                     }
                                 )
                                 DropdownMenuItem(
                                     text = { Text("重複與相似照片・後續開放") },
-                                    leadingIcon = { Icon(Icons.Default.PhotoLibrary, contentDescription = null) },
+                                    leadingIcon = {
+                                        Icon(Icons.Default.PhotoLibrary, contentDescription = null)
+                                    },
                                     onClick = {
-                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                         menuOpen = false
-                                        infoDialog = "完全重複、相似照片與 2～4 張比對會在相簿核心穩定後加入。"
+                                        infoDialog = "重複、相似照片與照片比對會在後續版本加入。"
                                     }
                                 )
                                 DropdownMenuItem(
                                     text = { Text("照片整理工具・下一階段") },
-                                    leadingIcon = { Icon(Icons.Default.Tune, contentDescription = null) },
+                                    leadingIcon = {
+                                        Icon(Icons.Default.Tune, contentDescription = null)
+                                    },
                                     onClick = {
-                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                         menuOpen = false
                                         infoDialog = "時間、GPS、檔名與 Metadata 批次整理會整合回這裡。"
                                     }
@@ -374,9 +630,23 @@ private fun AlbumApp(repository: AlbumRepository, resumeVersion: Int) {
                     },
                     actions = {
                         TextButton(onClick = {
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            sortDialog = true
+                        }) {
+                            Icon(
+                                Icons.Default.Sort,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(Modifier.size(4.dp))
+                            Text("排序")
+                        }
+                        TextButton(onClick = {
                             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                             selectionMode = true
-                        }) { Text("選取") }
+                        }) {
+                            Text("選取")
+                        }
                     },
                     colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
                         containerColor = MaterialTheme.colorScheme.background
@@ -394,7 +664,8 @@ private fun AlbumApp(repository: AlbumRepository, resumeVersion: Int) {
                     },
                     onFavorite = {
                         haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                        media.filter { selected.contains(it.key) }.forEach { repository.setFavorite(it.key, true) }
+                        media.filter { selected.contains(it.key) }
+                            .forEach { repository.setFavorite(it.key, true) }
                     },
                     onOrganize = {
                         haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
@@ -405,18 +676,12 @@ private fun AlbumApp(repository: AlbumRepository, resumeVersion: Int) {
                         val chosen = media.filter { selected.contains(it.key) }
                         val request = repository.trashRequest(chosen)
                         if (request != null) {
-                            trashLauncher.launch(IntentSenderRequest.Builder(request.intentSender).build())
+                            trashLauncher.launch(
+                                IntentSenderRequest.Builder(request.intentSender).build()
+                            )
                         } else {
                             scope.launch { reload() }
                         }
-                    }
-                )
-            } else {
-                ModeBar(
-                    mode = groupMode,
-                    onMode = {
-                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                        groupMode = it
                     }
                 )
             }
@@ -435,75 +700,108 @@ private fun AlbumApp(repository: AlbumRepository, resumeVersion: Int) {
             }
         }
     ) { padding ->
-        Column(Modifier.fillMaxSize().padding(padding)) {
-            AnimatedVisibility(progress.second > 0 && progress.first < progress.second) {
-                Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp)) {
-                    Text(
-                        "正在整理原始拍攝時間 " + progress.first.toString() + "/" + progress.second.toString(),
-                        fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    LinearProgressIndicator(
-                        progress = { progress.first.toFloat() / progress.second.coerceAtLeast(1).toFloat() },
-                        modifier = Modifier.fillMaxWidth().padding(top = 5.dp)
-                    )
-                }
-            }
-
+        Box(
+            Modifier
+                .fillMaxSize()
+                .padding(padding)
+        ) {
             when {
-                !repository.hasAnyMediaPermission() -> Box(
-                    Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center
-                ) {
-                    TextButton(onClick = {
-                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                        permissionDialog = true
-                    }) { Text("開啟照片權限") }
+                !repository.hasAnyMediaPermission() -> {
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        TextButton(onClick = { permissionDialog = true }) {
+                            Text("開啟照片權限")
+                        }
+                    }
                 }
-                loading && media.isEmpty() -> Box(
-                    Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center
-                ) { CircularProgressIndicator() }
-                sections.isEmpty() -> Box(
-                    Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        if (searchText.isNotBlank()) "沒有找到符合的照片" else "目前沒有可顯示的照片",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+
+                loading && media.isEmpty() -> {
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator()
+                    }
+                }
+
+                ordered.isEmpty() -> {
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Text(
+                            if (searchText.isNotBlank()) {
+                                "沒有找到符合的照片"
+                            } else {
+                                "目前沒有可顯示的照片"
+                            },
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+
+                groupMode == GroupMode.YEAR -> {
+                    YearOverview(
+                        groups = buildMonthBuckets(ordered),
+                        state = yearGridState,
+                        selectionMode = selectionMode,
+                        selected = selected,
+                        targetYear = targetYear,
+                        onTargetConsumed = { targetYear = null },
+                        onMonthClick = { bucket ->
+                            if (selectionMode) {
+                                val keys = bucket.items.map { it.key }.toSet()
+                                selected = if (keys.all { selected.contains(it) }) {
+                                    selected - keys
+                                } else {
+                                    selected + keys
+                                }
+                            } else {
+                                previousGroupMode = GroupMode.YEAR
+                                groupMode = GroupMode.MONTH
+                                prefs.edit().putString("groupMode", GroupMode.MONTH.name).apply()
+                                targetMonthKey = bucket.key
+                            }
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        }
                     )
                 }
-                else -> AlbumGrid(
-                    sections = sections,
-                    selectionMode = selectionMode,
-                    selected = selected,
-                    isFavorite = { repository.isFavorite(it) },
-                    onClick = { item ->
-                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                        if (selectionMode) {
-                            selected = toggleSelected(selected, item.key)
-                        } else {
-                            detailItem = item
+
+                else -> {
+                    RegularGrid(
+                        sections = sections,
+                        columns = columns,
+                        state = gridState,
+                        selectionMode = selectionMode,
+                        selected = selected,
+                        targetMonthKey = targetMonthKey,
+                        onTargetConsumed = { targetMonthKey = null },
+                        isFavorite = { repository.isFavorite(it) },
+                        onClick = { item ->
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            if (selectionMode) {
+                                selected = toggleSelected(selected, item.key)
+                            } else {
+                                viewerKey = item.key
+                            }
+                        },
+                        onDragSelect = { key, add ->
+                            if (!selectionMode) selectionMode = true
+                            selected = if (add) selected + key else selected - key
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        },
+                        onSelectSection = { list ->
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            val keys = list.map { it.key }.toSet()
+                            selected = if (keys.all { selected.contains(it) }) {
+                                selected - keys
+                            } else {
+                                selected + keys
+                            }
                         }
-                    },
-                    onLongClick = { item ->
-                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                        selectionMode = true
-                        selected = toggleSelected(selected, item.key)
-                    },
-                    onSelectSection = { list ->
-                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                        val keys = list.map { it.key }.toSet()
-                        selected = if (keys.all { selected.contains(it) }) selected - keys else selected + keys
-                    }
-                )
+                    )
+                }
             }
         }
     }
 }
 
-private fun toggleSelected(source: Set<String>, key: String): Set<String> =
-    if (source.contains(key)) source - key else source + key
+private fun toggleSelected(source: Set<String>, key: String): Set<String> {
+    return if (source.contains(key)) source - key else source + key
+}
 
 @Composable
 private fun SelectionTopBar(
@@ -513,12 +811,21 @@ private fun SelectionTopBar(
     onAll: () -> Unit
 ) {
     CenterAlignedTopAppBar(
-        title = { Text("已選 " + selectedCount.toString() + " 項", fontWeight = FontWeight.SemiBold) },
+        title = {
+            Text(
+                "已選 " + selectedCount.toString() + " 項",
+                fontWeight = FontWeight.SemiBold
+            )
+        },
         navigationIcon = {
-            IconButton(onClick = onClose) { Icon(Icons.Default.Close, contentDescription = "取消") }
+            IconButton(onClick = onClose) {
+                Icon(Icons.Default.Close, contentDescription = "取消")
+            }
         },
         actions = {
-            TextButton(onClick = onAll) { Text(if (allSelected) "取消全選" else "全選") }
+            TextButton(onClick = onAll) {
+                Text(if (allSelected) "取消全選" else "全選")
+            }
         },
         colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
             containerColor = MaterialTheme.colorScheme.background
@@ -527,41 +834,33 @@ private fun SelectionTopBar(
 }
 
 @Composable
-private fun SearchBar(query: String, onQuery: (String) -> Unit, onClose: () -> Unit) {
-    TextField(
-        value = query,
-        onValueChange = onQuery,
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
-        placeholder = { Text("搜尋日期、檔名；地點與照片文字後續加入") },
-        leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
-        trailingIcon = {
-            IconButton(onClick = onClose) { Icon(Icons.Default.Close, contentDescription = "關閉") }
-        },
-        singleLine = true,
-        shape = RoundedCornerShape(24.dp)
-    )
-}
-
-@Composable
-private fun ModeBar(mode: GroupMode, onMode: (GroupMode) -> Unit) {
-    NavigationBar(
-        containerColor = MaterialTheme.colorScheme.background,
-        modifier = Modifier.navigationBarsPadding()
-    ) {
-        GroupMode.entries.forEach { item ->
-            NavigationBarItem(
-                selected = item == mode,
-                onClick = { onMode(item) },
-                icon = { },
-                label = {
-                    Text(
-                        item.label,
-                        fontSize = 14.sp,
-                        fontWeight = if (item == mode) FontWeight.SemiBold else FontWeight.Normal
-                    )
+private fun SearchTopBar(
+    query: String,
+    onQuery: (String) -> Unit,
+    onClose: () -> Unit
+) {
+    Surface(color = MaterialTheme.colorScheme.background) {
+        TextField(
+            value = query,
+            onValueChange = onQuery,
+            modifier = Modifier
+                .fillMaxWidth()
+                .statusBarsPadding()
+                .padding(horizontal = 12.dp, vertical = 8.dp),
+            placeholder = {
+                Text("搜尋日期、檔名；地點與照片文字後續加入")
+            },
+            leadingIcon = {
+                Icon(Icons.Default.Search, contentDescription = null)
+            },
+            trailingIcon = {
+                IconButton(onClick = onClose) {
+                    Icon(Icons.Default.Close, contentDescription = "關閉")
                 }
-            )
-        }
+            },
+            singleLine = true,
+            shape = RoundedCornerShape(24.dp)
+        )
     }
 }
 
@@ -573,70 +872,475 @@ private fun SelectionBottomBar(
     onOrganize: () -> Unit,
     onDelete: () -> Unit
 ) {
-    NavigationBar(
-        containerColor = MaterialTheme.colorScheme.background,
-        modifier = Modifier.navigationBarsPadding()
+    Surface(
+        color = MaterialTheme.colorScheme.background,
+        tonalElevation = 2.dp
     ) {
-        NavigationBarItem(
-            selected = false, enabled = enabled, onClick = onShare,
-            icon = { Icon(Icons.Default.Share, contentDescription = null) }, label = { Text("分享") }
-        )
-        NavigationBarItem(
-            selected = false, enabled = enabled, onClick = onFavorite,
-            icon = { Icon(Icons.Default.FavoriteBorder, contentDescription = null) }, label = { Text("收藏") }
-        )
-        NavigationBarItem(
-            selected = false, enabled = enabled, onClick = onOrganize,
-            icon = { Icon(Icons.Default.Tune, contentDescription = null) }, label = { Text("整理") }
-        )
-        NavigationBarItem(
-            selected = false, enabled = enabled, onClick = onDelete,
-            icon = { Icon(Icons.Default.DeleteOutline, contentDescription = null) }, label = { Text("刪除") }
-        )
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .padding(vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            SelectionAction(
+                modifier = Modifier.weight(1f),
+                enabled = enabled,
+                icon = Icons.Default.Share,
+                label = "分享",
+                onClick = onShare
+            )
+            SelectionAction(
+                modifier = Modifier.weight(1f),
+                enabled = enabled,
+                icon = Icons.Default.FavoriteBorder,
+                label = "收藏",
+                onClick = onFavorite
+            )
+            SelectionAction(
+                modifier = Modifier.weight(1f),
+                enabled = enabled,
+                icon = Icons.Default.Tune,
+                label = "整理",
+                onClick = onOrganize
+            )
+            SelectionAction(
+                modifier = Modifier.weight(1f),
+                enabled = enabled,
+                icon = Icons.Default.DeleteOutline,
+                label = "刪除",
+                onClick = onDelete
+            )
+        }
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun AlbumGrid(
-    sections: List<AlbumSection>,
+private fun SelectionAction(
+    modifier: Modifier,
+    enabled: Boolean,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    onClick: () -> Unit
+) {
+    TextButton(
+        onClick = onClick,
+        enabled = enabled,
+        modifier = modifier
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Icon(icon, contentDescription = null, modifier = Modifier.size(21.dp))
+            Text(label, fontSize = 11.sp)
+        }
+    }
+}
+
+@Composable
+private fun SortDialog(
+    field: SortField,
+    descending: Boolean,
+    onField: (SortField) -> Unit,
+    onDirection: (Boolean) -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("排序") },
+        text = {
+            Column {
+                SortField.entries.forEach { item ->
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        RadioButton(
+                            selected = item == field,
+                            onClick = { onField(item) }
+                        )
+                        Text(
+                            item.label,
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                }
+
+                HorizontalDivider(Modifier.padding(vertical = 8.dp))
+
+                val descendingLabel = when (field) {
+                    SortField.FILE_NAME -> "Z → A"
+                    SortField.CAPTURE_TIME,
+                    SortField.MODIFIED_TIME,
+                    SortField.ADDED_TIME -> "新 → 舊"
+                    SortField.FILE_SIZE,
+                    SortField.RESOLUTION -> "大 → 小"
+                }
+                val ascendingLabel = when (field) {
+                    SortField.FILE_NAME -> "A → Z"
+                    SortField.CAPTURE_TIME,
+                    SortField.MODIFIED_TIME,
+                    SortField.ADDED_TIME -> "舊 → 新"
+                    SortField.FILE_SIZE,
+                    SortField.RESOLUTION -> "小 → 大"
+                }
+
+                Row(
+                    Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    RadioButton(
+                        selected = descending,
+                        onClick = { onDirection(true) }
+                    )
+                    Text(descendingLabel)
+                }
+                Row(
+                    Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    RadioButton(
+                        selected = !descending,
+                        onClick = { onDirection(false) }
+                    )
+                    Text(ascendingLabel)
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("完成") }
+        }
+    )
+}
+
+@Composable
+private fun DensityDialog(
+    current: Int?,
+    onChoose: (Int?) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val choices = listOf<Int?>(null, 4, 6, 8, 12, 16, 24, 40)
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("縮圖密度") },
+        text = {
+            Column {
+                choices.forEach { value ->
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        RadioButton(
+                            selected = current == value,
+                            onClick = { onChoose(value) }
+                        )
+                        Text(value?.let { it.toString() + " 欄" } ?: "自動")
+                    }
+                }
+                Text(
+                    "40 欄是超密集總覽，主要用來快速定位時間區段。",
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 8.dp)
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("取消") }
+        }
+    )
+}
+
+@Composable
+private fun YearPickerDialog(
+    years: List<Int>,
+    onChoose: (Int) -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("跳到年份") },
+        text = {
+            LazyColumn(Modifier.heightIn(max = 420.dp)) {
+                items(years) { year ->
+                    TextButton(
+                        onClick = { onChoose(year) },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            year.toString() + "年",
+                            fontSize = 18.sp
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("取消") }
+        }
+    )
+}
+
+@Composable
+private fun YearOverview(
+    groups: List<Pair<Int, List<MonthBucket>>>,
+    state: LazyGridState,
     selectionMode: Boolean,
     selected: Set<String>,
+    targetYear: Int?,
+    onTargetConsumed: () -> Unit,
+    onMonthClick: (MonthBucket) -> Unit
+) {
+    LaunchedEffect(targetYear, groups) {
+        val year = targetYear ?: return@LaunchedEffect
+        var index = 0
+        for ((groupYear, months) in groups) {
+            if (groupYear == year) {
+                state.scrollToItem(index)
+                onTargetConsumed()
+                break
+            }
+            index += 1 + months.size
+        }
+    }
+
+    LazyVerticalGrid(
+        columns = GridCells.Fixed(3),
+        state = state,
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(bottom = 20.dp)
+    ) {
+        groups.forEach { (year, months) ->
+            item(
+                key = "year-header-" + year.toString(),
+                span = { GridItemSpan(maxLineSpan) }
+            ) {
+                Text(
+                    year.toString() + "年",
+                    fontSize = 26.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.padding(
+                        start = 14.dp,
+                        end = 14.dp,
+                        top = 20.dp,
+                        bottom = 10.dp
+                    )
+                )
+            }
+
+            gridItems(
+                items = months,
+                key = { "month-card-" + it.key }
+            ) { bucket ->
+                val keys = bucket.items.map { it.key }
+                val count = keys.count { selected.contains(it) }
+                MonthCard(
+                    bucket = bucket,
+                    selectedCount = count,
+                    selectionMode = selectionMode,
+                    onClick = { onMonthClick(bucket) }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun MonthCard(
+    bucket: MonthBucket,
+    selectedCount: Int,
+    selectionMode: Boolean,
+    onClick: () -> Unit
+) {
+    val cover = bucket.items.firstOrNull()
+
+    Surface(
+        onClick = onClick,
+        modifier = Modifier
+            .padding(1.5.dp)
+            .aspectRatio(0.92f),
+        shape = RoundedCornerShape(7.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant
+    ) {
+        Box {
+            if (cover != null) {
+                AsyncImage(
+                    model = cover.uri,
+                    contentDescription = bucket.month.toString() + "月",
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop
+                )
+            }
+
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .align(Alignment.BottomCenter)
+                    .background(Color.Black.copy(alpha = 0.56f))
+                    .padding(horizontal = 8.dp, vertical = 7.dp)
+            ) {
+                Column {
+                    Text(
+                        bucket.month.toString() + "月",
+                        color = Color.White,
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 16.sp
+                    )
+                    Text(
+                        if (selectionMode && selectedCount > 0) {
+                            selectedCount.toString() + "/" + bucket.items.size.toString() + " 項"
+                        } else {
+                            bucket.items.size.toString() + " 項"
+                        },
+                        color = Color.White.copy(alpha = 0.84f),
+                        fontSize = 11.sp
+                    )
+                }
+            }
+
+            if (selectionMode && selectedCount == bucket.items.size && bucket.items.isNotEmpty()) {
+                Box(
+                    Modifier
+                        .padding(7.dp)
+                        .size(26.dp)
+                        .background(MaterialTheme.colorScheme.primary, CircleShape)
+                        .align(Alignment.TopEnd),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        Icons.Default.Check,
+                        contentDescription = null,
+                        tint = Color.White,
+                        modifier = Modifier.size(17.dp)
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun RegularGrid(
+    sections: List<AlbumSection>,
+    columns: Int,
+    state: LazyGridState,
+    selectionMode: Boolean,
+    selected: Set<String>,
+    targetMonthKey: String?,
+    onTargetConsumed: () -> Unit,
     isFavorite: (String) -> Boolean,
     onClick: (MediaItem) -> Unit,
-    onLongClick: (MediaItem) -> Unit,
+    onDragSelect: (String, Boolean) -> Unit,
     onSelectSection: (List<MediaItem>) -> Unit
 ) {
-    LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(bottom = 14.dp)
+    val scope = rememberCoroutineScope()
+    val selectedState by rememberUpdatedState(selected)
+    val mediaByKey = remember(sections) {
+        sections.flatMap { it.items }.associateBy { it.key }
+    }
+
+    LaunchedEffect(targetMonthKey, sections) {
+        val key = targetMonthKey ?: return@LaunchedEffect
+        var index = 0
+        for (section in sections) {
+            if (section.key == key) {
+                state.scrollToItem(index)
+                onTargetConsumed()
+                break
+            }
+            index += 1 + section.items.size
+        }
+    }
+
+    val dragModifier = Modifier.pointerInput(sections, columns) {
+        var addMode = true
+        val visited = mutableSetOf<String>()
+
+        fun mediaKeyAt(offset: Offset): String? {
+            val hit = state.layoutInfo.visibleItemsInfo.firstOrNull { info ->
+                offset.x >= info.offset.x &&
+                    offset.x <= info.offset.x + info.size.width &&
+                    offset.y >= info.offset.y &&
+                    offset.y <= info.offset.y + info.size.height
+            } ?: return null
+            val raw = hit.key?.toString() ?: return null
+            if (!raw.startsWith("media:")) return null
+            return raw.removePrefix("media:")
+        }
+
+        detectDragGesturesAfterLongPress(
+            onDragStart = { offset ->
+                visited.clear()
+                val key = mediaKeyAt(offset)
+                if (key != null && mediaByKey.containsKey(key)) {
+                    addMode = !selectedState.contains(key)
+                    visited.add(key)
+                    onDragSelect(key, addMode)
+                }
+            },
+            onDrag = { change, _ ->
+                change.consume()
+                val key = mediaKeyAt(change.position)
+                if (key != null && mediaByKey.containsKey(key) && visited.add(key)) {
+                    onDragSelect(key, addMode)
+                }
+
+                val edge = 90f
+                when {
+                    change.position.y < edge -> {
+                        scope.launch { state.scrollBy(-70f) }
+                    }
+                    change.position.y > size.height - edge -> {
+                        scope.launch { state.scrollBy(70f) }
+                    }
+                }
+            }
+        )
+    }
+
+    LazyVerticalGrid(
+        columns = GridCells.Fixed(columns.coerceIn(2, 40)),
+        state = state,
+        modifier = Modifier
+            .fillMaxSize()
+            .then(dragModifier),
+        contentPadding = PaddingValues(bottom = 18.dp)
     ) {
         sections.forEach { section ->
-            item(key = "header-" + section.key) {
+            item(
+                key = "header:" + section.key,
+                span = { GridItemSpan(maxLineSpan) }
+            ) {
                 Row(
-                    Modifier.fillMaxWidth()
+                    Modifier
+                        .fillMaxWidth()
                         .background(MaterialTheme.colorScheme.background)
-                        .padding(start = 14.dp, end = 10.dp, top = 18.dp, bottom = 9.dp),
+                        .padding(
+                            start = 14.dp,
+                            end = 10.dp,
+                            top = 18.dp,
+                            bottom = 9.dp
+                        ),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
                         section.title,
                         modifier = Modifier.weight(1f),
-                        fontSize = 19.sp,
+                        fontSize = if (columns >= 16) 15.sp else 19.sp,
                         fontWeight = FontWeight.SemiBold
                     )
+
                     if (selectionMode) {
                         val keys = section.items.map { it.key }
                         val count = keys.count { selected.contains(it) }
                         TextButton(onClick = { onSelectSection(section.items) }) {
                             val label = when {
-                                count == keys.size && keys.isNotEmpty() -> keys.size.toString() + " 項 ✓"
+                                count == keys.size && keys.isNotEmpty() -> {
+                                    keys.size.toString() + " 項 ✓"
+                                }
                                 count > 0 -> count.toString() + "/" + keys.size.toString() + " 項"
                                 else -> "全日 " + keys.size.toString() + " 項"
                             }
-                            Text(label)
+                            Text(label, fontSize = 12.sp)
                         }
-                    } else {
+                    } else if (columns < 16) {
                         Text(
                             section.items.size.toString() + " 項",
                             fontSize = 12.sp,
@@ -646,393 +1350,127 @@ private fun AlbumGrid(
                 }
             }
 
-            items(
-                items = section.items.chunked(4),
-                key = { row -> "row-" + section.key + "-" + row.first().key }
-            ) { row ->
-                Row(Modifier.fillMaxWidth()) {
-                    row.forEach { item ->
-                        PhotoCell(
-                            item = item,
-                            selected = selected.contains(item.key),
-                            selectionMode = selectionMode,
-                            favorite = isFavorite(item.key),
-                            modifier = Modifier.weight(1f),
-                            onClick = { onClick(item) },
-                            onLongClick = { onLongClick(item) }
-                        )
-                    }
-                    repeat(4 - row.size) {
-                        Spacer(Modifier.weight(1f).aspectRatio(1f))
-                    }
-                }
+            gridItems(
+                items = section.items,
+                key = { "media:" + it.key }
+            ) { item ->
+                PhotoCell(
+                    item = item,
+                    selected = selected.contains(item.key),
+                    selectionMode = selectionMode,
+                    favorite = isFavorite(item.key),
+                    dense = columns >= 12,
+                    onClick = { onClick(item) }
+                )
             }
         }
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun PhotoCell(
     item: MediaItem,
     selected: Boolean,
     selectionMode: Boolean,
     favorite: Boolean,
-    modifier: Modifier,
-    onClick: () -> Unit,
-    onLongClick: () -> Unit
+    dense: Boolean,
+    onClick: () -> Unit
 ) {
-    Box(
-        modifier.padding(0.75.dp)
-            .aspectRatio(1f)
-            .clip(RoundedCornerShape(3.dp))
-            .combinedClickable(onClick = onClick, onLongClick = onLongClick)
+    Surface(
+        onClick = onClick,
+        modifier = Modifier
+            .padding(if (dense) 0.25.dp else 0.75.dp)
+            .aspectRatio(1f),
+        shape = RoundedCornerShape(if (dense) 1.dp else 3.dp),
+        color = Color.Black
     ) {
-        AsyncImage(
-            model = item.uri,
-            contentDescription = item.name,
-            contentScale = ContentScale.Crop,
-            modifier = Modifier.fillMaxSize()
-        )
-
-        if (favorite && !selectionMode) {
-            Box(
-                Modifier.padding(5.dp).size(23.dp).clip(CircleShape)
-                    .background(Color.Black.copy(alpha = 0.42f))
-                    .align(Alignment.TopStart),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    Icons.Default.Favorite,
-                    contentDescription = null,
-                    tint = Color.White,
-                    modifier = Modifier.size(14.dp)
-                )
-            }
-        }
-
-        if (item.kind == MediaKind.VIDEO) {
-            Row(
-                Modifier.align(Alignment.BottomEnd).padding(5.dp)
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(Color.Black.copy(alpha = 0.55f))
-                    .padding(horizontal = 6.dp, vertical = 3.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Icon(
-                    Icons.Default.VideoLibrary,
-                    contentDescription = null,
-                    tint = Color.White,
-                    modifier = Modifier.size(12.dp)
-                )
-                Spacer(Modifier.size(3.dp))
-                Text(formatDuration(item.duration), color = Color.White, fontSize = 10.sp)
-            }
-        }
-
-        if (selectionMode) {
-            Box(
-                Modifier.padding(6.dp).size(25.dp).clip(CircleShape)
-                    .background(
-                        if (selected) MaterialTheme.colorScheme.primary
-                        else Color.Black.copy(alpha = 0.35f)
-                    )
-                    .align(Alignment.TopEnd),
-                contentAlignment = Alignment.Center
-            ) {
-                if (selected) {
-                    Icon(
-                        Icons.Default.Check,
-                        contentDescription = "已選取",
-                        tint = Color.White,
-                        modifier = Modifier.size(17.dp)
-                    )
-                }
-            }
-        }
-
-        if (selected) {
-            Box(
-                Modifier.fillMaxSize()
-                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.18f))
+        Box {
+            AsyncImage(
+                model = item.uri,
+                contentDescription = item.name,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize()
             )
-        }
-    }
-}
 
-@Composable
-private fun DetailScreen(
-    item: MediaItem,
-    detail: DetailInfo?,
-    favorite: Boolean,
-    onBack: () -> Unit,
-    onFavorite: () -> Unit,
-    onExif: () -> Unit,
-    onMap: (Double, Double) -> Unit,
-    onAdjust: () -> Unit
-) {
-    Scaffold(
-        topBar = {
-            CenterAlignedTopAppBar(
-                title = { Text("") },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "返回")
-                    }
-                },
-                actions = {
-                    IconButton(onClick = onFavorite) {
-                        Icon(
-                            if (favorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
-                            contentDescription = "收藏"
-                        )
-                    }
-                },
-                colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.background
-                )
-            )
-        }
-    ) { padding ->
-        LazyColumn(
-            Modifier.fillMaxSize().padding(padding),
-            contentPadding = PaddingValues(bottom = 32.dp)
-        ) {
-            item {
+            if (!dense && favorite && !selectionMode) {
                 Box(
-                    Modifier.fillMaxWidth().height(430.dp).background(Color.Black),
+                    Modifier
+                        .padding(5.dp)
+                        .size(23.dp)
+                        .background(Color.Black.copy(alpha = 0.42f), CircleShape)
+                        .align(Alignment.TopStart),
                     contentAlignment = Alignment.Center
                 ) {
-                    AsyncImage(
-                        model = item.uri,
-                        contentDescription = item.name,
-                        modifier = Modifier.fillMaxSize(),
-                        contentScale = ContentScale.Fit
+                    Icon(
+                        Icons.Default.Favorite,
+                        contentDescription = null,
+                        tint = Color.White,
+                        modifier = Modifier.size(14.dp)
                     )
                 }
             }
-            item {
-                Column(Modifier.padding(horizontal = 18.dp, vertical = 18.dp)) {
-                    Text("加入說明", color = MaterialTheme.colorScheme.primary, fontSize = 15.sp)
-                    Spacer(Modifier.height(20.dp))
-                    Row(verticalAlignment = Alignment.Top) {
-                        Column(Modifier.weight(1f)) {
-                            Text(
-                                formatDateTime(item.wallTime),
-                                fontSize = 22.sp,
-                                fontWeight = FontWeight.SemiBold
-                            )
-                            Text(
-                                "原始拍攝時間 · " + item.timeSource,
-                                fontSize = 12.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(top = 4.dp)
-                            )
-                        }
-                        TextButton(onClick = onAdjust) { Text("調整") }
-                    }
+
+            if (!dense && item.kind == MediaKind.VIDEO) {
+                Row(
+                    Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(5.dp)
+                        .background(
+                            Color.Black.copy(alpha = 0.55f),
+                            RoundedCornerShape(8.dp)
+                        )
+                        .padding(horizontal = 6.dp, vertical = 3.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        Icons.Default.VideoLibrary,
+                        contentDescription = null,
+                        tint = Color.White,
+                        modifier = Modifier.size(12.dp)
+                    )
+                    Spacer(Modifier.size(3.dp))
                     Text(
-                        item.name,
-                        fontSize = 13.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(top = 10.dp)
+                        formatDuration(item.duration),
+                        color = Color.White,
+                        fontSize = 10.sp
                     )
-                    HorizontalDivider(Modifier.padding(vertical = 18.dp))
+                }
+            }
 
-                    if (detail == null) {
-                        Box(
-                            Modifier.fillMaxWidth().padding(vertical = 14.dp),
-                            contentAlignment = Alignment.Center
-                        ) { CircularProgressIndicator(Modifier.size(24.dp)) }
-                    } else {
-                        CameraCard(detail)
-                        Spacer(Modifier.height(12.dp))
-                        TextButton(onClick = onExif, contentPadding = PaddingValues(0.dp)) {
-                            Icon(Icons.Default.Info, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(Modifier.size(7.dp))
-                            Text("查看完整 EXIF")
-                        }
-                        if (detail.hasGps && detail.lat != null && detail.lon != null) {
-                            HorizontalDivider(Modifier.padding(vertical = 18.dp))
-                            LocationCard(detail, onMap)
-                        }
+            if (selectionMode && !dense) {
+                Box(
+                    Modifier
+                        .padding(6.dp)
+                        .size(25.dp)
+                        .background(
+                            if (selected) {
+                                MaterialTheme.colorScheme.primary
+                            } else {
+                                Color.Black.copy(alpha = 0.35f)
+                            },
+                            CircleShape
+                        )
+                        .align(Alignment.TopEnd),
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (selected) {
+                        Icon(
+                            Icons.Default.Check,
+                            contentDescription = "已選取",
+                            tint = Color.White,
+                            modifier = Modifier.size(17.dp)
+                        )
                     }
                 }
             }
-        }
-    }
-}
 
-@Composable
-private fun CameraCard(detail: DetailInfo) {
-    Surface(
-        shape = RoundedCornerShape(20.dp),
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f)
-    ) {
-        Column(Modifier.fillMaxWidth().padding(18.dp)) {
-            val camera = listOf(detail.make, detail.model).filter { it.isNotBlank() }.joinToString(" ")
-            Text(
-                if (camera.isBlank()) "照片資訊" else camera,
-                fontSize = 17.sp,
-                fontWeight = FontWeight.SemiBold
-            )
-            if (detail.lens.isNotBlank()) {
-                Text(
-                    detail.lens,
-                    fontSize = 13.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(top = 3.dp)
-                )
-            }
-            Spacer(Modifier.height(13.dp))
-            Text(
-                detail.item.width.toString() + " × " + detail.item.height.toString() +
-                    " · " + formatBytes(detail.item.size) +
-                    " · " + detail.item.mime.substringAfterLast('/').uppercase(Locale.US),
-                fontSize = 13.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            val values = mutableListOf<String>()
-            if (detail.iso.isNotBlank()) values.add("ISO " + detail.iso)
-            if (detail.focal35.isNotBlank()) values.add(detail.focal35 + " mm")
-            if (detail.aperture.isNotBlank()) values.add("f/" + detail.aperture)
-            if (detail.exposure.isNotBlank()) values.add(detail.exposure)
-            if (values.isNotEmpty()) {
-                Text(values.joinToString("   "), fontSize = 14.sp, modifier = Modifier.padding(top = 14.dp))
-            }
-        }
-    }
-}
-
-@Composable
-private fun LocationCard(detail: DetailInfo, onMap: (Double, Double) -> Unit) {
-    val lat = detail.lat ?: return
-    val lon = detail.lon ?: return
-    Surface(
-        shape = RoundedCornerShape(20.dp),
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.65f)
-    ) {
-        Column(Modifier.fillMaxWidth().padding(18.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Default.Map, contentDescription = null)
-                Spacer(Modifier.size(8.dp))
-                Text("拍攝位置", fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
-            }
-            Text(
-                String.format(Locale.US, "%.6f, %.6f", lat, lon),
-                modifier = Modifier.padding(top = 10.dp),
-                fontSize = 14.sp
-            )
-            if (detail.altitude != null) {
-                Text(
-                    "海拔 " + String.format(Locale.US, "%.1f", detail.altitude) + " m",
-                    fontSize = 12.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(top = 3.dp)
-                )
-            }
-            TextButton(
-                onClick = { onMap(lat, lon) },
-                contentPadding = PaddingValues(0.dp),
-                modifier = Modifier.padding(top = 5.dp)
-            ) { Text("用 Google Maps 開啟") }
-        }
-    }
-}
-
-@Composable
-private fun ExifScreen(detail: DetailInfo, onBack: () -> Unit) {
-    var rawMode by remember { mutableStateOf(false) }
-    Scaffold(
-        topBar = {
-            CenterAlignedTopAppBar(
-                title = { Text("完整 EXIF", fontWeight = FontWeight.SemiBold) },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "返回")
-                    }
-                },
-                actions = {
-                    TextButton(onClick = { rawMode = !rawMode }) {
-                        Text(if (rawMode) "易讀" else "原始")
-                    }
-                },
-                colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.background
-                )
-            )
-        }
-    ) { padding ->
-        LazyColumn(
-            Modifier.fillMaxSize().padding(padding),
-            contentPadding = PaddingValues(horizontal = 18.dp, vertical = 12.dp)
-        ) {
-            items(detail.rows.filter { it.value.isNotBlank() }) { row ->
-                Column(Modifier.fillMaxWidth().padding(vertical = 9.dp)) {
-                    Text(
-                        if (rawMode) row.rawTag else row.label,
-                        fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Text(row.value, fontSize = 15.sp, modifier = Modifier.padding(top = 2.dp))
-                }
-                HorizontalDivider(color = MaterialTheme.colorScheme.surfaceVariant)
-            }
-            item {
-                Spacer(Modifier.height(10.dp))
-                Text(
-                    "Android MediaStore",
-                    fontSize = 17.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.padding(top = 12.dp, bottom = 8.dp)
-                )
-                SystemRow("DATE_TAKEN", detail.item.dateTaken.toString())
-                SystemRow("DATE_MODIFIED", detail.item.dateModified.toString())
-                SystemRow("MIME_TYPE", detail.item.mime)
-                SystemRow("SIZE", detail.item.size.toString())
-                SystemRow(
-                    "WIDTH × HEIGHT",
-                    detail.item.width.toString() + " × " + detail.item.height.toString()
+            if (selected) {
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.18f))
                 )
             }
         }
-    }
-}
-
-@Composable
-private fun SystemRow(label: String, value: String) {
-    Column(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
-        Text(label, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Text(value, fontSize = 15.sp)
-    }
-}
-
-private fun shareItems(context: Context, items: List<MediaItem>) {
-    if (items.isEmpty()) return
-    val intent = if (items.size == 1) {
-        Intent(Intent.ACTION_SEND).apply {
-            type = if (items.first().mime.isBlank()) "*/*" else items.first().mime
-            putExtra(Intent.EXTRA_STREAM, items.first().uri)
-            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-        }
-    } else {
-        Intent(Intent.ACTION_SEND_MULTIPLE).apply {
-            type = "*/*"
-            putParcelableArrayListExtra(Intent.EXTRA_STREAM, ArrayList(items.map { it.uri }))
-            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-        }
-    }
-    context.startActivity(Intent.createChooser(intent, "分享照片"))
-}
-
-private fun openGoogleMaps(context: Context, lat: Double, lon: Double) {
-    val uri = Uri.parse(
-        "https://www.google.com/maps/search/?api=1&query=" + lat.toString() + "," + lon.toString()
-    )
-    val maps = Intent(Intent.ACTION_VIEW, uri).apply { setPackage("com.google.android.apps.maps") }
-    if (maps.resolveActivity(context.packageManager) != null) {
-        context.startActivity(maps)
-    } else {
-        context.startActivity(Intent(Intent.ACTION_VIEW, uri))
     }
 }
