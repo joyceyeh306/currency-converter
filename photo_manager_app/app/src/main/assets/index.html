@@ -86,7 +86,7 @@ input:focus,select:focus{border-color:#65b8ef}
 <div class="top">
   <div class="brand">
     <img src="icon.png" alt="">
-    <div><h1>ㄚ喬照片管家</h1><small>v1.3.0・整理資料，不動照片畫質</small></div>
+    <div><h1>ㄚ喬照片管家</h1><small>v1.3.1・整理資料，不動照片畫質</small></div>
     <div class="protect">無損保護</div>
   </div>
 </div>
@@ -174,16 +174,16 @@ input:focus,select:focus{border-color:#65b8ef}
     </div>
 
     <div class="info-block album" style="margin-top:13px">
-      <h4>當地時間顯示模式</h4>
-      <div class="hint">保留 EXIF 拍攝時間本身，只把 EXIF 時區改成妳指定的顯示基準，讓 OPPO 相簿以照片當地拍攝時間顯示與排序。原始拍攝時間與原始時區會先存成極小的 App 紀錄，不會複製照片。</div>
+      <h4>當地時間資料模式（實驗）</h4>
+      <div class="hint">保留 EXIF 拍攝時間本身，只把 EXIF 時區改成妳指定的基準。Android 與部分看圖軟體會依這些資料解讀時間；目前已確認 OPPO 相簿可能另外保存自己的顯示時間，因此這個模式不再宣稱能直接改 OPPO 相簿畫面。原始拍攝時間與原始時區仍會先存成極小的 App 紀錄，不會複製照片。</div>
       <div class="grid2" style="margin-top:10px">
-        <div><label>相簿顯示基準時區</label><input id="albumTargetOffset" value="+08:00" placeholder="+08:00"></div>
-        <div style="display:flex;align-items:end"><button class="btn primary" style="width:100%" onclick="localTimeDisplay()">預覽當地時間顯示</button></div>
+        <div><label>EXIF 顯示基準時區</label><input id="albumTargetOffset" value="+08:00" placeholder="+08:00"></div>
+        <div style="display:flex;align-items:end"><button class="btn primary" style="width:100%" onclick="localTimeDisplay()">預覽當地時間資料</button></div>
       </div>
       <div class="actions">
         <button class="btn" onclick="restoreOriginalTime()">預覽還原原始時區</button>
       </div>
-      <div class="note warn" style="margin-top:10px">例如義大利照片 16:47 +02:00 → 16:47 +08:00。照片像素不變，但標準 EXIF 時區會改變；App 會保存原本的 +02:00 供日後還原。</div>
+      <div class="note warn" style="margin-top:10px">例如義大利照片 16:47 +02:00 → 16:47 +08:00。照片像素不變，但標準 EXIF 時區會改變；App 會保存原本的 +02:00 供日後還原。OPPO 相簿顯示時間可能仍不同，因為它可能使用自己的內部紀錄。</div>
       <details style="margin-top:12px">
         <summary class="hint" style="font-weight:800;cursor:pointer">測試工具：A／B／C 相簿時間實驗</summary>
         <div class="hint" style="margin-top:8px">一次只選 1 張照片，另外建立 3 張測試副本。這只是研究 OPPO 相簿規則，平常不需要使用。</div>
@@ -210,8 +210,8 @@ input:focus,select:focus{border-color:#65b8ef}
   </div>
 
   <div class="section">
-    <h4>v1.3 測試重點</h4>
-    <div class="hint">新增「當地時間顯示模式」：不建立照片副本，只修改時區 metadata，並在 App 內保存原始拍攝時間與原始時區，可預覽後套用，也可預覽還原。照片選取效能修正與分批載入仍保留。</div>
+    <h4>v1.3.1 修正重點</h4>
+    <div class="hint">修正時間資訊名稱：明確區分照片 EXIF、Android MediaStore 與 OPPO 相簿畫面。App 不再把 MediaStore DATE_TAKEN 誤稱為「相簿顯示時間」，也不再宣稱能直接控制 OPPO 相簿自己的時間紀錄。</div>
   </div>
   <div id="actionResult" class="result" style="display:none"></div>
  </div>
@@ -378,14 +378,14 @@ function offsetMinutes(s){
 function formatOffsetMinutes(m){
  if(m==null||!isFinite(m))return "—";var sign=m<0?"-":"+";m=Math.abs(Math.round(m));return sign+pad(Math.floor(m/60))+":"+pad(m%60);
 }
-function albumInterpretation(info){
+function mediaStoreInterpretation(info){
  var exifWall=parseExifWall(info.dateTimeOriginal), sysWall=albumWall(info.dateTaken);
- if(!exifWall||!sysWall)return {diff:null,text:"資料不足，無法比較相簿時間與原始 EXIF。",cls:"warn"};
+ if(!exifWall||!sysWall)return {diff:null,text:"資料不足，無法比較 Android MediaStore 與 EXIF。",cls:"warn"};
  var diff=Math.round((sysWall-exifWall)/60000);
- if(diff===0)return {diff:0,text:"相簿顯示時間與原始 EXIF 拍攝時間一致。",cls:"ok"};
+ if(diff===0)return {diff:0,text:"Android MediaStore DATE_TAKEN 與 EXIF 拍攝時間一致。",cls:"ok"};
  var photoOff=offsetMinutes(info.offsetTimeOriginal),deviceOff=Number(info.deviceOffsetMinutes);
  var sign=diff>0?"+":"";
- var text="相簿顯示比原始 EXIF "+sign+(diff/60).toFixed(Math.abs(diff)%60?1:0)+" 小時。";
+ var text="Android MediaStore DATE_TAKEN 比 EXIF "+sign+(diff/60).toFixed(Math.abs(diff)%60?1:0)+" 小時。";
  if(photoOff!=null&&isFinite(deviceOff)){
   var expected=deviceOff-photoOff;
   if(Math.abs(expected-diff)<=1)text+=" 符合時區換算："+info.offsetTimeOriginal+" → "+formatOffsetMinutes(deviceOff)+"。照片原始拍攝時間本身沒有錯。";
@@ -411,9 +411,9 @@ function openDetail(id){
   ["EXIF 拍攝時間",info.dateTimeOriginal||"—"],["拍攝地時區",info.offsetTimeOriginal||"—"],["GPS",place],
   ["裝置",device||"—"],["鏡頭",info.lensModel||"—"],["焦距",focal||"—"],["曝光",exposure.join(" · ")||"—"]
  ];
- var albumRows=[
-  ["相簿顯示時間",fmt(info.dateTaken)],["目前系統時區",formatOffsetMinutes(Number(info.deviceOffsetMinutes))],
-  ["系統時區名稱",info.deviceTimeZoneId||"—"]
+  var albumRows=[
+  ["MediaStore DATE_TAKEN",fmt(info.dateTaken)],["目前系統時區",formatOffsetMinutes(Number(info.deviceOffsetMinutes))],
+  ["系統時區名稱",info.deviceTimeZoneId||"—"],["OPPO 相簿畫面","第三方 App 無法直接讀取"]
  ];
  var fileRows=[
   ["檔名",info.name],["尺寸",(info.width||0)+" × "+(info.height||0)],["大小",fsize(info.size)],["格式",info.mime],
@@ -421,13 +421,13 @@ function openDetail(id){
   ["原始時間備份",info.hasOriginalTimeBackup?((info.backedUpOriginalDateTime||"—")+" "+(info.backedUpOriginalOffset||"")):"尚未建立"]
  ];
  function rowsHtml(rows){return '<div class="meta">'+rows.map(function(r){return "<b>"+esc(r[0])+"</b><span>"+esc(r[1])+"</span>"}).join("")+'</div>'}
- var interp=albumInterpretation(info);
+ var interp=mediaStoreInterpretation(info);
  byId("detailBody").innerHTML=
   '<div class="detail-photo"><img src="'+esc(info.uri)+'"><div class="overlay">'+overlay+'</div></div>'+
   '<div class="info-block exif"><h4>原始 EXIF 資訊</h4>'+rowsHtml(originalRows)+'</div>'+
-  '<div class="info-block album"><h4>系統相簿解讀</h4>'+rowsHtml(albumRows)+'<div class="interpret '+interp.cls+'">'+esc(interp.text)+'</div></div>'+
+  '<div class="info-block album"><h4>Android MediaStore 索引</h4>'+rowsHtml(albumRows)+'<div class="interpret '+interp.cls+'">'+esc(interp.text)+'</div></div>'+
   '<div class="info-block"><h4>檔案資訊</h4>'+rowsHtml(fileRows)+'</div>'+
-  '<div class="hint" style="margin-top:12px">資訊層只顯示在 App 畫面上，不會寫進照片像素。</div>';
+  '<div class="hint" style="margin-top:12px">資訊層只顯示在 App 畫面上，不會寫進照片像素。OPPO 相簿可能另有自己的時間紀錄，因此它的畫面時間不一定等於 EXIF 或 MediaStore。</div>';
  showSheet("detailSheet");
 }
 
@@ -466,7 +466,7 @@ function deleteAlbumTimeTests(){
  }
 }
 function actionName(type){
- return {rename:"重新命名",dateFromFilename:"依檔名修正拍攝時間",shiftTime:"整批調整拍攝時間",localTimeDisplay:"當地時間顯示模式",restoreOriginalTime:"還原原始時區",gpsSet:"設定 GPS",gpsCopy:"複製 GPS",gpsClear:"清除 GPS"}[type]||"批次修改";
+ return {rename:"重新命名",dateFromFilename:"依檔名修正拍攝時間",shiftTime:"整批調整拍攝時間",localTimeDisplay:"當地時間資料模式",restoreOriginalTime:"還原原始時區",gpsSet:"設定 GPS",gpsCopy:"複製 GPS",gpsClear:"清除 GPS"}[type]||"批次修改";
 }
 function startPreview(action){
  var ids=requireSelected();if(!ids)return;
