@@ -278,7 +278,19 @@ class AlbumRepository(private val context: Context) {
         val rows = mutableListOf<ExifRow>()
 
         try {
-            resolver.openInputStream(item.uri)?.use { stream ->
+            val exifUri = if (
+                Build.VERSION.SDK_INT >= 29 &&
+                ContextCompat.checkSelfPermission(
+                    context,
+                    Manifest.permission.ACCESS_MEDIA_LOCATION
+                ) == PackageManager.PERMISSION_GRANTED
+            ) {
+                MediaStore.setRequireOriginal(item.uri)
+            } else {
+                item.uri
+            }
+
+            resolver.openInputStream(exifUri)?.use { stream ->
                 val exif = ExifInterface(stream)
 
                 fun add(label: String, tag: String): String {
