@@ -16,6 +16,9 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -213,7 +216,7 @@ private fun AlbumApp(repository: AlbumRepository, resumeVersion: Int) {
     }
     var customColumns by remember {
         val saved = prefs.getInt("gridColumns", 0)
-        mutableStateOf(if (saved in listOf(2, 3, 4, 6, 8, 12, 16, 24, 40)) saved else null)
+        mutableStateOf(if (saved in listOf(2, 3, 4, 5, 6, 7, 8, 12, 16, 24, 40)) saved else null)
     }
 
     var selected by remember { mutableStateOf<Set<String>>(emptySet()) }
@@ -233,6 +236,10 @@ private fun AlbumApp(repository: AlbumRepository, resumeVersion: Int) {
     var targetMonthKey by remember { mutableStateOf<String?>(null) }
     var targetYear by remember { mutableStateOf<Int?>(null) }
     var targetMediaKey by remember { mutableStateOf<String?>(null) }
+    var restoreGridPosition by remember { mutableStateOf<Pair<Int, Int>?>(null) }
+    var viewerStartKey by remember { mutableStateOf<String?>(null) }
+    var viewerReturnIndex by remember { mutableIntStateOf(0) }
+    var viewerReturnOffset by remember { mutableIntStateOf(0) }
     var suppressClickKey by remember { mutableStateOf<String?>(null) }
 
     val gridState = rememberLazyGridState()
@@ -454,7 +461,14 @@ private fun AlbumApp(repository: AlbumRepository, resumeVersion: Int) {
             repository = repository,
             onBack = { key ->
                 viewerKey = null
-                targetMediaKey = key
+                if (key == viewerStartKey) {
+                    restoreGridPosition = viewerReturnIndex to viewerReturnOffset
+                    targetMediaKey = null
+                } else {
+                    restoreGridPosition = null
+                    targetMediaKey = key
+                }
+                viewerStartKey = null
             },
             onShare = { item ->
                 shareItems(context, listOf(item))
@@ -845,9 +859,16 @@ private fun AlbumApp(repository: AlbumRepository, resumeVersion: Int) {
                         selected = selected,
                         targetMonthKey = targetMonthKey,
                         targetMediaKey = targetMediaKey,
+                        restorePosition = restoreGridPosition,
                         onTargetConsumed = { targetMonthKey = null },
                         onMediaTargetConsumed = { targetMediaKey = null },
+                        onRestoreConsumed = { restoreGridPosition = null },
                         isFavorite = { repository.isFavorite(it) },
+                        onColumnsChange = { value ->
+                            customColumns = value
+                            prefs.edit().putInt("gridColumns", value).apply()
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        },
                         onClick = { item ->
                             if (suppressClickKey == item.key) {
                                 suppressClickKey = null
@@ -856,6 +877,10 @@ private fun AlbumApp(repository: AlbumRepository, resumeVersion: Int) {
                                 if (selectionMode) {
                                     selected = toggleSelected(selected, item.key)
                                 } else {
+                                    viewerStartKey = item.key
+                                    viewerReturnIndex = gridState.firstVisibleItemIndex
+                                    viewerReturnOffset = gridState.firstVisibleItemScrollOffset
+                                    restoreGridPosition = null
                                     viewerKey = item.key
                                 }
                             }
@@ -1108,7 +1133,7 @@ private fun DensityDialog(
     onChoose: (Int?) -> Unit,
     onDismiss: () -> Unit
 ) {
-    val choices = listOf<Int?>(null, 2, 3, 4, 6, 8, 12, 16, 24, 40)
+    val choices = listOf<Int?>(null, 2, 3, 4, 5, 6, 7, 8, 12, 16, 24, 40)
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("縮圖密度") },
@@ -1317,9 +1342,12 @@ private fun RegularGrid(
     selected: Set<String>,
     targetMonthKey: String?,
     targetMediaKey: String?,
+    restorePosition: Pair<Int, Int>?,
     onTargetConsumed: () -> Unit,
     onMediaTargetConsumed: () -> Unit,
+    onRestoreConsumed: () -> Unit,
     isFavorite: (String) -> Boolean,
+    onColumnsChange: (Int) -> Unit,
     onClick: (MediaItem) -> Unit,
     onLongPressStart: (String, Boolean) -> Unit,
     onDragSelect: (String, Boolean) -> Unit,
@@ -1344,6 +1372,20 @@ private fun RegularGrid(
         }
     }
 
+    LaunchedEffect(restorePosition, sections) {
+        val position = restorePosition ?: return@LaunchedEffect
+        if (sections.isNotEmpty()) {
+            val totalItems = sections.sumOf { 1 + it.items.size }
+            if (totalItems > 0) {
+                state.scrollToItem(
+                    position.first.coerceIn(0, totalItems - 1),
+                    position.second.coerceAtLeast(0)
+                )
+            }
+        }
+        onRestoreConsumed()
+    }
+
     LaunchedEffect(targetMediaKey, sections) {
         val key = targetMediaKey ?: return@LaunchedEffect
         var index = 0
@@ -1360,7 +1402,50 @@ private fun RegularGrid(
             }
             if (found) break
         }
-        if (found) onMediaTargetConsumed()
+        if (found) {
+            kotlinx.coroutines.delay(20)
+            val info = state.layoutInfo.visibleItemsInfo.firstOrNull {
+                it.key?.toString() == "media:" + key
+            }
+            if (info != null) {
+                val viewportHeight =
+                    state.layoutInfo.viewportEndOffset - state.layoutInfo.viewportStartOffset
+                val moveDown = ((viewportHeight - info.size.height) / 2f).coerceAtLeast(0f)
+                if (moveDown > 0f) {
+                    state.scrollBy(-moveDown)
+                }
+            }
+            onMediaTargetConsumed()
+        }
+    }
+
+    val pinchModifier = Modifier.pointerInput(columns) {
+        var accumulatedZoom = 1f
+        awaitEachGesture {
+            awaitFirstDown(requireUnconsumed = false)
+            accumulatedZoom = 1f
+
+            do {
+                val event = awaitPointerEvent()
+                val pressedCount = event.changes.count { it.pressed }
+
+                if (pressedCount >= 2) {
+                    accumulatedZoom *= event.calculateZoom()
+
+                    if (accumulatedZoom >= 1.16f) {
+                        val next = previousGridColumns(columns)
+                        if (next != columns) onColumnsChange(next)
+                        accumulatedZoom = 1f
+                    } else if (accumulatedZoom <= 0.86f) {
+                        val next = nextGridColumns(columns)
+                        if (next != columns) onColumnsChange(next)
+                        accumulatedZoom = 1f
+                    }
+
+                    event.changes.forEach { it.consume() }
+                }
+            } while (event.changes.any { it.pressed })
+        }
     }
 
     val dragModifier = Modifier.pointerInput(sections, columns) {
@@ -1414,6 +1499,7 @@ private fun RegularGrid(
         state = state,
         modifier = Modifier
             .fillMaxSize()
+            .then(pinchModifier)
             .then(dragModifier),
         contentPadding = PaddingValues(bottom = 18.dp)
     ) {
@@ -1586,5 +1672,25 @@ private fun PhotoCell(
                 )
             }
         }
+    }
+}
+
+
+private val GRID_COLUMN_STEPS = listOf(2, 3, 4, 5, 6, 7, 8, 12, 16, 24, 40)
+
+private fun previousGridColumns(current: Int): Int {
+    val index = GRID_COLUMN_STEPS.indexOf(current)
+    return when {
+        index <= 0 -> GRID_COLUMN_STEPS.first()
+        else -> GRID_COLUMN_STEPS[index - 1]
+    }
+}
+
+private fun nextGridColumns(current: Int): Int {
+    val index = GRID_COLUMN_STEPS.indexOf(current)
+    return when {
+        index < 0 -> 4
+        index >= GRID_COLUMN_STEPS.lastIndex -> GRID_COLUMN_STEPS.last()
+        else -> GRID_COLUMN_STEPS[index + 1]
     }
 }
