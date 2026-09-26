@@ -67,8 +67,8 @@ jobs:
 
       - name: Sign APK
         run: |
-          curl -fsSL 'https://android.googlesource.com/platform/build/+/refs/heads/main/target/product/security/testkey.pk8?format=TEXT' | base64 -d > /tmp/testkey.pk8
-          curl -fsSL 'https://android.googlesource.com/platform/build/+/refs/heads/main/target/product/security/testkey.x509.pem?format=TEXT' | base64 -d > /tmp/testkey.x509.pem
+          curl --retry 6 --retry-delay 2 --retry-all-errors -fsSL 'https://android.googlesource.com/platform/build/+/refs/heads/main/target/product/security/testkey.pk8?format=TEXT' | base64 -d > /tmp/testkey.pk8
+          curl --retry 6 --retry-delay 2 --retry-all-errors -fsSL 'https://android.googlesource.com/platform/build/+/refs/heads/main/target/product/security/testkey.x509.pem?format=TEXT' | base64 -d > /tmp/testkey.x509.pem
           BT="$ANDROID_HOME/build-tools/35.0.0"
           "$BT/zipalign" -f -p 4 photo_manager_app/app/build/outputs/apk/release/app-release-unsigned.apk /tmp/ajo-photo-manager-v1.3.3-aligned.apk
           "$BT/apksigner" sign --key /tmp/testkey.pk8 --cert /tmp/testkey.x509.pem --out /tmp/ajo-photo-manager-v1.3.3.apk /tmp/ajo-photo-manager-v1.3.3-aligned.apk
