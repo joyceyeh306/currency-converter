@@ -908,18 +908,7 @@ public class MainActivity extends Activity {
                                 exif.setAttribute(ExifInterface.TAG_OFFSET_TIME_DIGITIZED, originalOffset.isEmpty() ? null : originalOffset);
                             }
 
-                            if ("localTimeDisplay".equals(type)) {
-            String expected = action.optString("targetOffset", "");
-            if (expected.isEmpty()) expected = currentSystemOffsetForPhoto(before);
-            return expected.equals(after.optString("offsetTimeOriginal", ""));
-        }
-        if ("restoreOriginalTime".equals(type)) {
-            JSONObject backup = getOriginalTimeBackup(before.optLong("id", -1));
-            if (backup == null) return false;
-            return backup.optString("dateTimeOriginal", "").equals(after.optString("dateTimeOriginal", ""))
-                    && backup.optString("offsetTimeOriginal", "").equals(after.optString("offsetTimeOriginal", ""));
-        }
-        if ("gpsSet".equals(type)) {
+                            if ("gpsSet".equals(type)) {
                                 double lat = action.getDouble("lat");
                                 double lon = action.getDouble("lon");
                                 exif.setLatLong(lat, lon);
@@ -1014,6 +1003,17 @@ public class MainActivity extends Activity {
             long b = exifDateToMillis(before.optString("dateTimeOriginal"));
             long a = exifDateToMillis(after.optString("dateTimeOriginal"));
             return b > 0 && a == b + action.optLong("minutes", 0) * 60000L;
+        }
+        if ("localTimeDisplay".equals(type)) {
+            String expected = action.optString("targetOffset", "");
+            if (expected.isEmpty()) expected = currentSystemOffsetForPhoto(before);
+            return expected.equals(after.optString("offsetTimeOriginal", ""));
+        }
+        if ("restoreOriginalTime".equals(type)) {
+            JSONObject backup = getOriginalTimeBackup(before.optLong("id", -1));
+            if (backup == null) return false;
+            return backup.optString("dateTimeOriginal", "").equals(after.optString("dateTimeOriginal", ""))
+                    && backup.optString("offsetTimeOriginal", "").equals(after.optString("offsetTimeOriginal", ""));
         }
         if ("gpsSet".equals(type)) {
             if (!after.optBoolean("hasGps")) return false;
