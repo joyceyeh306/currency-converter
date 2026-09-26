@@ -41,8 +41,11 @@ input:focus,select:focus{border-color:#65b8ef}
 .photo{position:relative;background:#dfeaf1;border-radius:12px;overflow:hidden;aspect-ratio:1;border:2px solid transparent}
 .photo.sel{border-color:var(--blue)}
 .photo img{width:100%;height:100%;object-fit:cover;display:block}
-.photo .check{position:absolute;right:6px;top:6px;width:24px;height:24px;border-radius:50%;background:rgba(0,0,0,.45);color:white;display:grid;place-items:center;font-size:15px;font-weight:bold;border:1px solid rgba(255,255,255,.8)}
+.photo .check{position:absolute;right:6px;top:6px;width:24px;height:24px;border-radius:50%;background:rgba(0,0,0,.45);color:white;display:grid;place-items:center;font-size:15px;font-weight:bold;border:1px solid rgba(255,255,255,.8);pointer-events:none}
 .photo.sel .check{background:var(--blue)}
+.photo-info{position:absolute;left:6px;top:6px;width:25px;height:25px;border-radius:50%;border:1px solid rgba(255,255,255,.9);background:rgba(0,0,0,.45);color:white;font-size:14px;font-weight:800;display:grid;place-items:center;padding:0;z-index:2}
+.photo.sel .photo-info{background:rgba(6,92,160,.78)}
+.load-more{display:none;margin:12px auto 2px;border:0;border-radius:14px;padding:10px 18px;background:#edf6fc;color:#25516f;font-weight:800}
 .photo .caption{position:absolute;left:0;right:0;bottom:0;padding:20px 6px 5px;background:linear-gradient(transparent,rgba(0,0,0,.68));color:white;font-size:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .photos.preview-mode{grid-template-columns:repeat(2,1fr);gap:10px}
 .preview-card{background:white;border:1px solid #d9e8f2;border-radius:15px;overflow:hidden;box-shadow:0 5px 18px rgba(25,86,130,.08)}
@@ -83,7 +86,7 @@ input:focus,select:focus{border-color:#65b8ef}
 <div class="top">
   <div class="brand">
     <img src="icon.png" alt="">
-    <div><h1>ㄚ喬照片管家</h1><small>v1.2.0・整理資料，不動照片畫質</small></div>
+    <div><h1>ㄚ喬照片管家</h1><small>v1.2.1・整理資料，不動照片畫質</small></div>
     <div class="protect">無損保護</div>
   </div>
 </div>
@@ -119,7 +122,9 @@ input:focus,select:focus{border-color:#65b8ef}
     <button class="btn teal" onclick="openTools()">批次整理</button>
   </div>
 
+  <div class="hint" id="selectHint" style="display:none;margin:0 2px 9px">點照片任何位置＝選取／取消；左上角 ⓘ 才會開啟完整資訊。</div>
   <div class="photos" id="photos"></div>
+  <button class="load-more" id="loadMoreBtn" onclick="loadMorePhotos()">載入更多照片</button>
   <div class="empty" id="empty">設定條件後按「掃描照片」。</div>
 </div>
 
@@ -216,7 +221,7 @@ input:focus,select:focus{border-color:#65b8ef}
 </div>
 
 <script>
-var state={items:[],selected:new Set(),total:0,preview:null,previewAction:null,previewIds:[],testCopyIds:[]};
+var state={items:[],selected:new Set(),total:0,preview:null,previewAction:null,previewIds:[],testCopyIds:[],renderCount:0,chunkSize:180,loadingMore:false};
 
 function byId(id){return document.getElementById(id)}
 function esc(s){return String(s==null?"":s).replace(/[&<>"']/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]})}
@@ -235,6 +240,7 @@ function resetPreviewUi(){
  byId("previewFooter").style.display="none";
  byId("normalFooter").style.display="flex";
  byId("photos").classList.remove("preview-mode");
+ if(byId("selectHint"))byId("selectHint").style.display=state.items.length?"block":"none";
 }
 function scan(){
  if(!window.Android){alert("Android 介面尚未就緒");return}
@@ -246,9 +252,28 @@ function scan(){
  var r=JSON.parse(raw);
  if(!r.ok){alert(r.message||"掃描失敗");return}
  state.items=r.items||[];state.total=r.total||state.items.length;state.selected.clear();
+ state.renderCount=Math.min(state.chunkSize,state.items.length);
  renderPhotos();
  byId("scanStatus").innerHTML='<span class="pill">找到 '+r.total+' 張</span><span class="pill">目前顯示 '+r.shown+' 張</span>'+(r.truncated?'<span class="pill">已達顯示上限</span>':'');
  byId("toolbar").style.display=state.items.length?"flex":"none";
+ byId("selectHint").style.display=state.items.length?"block":"none";
+}
+
+function photoCardHtml(o){
+ var sel=state.selected.has(String(o.id));
+ return '<div class="photo '+(sel?'sel':'')+'" data-id="'+o.id+'" onclick="photoTap(event,'+o.id+')">'+
+   '<img loading="lazy" src="'+esc(o.uri)+'" onerror="this.style.opacity=.18">'+
+   '<button class="photo-info" aria-label="照片資訊" onclick="event.stopPropagation();openDetail('+o.id+')">ⓘ</button>'+
+   '<div class="check">'+(sel?'✓':'')+'</div>'+
+   '<div class="caption">'+esc(o.name)+'</div></div>';
+}
+
+function updateLoadMoreButton(){
+ var btn=byId("loadMoreBtn");
+ if(!btn)return;
+ var more=!state.preview && state.renderCount<state.items.length;
+ btn.style.display=more?"block":"none";
+ if(more)btn.textContent="載入更多照片（"+state.renderCount+" / "+state.items.length+"）";
 }
 
 function renderPhotos(){
@@ -269,29 +294,61 @@ function renderPhotos(){
   }
  }else{
   box.classList.remove("preview-mode");
-  for(var k=0;k<state.items.length;k++){
-   var o=state.items[k],sel=state.selected.has(String(o.id));
-   html+='<div class="photo '+(sel?'sel':'')+'" data-id="'+o.id+'" onclick="photoTap(event,'+o.id+')">'+
-    '<img loading="lazy" src="'+esc(o.uri)+'" onerror="this.style.opacity=.18">'+
-    '<div class="check">'+(sel?'✓':'')+'</div>'+
-    '<div class="caption">'+esc(o.name)+'</div></div>';
-  }
+  var max=Math.min(state.renderCount||state.chunkSize,state.items.length);
+  for(var k=0;k<max;k++)html+=photoCardHtml(state.items[k]);
  }
  box.innerHTML=html;
  byId("empty").style.display=(state.preview?(state.preview.items||[]).length:state.items.length)?"none":"block";
  updateSelected();
+ updateLoadMoreButton();
 }
+
+function loadMorePhotos(){
+ if(state.preview||state.loadingMore||state.renderCount>=state.items.length)return;
+ state.loadingMore=true;
+ var old=state.renderCount;
+ var next=Math.min(old+state.chunkSize,state.items.length);
+ var html="";
+ for(var i=old;i<next;i++)html+=photoCardHtml(state.items[i]);
+ byId("photos").insertAdjacentHTML("beforeend",html);
+ state.renderCount=next;
+ state.loadingMore=false;
+ updateLoadMoreButton();
+}
+
 function photoTap(e,id){
  if(state.preview){openDetail(id);return}
- if(e.target.tagName==="IMG" && !e.ctrlKey){openDetail(id);return}
  var key=String(id);
- if(state.selected.has(key))state.selected.delete(key);else state.selected.add(key);
- var el=document.querySelector('.photo[data-id="'+id+'"]');
- if(el){el.classList.toggle("sel",state.selected.has(key));el.querySelector(".check").textContent=state.selected.has(key)?"✓":""}
+ var selected=state.selected.has(key);
+ if(selected)state.selected.delete(key);else state.selected.add(key);
+ var el=e.currentTarget || document.querySelector('.photo[data-id="'+id+'"]');
+ if(el){
+   var now=state.selected.has(key);
+   el.classList.toggle("sel",now);
+   var ck=el.querySelector(".check");if(ck)ck.textContent=now?"✓":"";
+ }
  updateSelected();
 }
 function updateSelected(){byId("selCount").textContent=state.preview?"修改預覽":("已選 "+state.selected.size+" 張")}
-function toggleAll(){if(state.preview)return;if(state.selected.size===state.items.length)state.selected.clear();else state.items.forEach(function(o){state.selected.add(String(o.id))});renderPhotos()}
+function toggleAll(){
+ if(state.preview)return;
+ var makeSelected=state.selected.size!==state.items.length;
+ state.selected.clear();
+ if(makeSelected)state.items.forEach(function(o){state.selected.add(String(o.id))});
+ document.querySelectorAll("#photos .photo").forEach(function(el){
+   var id=el.getAttribute("data-id"),on=state.selected.has(String(id));
+   el.classList.toggle("sel",on);
+   var ck=el.querySelector(".check");if(ck)ck.textContent=on?"✓":"";
+ });
+ updateSelected();
+}
+
+window.addEventListener("scroll",function(){
+ if(state.preview||state.loadingMore||state.renderCount>=state.items.length)return;
+ var remain=document.documentElement.scrollHeight-(window.scrollY+window.innerHeight);
+ if(remain<900)loadMorePhotos();
+},{passive:true});
+
 function selectedIds(){return Array.from(state.selected).map(Number)}
 function requireSelected(){var a=selectedIds();if(!a.length){alert("請先選擇照片");return null}return a}
 
@@ -409,14 +466,15 @@ function startPreview(action){
  byId("previewFooter").style.display="flex";
  byId("confirmPreviewBtn").textContent="確認修改 "+r.changed+" 張";
  byId("previewSummary").style.display="block";
+ if(byId("selectHint"))byId("selectHint").style.display="none";
  byId("previewSummary").innerHTML='<h2>修改預覽｜'+esc(actionName(action.type))+'</h2>'+
   '<div class="preview-big">選取 '+ids.length+' 張・將修改 '+r.changed+' 張・不需修改 '+r.unchanged+' 張・略過 '+r.skipped+' 張</div>'+
   '<div class="preview-safe">目前只是預覽，尚未寫入任何照片。</div>';
  renderPhotos();
  setTimeout(function(){byId("previewSummary").scrollIntoView({behavior:"smooth",block:"start"})},80);
 }
-function backToTools(){resetPreviewUi();renderPhotos();byId("toolbar").style.display=state.items.length?"flex":"none";showSheet("toolsSheet")}
-function cancelPreview(){resetPreviewUi();renderPhotos();byId("toolbar").style.display=state.items.length?"flex":"none"}
+function backToTools(){resetPreviewUi();renderPhotos();byId("toolbar").style.display=state.items.length?"flex":"none";if(byId("selectHint"))byId("selectHint").style.display=state.items.length?"block":"none";showSheet("toolsSheet")}
+function cancelPreview(){resetPreviewUi();renderPhotos();byId("toolbar").style.display=state.items.length?"flex":"none";if(byId("selectHint"))byId("selectHint").style.display=state.items.length?"block":"none"}
 function confirmPreview(){
  if(!state.preview||!state.previewAction)return;
  if((state.preview.changed||0)<=0){alert("這批照片沒有需要修改的項目。");return}
