@@ -584,7 +584,7 @@ class AlbumRepository(private val context: Context) {
         if (value.isBlank()) return null
 
         val match = Regex(
-            """^([+-]\\d{1,2}(?:\\.\\d+)?)([+-]\\d{1,3}(?:\\.\\d+)?)(?:[+-]\\d+(?:\\.\\d+)?)?/?$"""
+            """^([+-]\d{1,2}(?:\.\d+)?)([+-]\d{1,3}(?:\.\d+)?)(?:[+-]\d+(?:\.\d+)?)?/?$"""
         ).find(value) ?: return null
 
         val lat = match.groupValues[1].toDoubleOrNull() ?: return null
