@@ -83,7 +83,7 @@ input:focus,select:focus{border-color:#65b8ef}
 <div class="top">
   <div class="brand">
     <img src="icon.png" alt="">
-    <div><h1>ㄚ喬照片管家</h1><small>v1.1.0・整理資料，不動照片畫質</small></div>
+    <div><h1>ㄚ喬照片管家</h1><small>v1.2.0・整理資料，不動照片畫質</small></div>
     <div class="protect">無損保護</div>
   </div>
 </div>
@@ -158,13 +158,24 @@ input:focus,select:focus{border-color:#65b8ef}
 
   <div class="section">
     <h4>拍攝時間</h4>
+    <div class="note" style="margin-bottom:10px"><b>預設保留原始 EXIF 時區。</b>「拍攝地時區」留空時，原本的 +02:00、+09:00 等資訊完全不改。只有妳確定照片時區本身寫錯，才手動輸入新時區。</div>
     <div class="grid2">
-      <div><label>拍攝地時區</label><input id="timeOffset" value="+08:00" placeholder="+08:00"></div>
+      <div><label>拍攝地時區（留空＝保留原值）</label><input id="timeOffset" value="" placeholder="例如 +09:00；通常留空"></div>
       <div style="display:flex;align-items:end"><button class="btn primary" style="width:100%" onclick="dateFromFilename()">預覽 EXIF 時間修正</button></div>
     </div>
     <div class="grid2" style="margin-top:9px">
       <div><label>整批加／減分鐘</label><input id="shiftMinutes" type="number" value="0" step="30"></div>
       <div style="display:flex;align-items:end"><button class="btn" style="width:100%" onclick="shiftTime()">預覽時間差</button></div>
+    </div>
+
+    <div class="info-block album" style="margin-top:13px">
+      <h4>相簿顯示時間實驗</h4>
+      <div class="hint">只選 1 張照片後，建立 3 張測試副本：A 完整保留原始 EXIF、B 只移除時區、C 只把測試副本時區改為 +08:00。原始照片完全不動。請到 OPPO 相簿看看三張各顯示幾點，就能確認 Find X9 Pro 的實際規則。</div>
+      <div class="actions">
+        <button class="btn teal" onclick="createAlbumTimeTest()">建立 3 張測試副本</button>
+        <button class="btn danger" id="deleteTestBtn" style="display:none" onclick="deleteAlbumTimeTests()">刪除測試副本</button>
+      </div>
+      <div id="albumTestResult" class="result" style="display:none;margin-top:9px"></div>
     </div>
   </div>
 
@@ -182,8 +193,8 @@ input:focus,select:focus{border-color:#65b8ef}
   </div>
 
   <div class="section">
-    <h4>第一版範圍</h4>
-    <div class="hint">已可：掃描／篩選、完整 EXIF 檢視、資訊疊在照片上查看、資料健檢、批次改檔名、依檔名修拍攝時間、整批加減時間、GPS 新增／複製／移除、寫入後重新讀取驗證、修改紀錄。關鍵字／標題／說明／版權與「另存資訊標記圖」會在後續版加入。</div>
+    <h4>v1.2 測試重點</h4>
+    <div class="hint">時區預設改為「保留原始值」，避免把正確的旅行 EXIF 時區誤改成台灣 +08:00；另外新增「相簿顯示時間實驗」，用三張測試副本確認 OPPO 相簿如何解讀 DateTimeOriginal 與 OffsetTimeOriginal。所有實驗都不碰原始照片。</div>
   </div>
   <div id="actionResult" class="result" style="display:none"></div>
  </div>
@@ -205,7 +216,7 @@ input:focus,select:focus{border-color:#65b8ef}
 </div>
 
 <script>
-var state={items:[],selected:new Set(),total:0,preview:null,previewAction:null,previewIds:[]};
+var state={items:[],selected:new Set(),total:0,preview:null,previewAction:null,previewIds:[],testCopyIds:[]};
 
 function byId(id){return document.getElementById(id)}
 function esc(s){return String(s==null?"":s).replace(/[&<>"']/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]})}
@@ -352,6 +363,38 @@ function openDetail(id){
 
 function openTools(){if(!requireSelected())return;showSheet("toolsSheet")}
 function validOffset(v){return /^[+-]\d{2}:\d{2}$/.test(v)}
+
+function createAlbumTimeTest(){
+ var ids=requireSelected();if(!ids)return;
+ if(ids.length!==1){alert("相簿時間實驗一次只選 1 張照片，這樣才看得清楚三種結果。");return}
+ var r=JSON.parse(Android.createAlbumTimeTest(ids[0]));
+ var box=byId("albumTestResult");
+ box.style.display="block";
+ if(!r.ok){box.textContent=r.message||"建立測試副本失敗";return}
+ state.testCopyIds=(r.copies||[]).map(function(x){return Number(x.id)});
+ byId("deleteTestBtn").style.display=state.testCopyIds.length?"inline-block":"none";
+ var lines=[
+  "原始照片完全未修改。",
+  "原始 EXIF："+(r.sourceExifTime||"—")+" "+(r.sourceOffset||""),
+  "原始相簿時間："+fmt(r.sourceAlbumTime),
+  "",
+  "已建立到「Pictures/AjoPhotoManagerTest」："
+ ];
+ (r.copies||[]).forEach(function(x){lines.push(x.label+"\n"+x.name+"\n"+x.note+"\n")});
+ lines.push("請打開 OPPO 相簿，比較 A／B／C 三張顯示的時間，再回來告訴我結果。");
+ box.textContent=lines.join("\n");
+}
+
+function deleteAlbumTimeTests(){
+ if(!state.testCopyIds.length){alert("目前沒有這次建立的測試副本。");return}
+ var r=JSON.parse(Android.deleteAlbumTimeTests(JSON.stringify(state.testCopyIds)));
+ alert(r.message||"已處理測試副本");
+ if(r.deleted>0){
+   state.testCopyIds=[];
+   byId("deleteTestBtn").style.display="none";
+   byId("albumTestResult").style.display="none";
+ }
+}
 function actionName(type){
  return {rename:"重新命名",dateFromFilename:"依檔名修正拍攝時間",shiftTime:"整批調整拍攝時間",gpsSet:"設定 GPS",gpsCopy:"複製 GPS",gpsClear:"清除 GPS"}[type]||"批次修改";
 }
