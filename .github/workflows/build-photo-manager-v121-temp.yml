@@ -1,0 +1,82 @@
+name: Build Ajo Photo Manager v1.2.1
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - '.github/workflows/build-photo-manager-v121-temp.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout photo manager source branch
+        uses: actions/checkout@v6
+        with:
+          ref: photo-manager-v1
+          fetch-depth: 0
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Install Android SDK 35
+        run: |
+          SDKMANAGER=/usr/local/lib/android/sdk/cmdline-tools/latest/bin/sdkmanager
+          yes | "$SDKMANAGER" --licenses >/dev/null 2>&1 || true
+          "$SDKMANAGER" "platforms;android-35" "build-tools;35.0.0"
+
+      - name: Set up Gradle 8.9
+        uses: gradle/actions/setup-gradle@v6
+        with:
+          gradle-version: '8.9'
+
+      - name: Restore selected app icon
+        run: |
+          mkdir -p photo_manager_app/app/src/main/res/drawable photo_manager_app/app/src/main/assets
+          tr -d '\n\r ' < photo_manager_build/icon.b64 | base64 -d > /tmp/ajo-photo-icon.png
+          cp /tmp/ajo-photo-icon.png photo_manager_app/app/src/main/res/drawable/app_icon.png
+          cp /tmp/ajo-photo-icon.png photo_manager_app/app/src/main/assets/icon.png
+
+      - name: Verify v1.2.1 sources
+        run: |
+          grep -q "versionName '1.2.1'" photo_manager_app/app/build.gradle
+          grep -q "點照片任何位置＝選取" photo_manager_app/app/src/main/assets/index.html
+          grep -q "chunkSize:180" photo_manager_app/app/src/main/assets/index.html
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          s=Path('photo_manager_app/app/src/main/assets/index.html').read_text()
+          m=re.search(r'<script>(.*)</script>',s,re.S)
+          if not m: raise SystemExit('inline script not found')
+          Path('/tmp/photo-manager.js').write_text(m.group(1))
+          PY
+          node --check /tmp/photo-manager.js
+
+      - name: Build release APK
+        working-directory: photo_manager_app
+        run: |
+          set -o pipefail
+          gradle :app:assembleRelease --stacktrace 2>&1 | tee /tmp/photo-manager-build-v121.log
+
+      - name: Sign APK
+        run: |
+          curl -fsSL 'https://android.googlesource.com/platform/build/+/refs/heads/main/target/product/security/testkey.pk8?format=TEXT' | base64 -d > /tmp/testkey.pk8
+          curl -fsSL 'https://android.googlesource.com/platform/build/+/refs/heads/main/target/product/security/testkey.x509.pem?format=TEXT' | base64 -d > /tmp/testkey.x509.pem
+          BT="$ANDROID_HOME/build-tools/35.0.0"
+          "$BT/zipalign" -f -p 4 photo_manager_app/app/build/outputs/apk/release/app-release-unsigned.apk /tmp/ajo-photo-manager-v1.2.1-aligned.apk
+          "$BT/apksigner" sign --key /tmp/testkey.pk8 --cert /tmp/testkey.x509.pem --out /tmp/ajo-photo-manager-v1.2.1.apk /tmp/ajo-photo-manager-v1.2.1-aligned.apk
+          "$BT/apksigner" verify --verbose --print-certs /tmp/ajo-photo-manager-v1.2.1.apk
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ajo-photo-manager-v1.2.1
+          path: /tmp/ajo-photo-manager-v1.2.1.apk
+          retention-days: 30
