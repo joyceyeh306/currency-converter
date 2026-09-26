@@ -14,6 +14,7 @@ import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.ParcelFileDescriptor;
+import android.os.Environment;
 import android.provider.MediaStore;
 import android.webkit.JavascriptInterface;
 import android.webkit.WebSettings;
@@ -28,6 +29,8 @@ import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
@@ -295,6 +298,125 @@ public class MainActivity extends Activity {
     private void putExif(JSONObject o, String key, ExifInterface exif, String tag) throws JSONException {
         String v = exif.getAttribute(tag);
         if (v != null) o.put(key, v);
+    }
+
+    private JSONObject createAlbumTimeTestCopies(long sourceId) {
+        if (Build.VERSION.SDK_INT < 29) {
+            return errorResult("相簿時間測試需要 Android 10 以上");
+        }
+
+        JSONObject source = exifInfo(sourceId);
+        String mime = source.optString("mime", "");
+        String sourceName = source.optString("name", "");
+        if (!editableMetadataMime(mime)) {
+            return errorResult("這個格式目前不能安全建立 metadata 測試副本");
+        }
+
+        JSONObject result = new JSONObject();
+        JSONArray copies = new JSONArray();
+        String[] codes = {"A_KEEP", "B_NO_TZ", "C_TW08"};
+        String[] labels = {"A 保留原始 EXIF", "B 移除時區", "C 時區改為 +08:00"};
+        ContentResolver resolver = getContentResolver();
+
+        try {
+            result.put("ok", true);
+            result.put("sourceName", sourceName);
+            result.put("sourceExifTime", source.optString("dateTimeOriginal", ""));
+            result.put("sourceOffset", source.optString("offsetTimeOriginal", ""));
+            result.put("sourceAlbumTime", source.optLong("dateTaken", 0));
+
+            for (int i = 0; i < codes.length; i++) {
+                String testName = "TEST_" + codes[i] + "_" + sourceName;
+                ContentValues values = new ContentValues();
+                values.put(MediaStore.MediaColumns.DISPLAY_NAME, testName);
+                values.put(MediaStore.MediaColumns.MIME_TYPE, mime);
+                values.put(MediaStore.MediaColumns.RELATIVE_PATH,
+                        Environment.DIRECTORY_PICTURES + "/AjoPhotoManagerTest");
+                values.put(MediaStore.MediaColumns.IS_PENDING, 1);
+
+                Uri outUri = resolver.insert(imagesUri(), values);
+                if (outUri == null) throw new IOException("無法建立測試副本");
+
+                boolean finished = false;
+                try {
+                    try (InputStream in = resolver.openInputStream(uriForId(sourceId));
+                         OutputStream out = resolver.openOutputStream(outUri, "w")) {
+                        if (in == null || out == null) throw new IOException("無法複製照片");
+                        byte[] buffer = new byte[1024 * 1024];
+                        int n;
+                        while ((n = in.read(buffer)) > 0) out.write(buffer, 0, n);
+                        out.flush();
+                    }
+
+                    if (i > 0) {
+                        try (ParcelFileDescriptor pfd = resolver.openFileDescriptor(outUri, "rw")) {
+                            if (pfd == null) throw new IOException("無法開啟測試副本 metadata");
+                            ExifInterface exif = new ExifInterface(pfd.getFileDescriptor());
+                            if (i == 1) {
+                                exif.setAttribute(ExifInterface.TAG_OFFSET_TIME, null);
+                                exif.setAttribute(ExifInterface.TAG_OFFSET_TIME_ORIGINAL, null);
+                                exif.setAttribute(ExifInterface.TAG_OFFSET_TIME_DIGITIZED, null);
+                            } else {
+                                exif.setAttribute(ExifInterface.TAG_OFFSET_TIME, "+08:00");
+                                exif.setAttribute(ExifInterface.TAG_OFFSET_TIME_ORIGINAL, "+08:00");
+                                exif.setAttribute(ExifInterface.TAG_OFFSET_TIME_DIGITIZED, "+08:00");
+                            }
+                            exif.saveAttributes();
+                        }
+                    }
+
+                    ContentValues publish = new ContentValues();
+                    publish.put(MediaStore.MediaColumns.IS_PENDING, 0);
+                    resolver.update(outUri, publish, null, null);
+
+                    JSONObject item = new JSONObject();
+                    item.put("id", ContentUris.parseId(outUri));
+                    item.put("name", testName);
+                    item.put("uri", outUri.toString());
+                    item.put("code", codes[i]);
+                    item.put("label", labels[i]);
+                    item.put("note", i == 0
+                            ? "完整複製，EXIF 完全保留"
+                            : (i == 1 ? "只在測試副本移除 EXIF 時區" : "只在測試副本把 EXIF 時區改為 +08:00"));
+                    copies.put(item);
+                    finished = true;
+                } finally {
+                    if (!finished) {
+                        try { resolver.delete(outUri, null, null); } catch (Exception ignored) {}
+                    }
+                }
+            }
+
+            result.put("copies", copies);
+            result.put("message", "已建立 3 張測試副本，原始照片完全未修改");
+        } catch (Exception e) {
+            return errorResult("建立測試副本失敗：" + e.getMessage());
+        }
+        return result;
+    }
+
+    private JSONObject deleteOwnedTestCopies(JSONArray ids) {
+        JSONObject result = new JSONObject();
+        int deleted = 0, failed = 0;
+        try {
+            for (int i = 0; i < ids.length(); i++) {
+                long id = ids.optLong(i, -1);
+                if (id < 0) continue;
+                try {
+                    int n = getContentResolver().delete(uriForId(id), null, null);
+                    if (n > 0) deleted++; else failed++;
+                } catch (Exception e) {
+                    failed++;
+                }
+            }
+            result.put("ok", failed == 0);
+            result.put("deleted", deleted);
+            result.put("failed", failed);
+            result.put("message", "已刪除 " + deleted + " 張測試副本" + (failed > 0 ? "；失敗 " + failed + " 張" : ""));
+        } catch (Exception e) {
+            return errorResult("刪除測試副本失敗：" + e.getMessage());
+        }
+        return result;
     }
 
     private JSONObject previewField(String label, String before, String after) {
@@ -889,6 +1011,20 @@ public class MainActivity extends Activity {
                 } catch (JSONException ignored) {}
             }
             return r.toString();
+        }
+
+        @JavascriptInterface
+        public String createAlbumTimeTest(long sourceId) {
+            return createAlbumTimeTestCopies(sourceId).toString();
+        }
+
+        @JavascriptInterface
+        public String deleteAlbumTimeTests(String idsJson) {
+            try {
+                return deleteOwnedTestCopies(new JSONArray(idsJson)).toString();
+            } catch (Exception e) {
+                return errorResult("測試副本資料錯誤：" + e.getMessage()).toString();
+            }
         }
 
         @JavascriptInterface
