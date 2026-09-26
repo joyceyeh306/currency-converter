@@ -16,6 +16,7 @@ import android.os.Bundle;
 import android.os.ParcelFileDescriptor;
 import android.os.Environment;
 import android.provider.MediaStore;
+import android.media.MediaScannerConnection;
 import android.webkit.JavascriptInterface;
 import android.webkit.WebSettings;
 import android.webkit.WebChromeClient;
@@ -289,6 +290,12 @@ public class MainActivity extends Activity {
             java.util.TimeZone tz = java.util.TimeZone.getDefault();
             o.put("deviceTimeZoneId", tz.getID());
             o.put("deviceOffsetMinutes", tz.getOffset(albumMs > 0 ? albumMs : System.currentTimeMillis()) / 60000);
+            JSONObject backup = getOriginalTimeBackup(id);
+            o.put("hasOriginalTimeBackup", backup != null);
+            if (backup != null) {
+                o.put("backedUpOriginalOffset", backup.optString("offsetTimeOriginal", ""));
+                o.put("backedUpOriginalDateTime", backup.optString("dateTimeOriginal", ""));
+            }
         } catch (Exception e) {
             try { o.put("exifError", e.getMessage()); } catch (JSONException ignored) {}
         }
@@ -298,6 +305,62 @@ public class MainActivity extends Activity {
     private void putExif(JSONObject o, String key, ExifInterface exif, String tag) throws JSONException {
         String v = exif.getAttribute(tag);
         if (v != null) o.put(key, v);
+    }
+
+    private String formatOffsetMinutes(int minutes) {
+        String sign = minutes < 0 ? "-" : "+";
+        minutes = Math.abs(minutes);
+        return String.format(Locale.US, "%s%02d:%02d", sign, minutes / 60, minutes % 60);
+    }
+
+    private String currentSystemOffsetForPhoto(JSONObject info) {
+        long when = info.optLong("dateTaken", System.currentTimeMillis());
+        java.util.TimeZone tz = java.util.TimeZone.getDefault();
+        return formatOffsetMinutes(tz.getOffset(when) / 60000);
+    }
+
+    private String backupKey(long id) {
+        return "time_backup_" + id;
+    }
+
+    private void saveOriginalTimeBackup(long id, JSONObject before) {
+        try {
+            String key = backupKey(id);
+            if (getPreferences(MODE_PRIVATE).contains(key)) return;
+            JSONObject b = new JSONObject();
+            b.put("id", id);
+            b.put("name", before.optString("name", ""));
+            b.put("size", before.optLong("size", 0));
+            b.put("dateTimeOriginal", before.optString("dateTimeOriginal", ""));
+            b.put("dateTimeDigitized", before.optString("dateTimeDigitized", ""));
+            b.put("offsetTimeOriginal", before.optString("offsetTimeOriginal", ""));
+            b.put("savedAt", System.currentTimeMillis());
+            getPreferences(MODE_PRIVATE).edit().putString(key, b.toString()).apply();
+        } catch (Exception ignored) {}
+    }
+
+    private JSONObject getOriginalTimeBackup(long id) {
+        try {
+            String raw = getPreferences(MODE_PRIVATE).getString(backupKey(id), "");
+            if (raw != null && !raw.isEmpty()) return new JSONObject(raw);
+        } catch (Exception ignored) {}
+        return null;
+    }
+
+    private void refreshMediaIndex(long id) {
+        Uri uri = uriForId(id);
+        try { getContentResolver().notifyChange(uri, null); } catch (Exception ignored) {}
+        try {
+            String[] projection = { MediaStore.MediaColumns.DATA };
+            try (Cursor c = getContentResolver().query(uri, projection, null, null, null)) {
+                if (c != null && c.moveToFirst()) {
+                    String path = c.getString(0);
+                    if (path != null && !path.isEmpty()) {
+                        MediaScannerConnection.scanFile(this, new String[]{path}, null, null);
+                    }
+                }
+            }
+        } catch (Exception ignored) {}
     }
 
     private JSONObject createAlbumTimeTestCopies(long sourceId) {
@@ -532,6 +595,55 @@ public class MainActivity extends Activity {
                             }
                         }
                     }
+                } else if ("localTimeDisplay".equals(type)) {
+                    if (!editableMetadataMime(mime)) {
+                        status = "skip";
+                        message = "此格式只讀，為保護畫質不寫入";
+                    } else {
+                        String oldDate = before.optString("dateTimeOriginal", "");
+                        String oldOffset = before.optString("offsetTimeOriginal", "");
+                        if (oldDate.isEmpty()) {
+                            status = "skip";
+                            message = "沒有 EXIF 拍攝時間";
+                        } else {
+                            String newOffset = currentSystemOffsetForPhoto(before);
+                            fields.put(previewField("拍攝時間", oldDate, oldDate));
+                            fields.put(previewField("EXIF 時區", oldOffset.isEmpty() ? "無" : oldOffset, newOffset));
+                            long albumMs = before.optLong("dateTaken", 0);
+                            fields.put(previewField("相簿顯示時間", albumMs > 0 ? new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(new Date(albumMs)) : "—",
+                                    oldDate.replace(':','-').replaceFirst("-", ":").replaceFirst("-", ":")));
+                            if (newOffset.equals(oldOffset)) {
+                                status = "same";
+                                message = "目前時區已符合系統時區";
+                            } else {
+                                message = "只改時區標記，原始時區已備份，可還原";
+                            }
+                        }
+                    }
+                } else if ("restoreOriginalTime".equals(type)) {
+                    if (!editableMetadataMime(mime)) {
+                        status = "skip";
+                        message = "此格式只讀，為保護畫質不寫入";
+                    } else {
+                        JSONObject backup = getOriginalTimeBackup(id);
+                        if (backup == null) {
+                            status = "skip";
+                            message = "找不到這張照片的原始時區備份";
+                        } else {
+                            String oldDate = before.optString("dateTimeOriginal", "");
+                            String oldOffset = before.optString("offsetTimeOriginal", "");
+                            String newDate = backup.optString("dateTimeOriginal", oldDate);
+                            String newOffset = backup.optString("offsetTimeOriginal", "");
+                            fields.put(previewField("拍攝時間", oldDate, newDate));
+                            fields.put(previewField("EXIF 時區", oldOffset.isEmpty() ? "無" : oldOffset, newOffset.isEmpty() ? "無" : newOffset));
+                            if (oldDate.equals(newDate) && oldOffset.equals(newOffset)) {
+                                status = "same";
+                                message = "已經是原始資料";
+                            } else {
+                                message = "使用 App 先前保存的原始資料還原";
+                            }
+                        }
+                    }
                 } else if ("gpsSet".equals(type)) {
                     if (!editableMetadataMime(mime)) {
                         status = "skip";
@@ -705,6 +817,7 @@ public class MainActivity extends Activity {
                         }
                     }
                 } else if ("dateFromFilename".equals(type) || "shiftTime".equals(type)
+                        || "localTimeDisplay".equals(type) || "restoreOriginalTime".equals(type)
                         || "gpsSet".equals(type) || "gpsClear".equals(type) || "gpsCopy".equals(type)) {
 
                     Double copyLat = null, copyLon = null;
@@ -762,7 +875,48 @@ public class MainActivity extends Activity {
                                 if (!offset.isEmpty()) exif.setAttribute(ExifInterface.TAG_OFFSET_TIME_ORIGINAL, offset);
                             }
 
-                            if ("gpsSet".equals(type)) {
+                            if ("localTimeDisplay".equals(type)) {
+                                String oldDate = exif.getAttribute(ExifInterface.TAG_DATETIME_ORIGINAL);
+                                if (oldDate == null || oldDate.isEmpty()) {
+                                    skipped++;
+                                    details.put(detail(id, name, "", "略過：沒有 EXIF 拍攝時間"));
+                                    continue;
+                                }
+                                saveOriginalTimeBackup(id, before);
+                                String newOffset = currentSystemOffsetForPhoto(before);
+                                exif.setAttribute(ExifInterface.TAG_OFFSET_TIME, newOffset);
+                                exif.setAttribute(ExifInterface.TAG_OFFSET_TIME_ORIGINAL, newOffset);
+                                exif.setAttribute(ExifInterface.TAG_OFFSET_TIME_DIGITIZED, newOffset);
+                            }
+
+                            if ("restoreOriginalTime".equals(type)) {
+                                JSONObject backup = getOriginalTimeBackup(id);
+                                if (backup == null) {
+                                    skipped++;
+                                    details.put(detail(id, name, "", "略過：找不到原始時區備份"));
+                                    continue;
+                                }
+                                String originalDate = backup.optString("dateTimeOriginal", "");
+                                String originalDigitized = backup.optString("dateTimeDigitized", "");
+                                String originalOffset = backup.optString("offsetTimeOriginal", "");
+                                if (!originalDate.isEmpty()) exif.setAttribute(ExifInterface.TAG_DATETIME_ORIGINAL, originalDate);
+                                if (!originalDigitized.isEmpty()) exif.setAttribute(ExifInterface.TAG_DATETIME_DIGITIZED, originalDigitized);
+                                exif.setAttribute(ExifInterface.TAG_OFFSET_TIME_ORIGINAL, originalOffset.isEmpty() ? null : originalOffset);
+                                exif.setAttribute(ExifInterface.TAG_OFFSET_TIME, originalOffset.isEmpty() ? null : originalOffset);
+                                exif.setAttribute(ExifInterface.TAG_OFFSET_TIME_DIGITIZED, originalOffset.isEmpty() ? null : originalOffset);
+                            }
+
+                            if ("localTimeDisplay".equals(type)) {
+            String expected = currentSystemOffsetForPhoto(before);
+            return expected.equals(after.optString("offsetTimeOriginal", ""));
+        }
+        if ("restoreOriginalTime".equals(type)) {
+            JSONObject backup = getOriginalTimeBackup(before.optLong("id", -1));
+            if (backup == null) return false;
+            return backup.optString("dateTimeOriginal", "").equals(after.optString("dateTimeOriginal", ""))
+                    && backup.optString("offsetTimeOriginal", "").equals(after.optString("offsetTimeOriginal", ""));
+        }
+        if ("gpsSet".equals(type)) {
                                 double lat = action.getDouble("lat");
                                 double lon = action.getDouble("lon");
                                 exif.setLatLong(lat, lon);
@@ -792,6 +946,9 @@ public class MainActivity extends Activity {
                             }
 
                             exif.saveAttributes();
+                        }
+                        if ("localTimeDisplay".equals(type) || "restoreOriginalTime".equals(type)) {
+                            refreshMediaIndex(id);
                         }
 
                         JSONObject after = exifInfo(id);
