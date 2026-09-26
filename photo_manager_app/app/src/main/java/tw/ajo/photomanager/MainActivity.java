@@ -606,12 +606,13 @@ public class MainActivity extends Activity {
                             status = "skip";
                             message = "沒有 EXIF 拍攝時間";
                         } else {
-                            String newOffset = currentSystemOffsetForPhoto(before);
+                            String newOffset = action.optString("targetOffset", "");
+                            if (newOffset.isEmpty()) newOffset = currentSystemOffsetForPhoto(before);
                             fields.put(previewField("拍攝時間", oldDate, oldDate));
                             fields.put(previewField("EXIF 時區", oldOffset.isEmpty() ? "無" : oldOffset, newOffset));
                             long albumMs = before.optLong("dateTaken", 0);
                             fields.put(previewField("相簿顯示時間", albumMs > 0 ? new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(new Date(albumMs)) : "—",
-                                    oldDate.replace(':','-').replaceFirst("-", ":").replaceFirst("-", ":")));
+                                    oldDate.replaceFirst("^(\\d{4}):(\\d{2}):(\\d{2})", "$1-$2-$3")));
                             if (newOffset.equals(oldOffset)) {
                                 status = "same";
                                 message = "目前時區已符合系統時區";
@@ -883,7 +884,8 @@ public class MainActivity extends Activity {
                                     continue;
                                 }
                                 saveOriginalTimeBackup(id, before);
-                                String newOffset = currentSystemOffsetForPhoto(before);
+                                String newOffset = action.optString("targetOffset", "");
+                                if (newOffset.isEmpty()) newOffset = currentSystemOffsetForPhoto(before);
                                 exif.setAttribute(ExifInterface.TAG_OFFSET_TIME, newOffset);
                                 exif.setAttribute(ExifInterface.TAG_OFFSET_TIME_ORIGINAL, newOffset);
                                 exif.setAttribute(ExifInterface.TAG_OFFSET_TIME_DIGITIZED, newOffset);
@@ -907,7 +909,8 @@ public class MainActivity extends Activity {
                             }
 
                             if ("localTimeDisplay".equals(type)) {
-            String expected = currentSystemOffsetForPhoto(before);
+            String expected = action.optString("targetOffset", "");
+            if (expected.isEmpty()) expected = currentSystemOffsetForPhoto(before);
             return expected.equals(after.optString("offsetTimeOriginal", ""));
         }
         if ("restoreOriginalTime".equals(type)) {
