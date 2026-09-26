@@ -97,10 +97,15 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.view.WindowCompat
+import coil.Coil
+import coil.ImageLoader
 import coil.compose.AsyncImage
+import coil.decode.VideoFrameDecoder
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 class MainActivity : ComponentActivity() {
@@ -110,6 +115,13 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         repository = AlbumRepository(this)
+        Coil.setImageLoader(
+            ImageLoader.Builder(this)
+                .components {
+                    add(VideoFrameDecoder.Factory())
+                }
+                .build()
+        )
         setContent {
             AjoAlbumTheme(window) {
                 AlbumApp(repository, resumeVersion)
@@ -201,7 +213,7 @@ private fun AlbumApp(repository: AlbumRepository, resumeVersion: Int) {
     }
     var customColumns by remember {
         val saved = prefs.getInt("gridColumns", 0)
-        mutableStateOf(if (saved in listOf(4, 6, 8, 12, 16, 24, 40)) saved else null)
+        mutableStateOf(if (saved in listOf(2, 3, 4, 6, 8, 12, 16, 24, 40)) saved else null)
     }
 
     var selected by remember { mutableStateOf<Set<String>>(emptySet()) }
@@ -220,12 +232,15 @@ private fun AlbumApp(repository: AlbumRepository, resumeVersion: Int) {
     var previousGroupMode by remember { mutableStateOf<GroupMode?>(null) }
     var targetMonthKey by remember { mutableStateOf<String?>(null) }
     var targetYear by remember { mutableStateOf<Int?>(null) }
+    var targetMediaKey by remember { mutableStateOf<String?>(null) }
+    var suppressClickKey by remember { mutableStateOf<String?>(null) }
 
     val gridState = rememberLazyGridState()
     val yearGridState = rememberLazyGridState()
+    val reloadMutex = remember { Mutex() }
 
-    suspend fun reload() {
-        if (!repository.hasAnyMediaPermission()) return
+    suspend fun reload() = reloadMutex.withLock {
+        if (!repository.hasAnyMediaPermission()) return@withLock
         loading = media.isEmpty()
         val base = repository.loadBase()
         media = base
@@ -238,6 +253,22 @@ private fun AlbumApp(repository: AlbumRepository, resumeVersion: Int) {
         }
     }
 
+    fun visibleMediaKey(): String? {
+        return gridState.layoutInfo.visibleItemsInfo
+            .firstNotNullOfOrNull { info ->
+                val raw = info.key?.toString() ?: return@firstNotNullOfOrNull null
+                if (raw.startsWith("media:")) raw.removePrefix("media:") else null
+            }
+    }
+
+    fun closeSearchKeepPosition() {
+        if (groupMode != GroupMode.YEAR) {
+            targetMediaKey = visibleMediaKey()
+        }
+        searchOpen = false
+        searchText = ""
+    }
+
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) {
@@ -246,40 +277,61 @@ private fun AlbumApp(repository: AlbumRepository, resumeVersion: Int) {
         }
     }
 
-    var viewerDeletePending by remember { mutableStateOf(false) }
+    var pendingTrashKeys by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var pendingViewerNextKey by remember { mutableStateOf<String?>(null) }
+    var trashDialogActive by remember { mutableStateOf(false) }
 
     val trashLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartIntentSenderForResult()
     ) { result ->
+        trashDialogActive = false
+
         if (result.resultCode == Activity.RESULT_OK) {
             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-            selected = emptySet()
-            selectionMode = false
+            val deleted = pendingTrashKeys
+            if (deleted.isNotEmpty()) {
+                media = media.filterNot { deleted.contains(it.key) }
+                selected = selected - deleted
+            }
+
+            if (viewerKey != null && deleted.contains(viewerKey)) {
+                viewerKey = pendingViewerNextKey
+            } else if (selectionMode) {
+                selectionMode = false
+                selected = emptySet()
+            }
+
             scope.launch {
-                delay(200)
+                delay(350)
                 reload()
             }
         }
-        if (viewerDeletePending) {
-            viewerDeletePending = false
-            viewerKey = null
-        }
+
+        pendingTrashKeys = emptySet()
+        pendingViewerNextKey = null
     }
 
     LaunchedEffect(resumeVersion) {
-        if (!repository.hasAnyMediaPermission()) {
+        if (!repository.hasAllMediaPermissions()) {
             permissionDialog = true
-        } else {
+        }
+        if (repository.hasAnyMediaPermission() && !trashDialogActive) {
             reload()
         }
     }
 
-    if (permissionDialog && !repository.hasAnyMediaPermission()) {
+    if (permissionDialog && !repository.hasAllMediaPermissions()) {
         AlertDialog(
             onDismissRequest = { permissionDialog = false },
-            title = { Text("允許ㄚ喬的相簿讀取照片") },
+            title = { Text("允許ㄚ喬的相簿讀取照片與影片") },
             text = {
-                Text("照片與影片仍留在手機原本的位置，不會另外複製。")
+                Text(
+                    if (repository.hasImagePermission() && !repository.hasVideoPermission()) {
+                        "目前只有照片權限，所以影片沒有出現在相簿中。補上影片權限後，照片與影片會一起顯示；照片原檔不會被複製。"
+                    } else {
+                        "請允許照片與影片存取。照片與影片仍留在手機原本的位置，不會另外複製。"
+                    }
+                )
             },
             confirmButton = {
                 TextButton(onClick = {
@@ -400,8 +452,9 @@ private fun AlbumApp(repository: AlbumRepository, resumeVersion: Int) {
             items = ordered,
             startKey = currentViewerKey,
             repository = repository,
-            onBack = {
+            onBack = { key ->
                 viewerKey = null
+                targetMediaKey = key
             },
             onShare = { item ->
                 shareItems(context, listOf(item))
@@ -410,15 +463,29 @@ private fun AlbumApp(repository: AlbumRepository, resumeVersion: Int) {
                 infoDialog = "照片整理工具會在下一階段接回時間、GPS、檔名與 Metadata。"
             },
             onTrash = { item ->
+                val index = ordered.indexOfFirst { it.key == item.key }
+                pendingViewerNextKey = when {
+                    index >= 0 && index + 1 < ordered.size -> ordered[index + 1].key
+                    index > 0 -> ordered[index - 1].key
+                    else -> null
+                }
+                pendingTrashKeys = setOf(item.key)
+
                 val request = repository.trashRequest(listOf(item))
                 if (request != null) {
-                    viewerDeletePending = true
+                    trashDialogActive = true
                     trashLauncher.launch(
                         IntentSenderRequest.Builder(request.intentSender).build()
                     )
                 } else {
-                    viewerKey = null
-                    scope.launch { reload() }
+                    media = media.filterNot { it.key == item.key }
+                    viewerKey = pendingViewerNextKey
+                    pendingTrashKeys = emptySet()
+                    pendingViewerNextKey = null
+                    scope.launch {
+                        delay(250)
+                        reload()
+                    }
                 }
             }
         )
@@ -433,8 +500,7 @@ private fun AlbumApp(repository: AlbumRepository, resumeVersion: Int) {
                 selected = emptySet()
             }
             searchOpen -> {
-                searchOpen = false
-                searchText = ""
+                closeSearchKeepPosition()
             }
             previousGroupMode != null -> {
                 groupMode = previousGroupMode!!
@@ -484,8 +550,7 @@ private fun AlbumApp(repository: AlbumRepository, resumeVersion: Int) {
                     onQuery = { searchText = it },
                     onClose = {
                         haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                        searchOpen = false
-                        searchText = ""
+                        closeSearchKeepPosition()
                     }
                 )
 
@@ -675,13 +740,23 @@ private fun AlbumApp(repository: AlbumRepository, resumeVersion: Int) {
                     onDelete = {
                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                         val chosen = media.filter { selected.contains(it.key) }
+                        pendingTrashKeys = chosen.map { it.key }.toSet()
+                        pendingViewerNextKey = null
                         val request = repository.trashRequest(chosen)
                         if (request != null) {
+                            trashDialogActive = true
                             trashLauncher.launch(
                                 IntentSenderRequest.Builder(request.intentSender).build()
                             )
                         } else {
-                            scope.launch { reload() }
+                            media = media.filterNot { pendingTrashKeys.contains(it.key) }
+                            selected = emptySet()
+                            selectionMode = false
+                            pendingTrashKeys = emptySet()
+                            scope.launch {
+                                delay(250)
+                                reload()
+                            }
                         }
                     }
                 )
@@ -769,15 +844,31 @@ private fun AlbumApp(repository: AlbumRepository, resumeVersion: Int) {
                         selectionMode = selectionMode,
                         selected = selected,
                         targetMonthKey = targetMonthKey,
+                        targetMediaKey = targetMediaKey,
                         onTargetConsumed = { targetMonthKey = null },
+                        onMediaTargetConsumed = { targetMediaKey = null },
                         isFavorite = { repository.isFavorite(it) },
                         onClick = { item ->
-                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                            if (selectionMode) {
-                                selected = toggleSelected(selected, item.key)
+                            if (suppressClickKey == item.key) {
+                                suppressClickKey = null
                             } else {
-                                viewerKey = item.key
+                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                if (selectionMode) {
+                                    selected = toggleSelected(selected, item.key)
+                                } else {
+                                    viewerKey = item.key
+                                }
                             }
+                        },
+                        onLongPressStart = { key, add ->
+                            suppressClickKey = key
+                            scope.launch {
+                                delay(700)
+                                if (suppressClickKey == key) suppressClickKey = null
+                            }
+                            if (!selectionMode) selectionMode = true
+                            selected = if (add) selected + key else selected - key
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                         },
                         onDragSelect = { key, add ->
                             if (!selectionMode) selectionMode = true
@@ -1017,7 +1108,7 @@ private fun DensityDialog(
     onChoose: (Int?) -> Unit,
     onDismiss: () -> Unit
 ) {
-    val choices = listOf<Int?>(null, 4, 6, 8, 12, 16, 24, 40)
+    val choices = listOf<Int?>(null, 2, 3, 4, 6, 8, 12, 16, 24, 40)
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("縮圖密度") },
@@ -1225,9 +1316,12 @@ private fun RegularGrid(
     selectionMode: Boolean,
     selected: Set<String>,
     targetMonthKey: String?,
+    targetMediaKey: String?,
     onTargetConsumed: () -> Unit,
+    onMediaTargetConsumed: () -> Unit,
     isFavorite: (String) -> Boolean,
     onClick: (MediaItem) -> Unit,
+    onLongPressStart: (String, Boolean) -> Unit,
     onDragSelect: (String, Boolean) -> Unit,
     onSelectSection: (List<MediaItem>) -> Unit
 ) {
@@ -1248,6 +1342,25 @@ private fun RegularGrid(
             }
             index += 1 + section.items.size
         }
+    }
+
+    LaunchedEffect(targetMediaKey, sections) {
+        val key = targetMediaKey ?: return@LaunchedEffect
+        var index = 0
+        var found = false
+        for (section in sections) {
+            index += 1
+            for (item in section.items) {
+                if (item.key == key) {
+                    state.scrollToItem(index)
+                    found = true
+                    break
+                }
+                index += 1
+            }
+            if (found) break
+        }
+        if (found) onMediaTargetConsumed()
     }
 
     val dragModifier = Modifier.pointerInput(sections, columns) {
@@ -1273,7 +1386,7 @@ private fun RegularGrid(
                 if (key != null && mediaByKey.containsKey(key)) {
                     addMode = !selectedState.contains(key)
                     visited.add(key)
-                    onDragSelect(key, addMode)
+                    onLongPressStart(key, addMode)
                 }
             },
             onDrag = { change, _ ->
