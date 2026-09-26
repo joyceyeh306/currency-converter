@@ -2,6 +2,7 @@ package tw.ajo.photomanager;
 
 import android.Manifest;
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.app.PendingIntent;
 import android.content.ContentResolver;
 import android.content.ContentUris;
@@ -18,6 +19,7 @@ import android.os.Environment;
 import android.provider.MediaStore;
 import android.media.MediaScannerConnection;
 import android.webkit.JavascriptInterface;
+import android.webkit.JsResult;
 import android.webkit.WebSettings;
 import android.webkit.WebChromeClient;
 import android.webkit.WebView;
@@ -75,7 +77,30 @@ public class MainActivity extends Activity {
         settings.setUseWideViewPort(true);
 
         webView.addJavascriptInterface(new Bridge(), "Android");
-        webView.setWebChromeClient(new WebChromeClient());
+        webView.setWebChromeClient(new WebChromeClient() {
+            @Override
+            public boolean onJsAlert(WebView view, String url, String message, JsResult result) {
+                runOnUiThread(() -> new AlertDialog.Builder(MainActivity.this)
+                        .setTitle("ㄚ喬照片管家")
+                        .setMessage(message)
+                        .setPositiveButton("確定", (dialog, which) -> result.confirm())
+                        .setOnCancelListener(dialog -> result.cancel())
+                        .show());
+                return true;
+            }
+
+            @Override
+            public boolean onJsConfirm(WebView view, String url, String message, JsResult result) {
+                runOnUiThread(() -> new AlertDialog.Builder(MainActivity.this)
+                        .setTitle("ㄚ喬照片管家")
+                        .setMessage(message)
+                        .setNegativeButton("取消", (dialog, which) -> result.cancel())
+                        .setPositiveButton("確定", (dialog, which) -> result.confirm())
+                        .setOnCancelListener(dialog -> result.cancel())
+                        .show());
+                return true;
+            }
+        });
         webView.setWebViewClient(new WebViewClient() {
             @Override
             public void onPageFinished(WebView view, String url) {
