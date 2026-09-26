@@ -37,12 +37,14 @@ public class MainActivity extends Activity {
     private static final int REQ_LOCATION = 100;
     private static final int REQ_NOTIFY = 101;
     private static final String VIEWER_BASE = "https://joyceyeh306.github.io/currency-converter/";
+    private static final long HEARTBEAT_STALE_MS = 150_000L;
 
     private TextView statusText;
     private TextView lastText;
     private TextView codeText;
     private Button startStopButton;
     private boolean receiverRegistered = false;
+    private boolean autoRestartIssued = false;
 
     private final BroadcastReceiver receiver = new BroadcastReceiver() {
         @Override public void onReceive(Context context, Intent intent) {
@@ -71,6 +73,14 @@ public class MainActivity extends Activity {
             else registerReceiver(receiver, f);
             receiverRegistered = true;
         }
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        autoRestartIssued = false;
+        ensureSharingAlive();
+        refresh();
     }
 
     @Override
@@ -266,24 +276,42 @@ public class MainActivity extends Activity {
         return b;
     }
 
+    private boolean hasLocationPermission() {
+        return checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
+                checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED;
+    }
+
     private void startSharingFlow() {
-        if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED &&
-                checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+        if (!hasLocationPermission()) {
             requestPermissions(new String[]{Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION}, REQ_LOCATION);
             return;
         }
-        startSharing();
+        startSharing(false);
     }
 
-    private void startSharing() {
+    private void startSharing(boolean automaticRecovery) {
         try {
             Intent i = new Intent(this, LocationService.class);
             if (Build.VERSION.SDK_INT >= 26) startForegroundService(i);
             else startService(i);
             Prefs.setRunning(this, true);
+            if (automaticRecovery) {
+                Toast.makeText(this, "背景定位已自動重新啟動", Toast.LENGTH_SHORT).show();
+            }
             refresh();
         } catch (Exception e) {
             Toast.makeText(this, "無法開始背景定位：" + e.getClass().getSimpleName(), Toast.LENGTH_LONG).show();
+        }
+    }
+
+    private void ensureSharingAlive() {
+        if (!Prefs.running(this) || !hasLocationPermission() || autoRestartIssued) return;
+
+        long hb = Prefs.heartbeat(this);
+        long now = System.currentTimeMillis();
+        if (hb <= 0 || now - hb > HEARTBEAT_STALE_MS) {
+            autoRestartIssued = true;
+            startSharing(true);
         }
     }
 
@@ -292,6 +320,7 @@ public class MainActivity extends Activity {
         try { startService(i); }
         catch (Exception e) { stopService(new Intent(this, LocationService.class)); }
         Prefs.setRunning(this, false);
+        Prefs.setHeartbeat(this, 0L);
         refresh();
     }
 
@@ -305,9 +334,8 @@ public class MainActivity extends Activity {
     public void onRequestPermissionsResult(int req, String[] perms, int[] results) {
         super.onRequestPermissionsResult(req, perms, results);
         if (req == REQ_LOCATION) {
-            if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
-                    checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
-                startSharing();
+            if (hasLocationPermission()) {
+                startSharing(false);
             } else {
                 Toast.makeText(this, "需要定位權限才能分享位置", Toast.LENGTH_LONG).show();
             }
@@ -335,18 +363,33 @@ public class MainActivity extends Activity {
     }
 
     private void refresh() {
-        boolean running = Prefs.running(this);
-        statusText.setText(running ? "● 正在分享位置" : "○ 目前沒有分享位置");
-        startStopButton.setText(running ? "停止分享位置" : "開始分享位置");
+        boolean wanted = Prefs.running(this);
+        long now = System.currentTimeMillis();
+        long hb = Prefs.heartbeat(this);
+        long lastUpload = Prefs.lastUpload(this);
+        long staleUploadMs = Math.max(3L * 60_000L, Prefs.intervalMin(this) * 2L * 60_000L + 60_000L);
 
-        long t = Prefs.lastUpload(this);
-        if (t <= 0) {
+        if (!wanted) {
+            statusText.setText("○ 目前沒有分享位置");
+        } else if (hb <= 0 || now - hb > HEARTBEAT_STALE_MS) {
+            statusText.setText("⚠ 背景定位中斷，正在自動恢復");
+        } else if (lastUpload > 0 && now - lastUpload > staleUploadMs) {
+            statusText.setText("● 背景服務正常，正在恢復定位");
+        } else {
+            statusText.setText("● 正在分享位置");
+        }
+
+        startStopButton.setText(wanted ? "停止分享位置" : "開始分享位置");
+
+        long fixTime = Prefs.lastFixTime(this);
+        if (fixTime <= 0) {
             lastText.setText("尚未成功上傳位置");
         } else {
-            String time = new SimpleDateFormat("MM/dd HH:mm:ss", Locale.TAIWAN).format(new Date(t));
+            String time = new SimpleDateFormat("MM/dd HH:mm:ss", Locale.TAIWAN).format(new Date(fixTime));
             String acc = Prefs.lastAccuracy(this) > 0 ? "　精度約 " + Math.round(Prefs.lastAccuracy(this)) + " m" : "";
-            lastText.setText("最後更新：" + time + "\n" + Prefs.lastLat(this) + ", " + Prefs.lastLon(this) + acc);
+            lastText.setText("最後定位：" + time + "\n" + Prefs.lastLat(this) + ", " + Prefs.lastLon(this) + acc);
         }
+
         if (codeText != null) codeText.setText(Prefs.topic(this));
     }
 
