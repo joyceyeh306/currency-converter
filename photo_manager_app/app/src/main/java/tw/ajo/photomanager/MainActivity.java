@@ -42,6 +42,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.TimeZone;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -345,6 +346,32 @@ public class MainActivity extends Activity {
             if (raw != null && !raw.isEmpty()) return new JSONObject(raw);
         } catch (Exception ignored) {}
         return null;
+    }
+
+    private long exifWallTimeToMillis(String value, String offset) {
+        if (value == null || value.isEmpty() || offset == null || offset.isEmpty()) return 0;
+        try {
+            SimpleDateFormat f = new SimpleDateFormat("yyyy:MM:dd HH:mm:ss", Locale.US);
+            f.setLenient(false);
+            f.setTimeZone(TimeZone.getTimeZone("GMT" + offset));
+            Date d = f.parse(value);
+            return d == null ? 0 : d.getTime();
+        } catch (Exception e) {
+            return 0;
+        }
+    }
+
+    private boolean updateMediaStoreDateTaken(long id, long dateTakenMs) {
+        if (dateTakenMs <= 0) return false;
+        try {
+            ContentValues cv = new ContentValues();
+            cv.put(MediaStore.Images.Media.DATE_TAKEN, dateTakenMs);
+            int n = getContentResolver().update(uriForId(id), cv, null, null);
+            try { getContentResolver().notifyChange(uriForId(id), null); } catch (Exception ignored) {}
+            return n > 0;
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     private void refreshMediaIndex(long id) {
@@ -939,18 +966,46 @@ public class MainActivity extends Activity {
 
                             exif.saveAttributes();
                         }
-                        if ("localTimeDisplay".equals(type) || "restoreOriginalTime".equals(type)) {
-                            refreshMediaIndex(id);
+                        boolean mediaStoreUpdated = true;
+                        long expectedDateTaken = 0;
+                        if ("localTimeDisplay".equals(type)) {
+                            String newOffset = action.optString("targetOffset", "");
+                            if (newOffset.isEmpty()) newOffset = currentSystemOffsetForPhoto(before);
+                            expectedDateTaken = exifWallTimeToMillis(before.optString("dateTimeOriginal", ""), newOffset);
+                            mediaStoreUpdated = updateMediaStoreDateTaken(id, expectedDateTaken);
+                        } else if ("restoreOriginalTime".equals(type)) {
+                            JSONObject backup = getOriginalTimeBackup(id);
+                            if (backup != null) {
+                                String originalOffset = backup.optString("offsetTimeOriginal", "");
+                                String originalDate = backup.optString("dateTimeOriginal", "");
+                                if (!originalOffset.isEmpty()) {
+                                    expectedDateTaken = exifWallTimeToMillis(originalDate, originalOffset);
+                                    mediaStoreUpdated = updateMediaStoreDateTaken(id, expectedDateTaken);
+                                }
+                            }
                         }
 
+                        try { Thread.sleep(450L); } catch (InterruptedException ignored) {}
                         JSONObject after = exifInfo(id);
                         boolean verified = verifyAction(type, action, before, after);
+                        if (expectedDateTaken > 0) {
+                            long actualDt = after.optLong("dateTaken", 0);
+                            verified = verified && mediaStoreUpdated && Math.abs(actualDt - expectedDateTaken) < 2000L;
+                        }
                         if (verified) {
                             success++;
-                            details.put(detail(id, name, name, "完成並重新讀取驗證"));
+                            String status = "完成並穩定驗證";
+                            if ("localTimeDisplay".equals(type)) {
+                                status += "；EXIF " + before.optString("offsetTimeOriginal", "—") + " → "
+                                        + after.optString("offsetTimeOriginal", "—")
+                                        + "；MediaStore " + before.optLong("dateTaken", 0) + " → " + after.optLong("dateTaken", 0);
+                            }
+                            details.put(detail(id, name, name, status));
                         } else {
                             failed++;
-                            details.put(detail(id, name, name, "已寫入，但驗證未通過"));
+                            details.put(detail(id, name, name, "驗證未通過：EXIF="
+                                    + after.optString("offsetTimeOriginal", "—")
+                                    + "，MediaStore=" + after.optLong("dateTaken", 0)));
                         }
                     }
                 } else {
@@ -965,7 +1020,11 @@ public class MainActivity extends Activity {
                 result.put("skipped", skipped);
                 result.put("failed", failed);
                 result.put("details", details);
-                result.put("message", "完成 " + success + " 張；略過 " + skipped + " 張；失敗 " + failed + " 張");
+                String summary = "完成 " + success + " 張；略過 " + skipped + " 張；失敗 " + failed + " 張";
+                if (details.length() == 1) {
+                    summary += "\n" + details.optJSONObject(0).optString("status", "");
+                }
+                result.put("message", summary);
 
                 JSONObject hist = new JSONObject();
                 hist.put("type", type);
