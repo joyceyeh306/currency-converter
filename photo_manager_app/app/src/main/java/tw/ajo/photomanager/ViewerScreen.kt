@@ -87,10 +87,14 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.view.WindowCompat
+import androidx.media3.common.MediaItem as PlayerMediaItem
+import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.ui.PlayerView
 import coil.compose.AsyncImage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -218,14 +222,9 @@ fun ViewerScreen(
                     }
                 )
             } else {
-                VideoPreview(
+                InlineVideoPlayer(
                     item = item,
-                    onSingleTap = {
-                        if (page == pagerState.currentPage) {
-                            controlsVisible = !controlsVisible
-                        }
-                    },
-                    onPlay = { openExternalMedia(context, item) }
+                    active = page == pagerState.currentPage
                 )
             }
         }
@@ -542,43 +541,47 @@ private fun ZoomablePhoto(
 }
 
 @Composable
-private fun VideoPreview(
+private fun InlineVideoPlayer(
     item: MediaItem,
-    onSingleTap: () -> Unit,
-    onPlay: () -> Unit
+    active: Boolean
 ) {
-    Box(
-        Modifier
-            .fillMaxSize()
-            .pointerInput(item.key) {
-                detectTapGestures(
-                    onTap = { onSingleTap() },
-                    onDoubleTap = { onPlay() }
-                )
-            },
-        contentAlignment = Alignment.Center
-    ) {
-        AsyncImage(
-            model = item.uri,
-            contentDescription = item.name,
-            contentScale = ContentScale.Fit,
-            modifier = Modifier.fillMaxSize()
-        )
-        Surface(
-            onClick = onPlay,
-            shape = CircleShape,
-            color = Color.Black.copy(alpha = 0.56f)
-        ) {
-            Icon(
-                Icons.Default.PlayArrow,
-                contentDescription = "播放影片",
-                tint = Color.White,
-                modifier = Modifier
-                    .padding(14.dp)
-                    .size(36.dp)
-            )
+    val context = LocalContext.current
+    val player = remember(item.key) {
+        ExoPlayer.Builder(context).build().apply {
+            setMediaItem(PlayerMediaItem.fromUri(item.uri))
+            prepare()
+            playWhenReady = false
         }
     }
+
+    LaunchedEffect(active) {
+        if (!active) {
+            player.pause()
+        }
+    }
+
+    DisposableEffect(player) {
+        onDispose {
+            player.release()
+        }
+    }
+
+    AndroidView(
+        factory = { viewContext ->
+            PlayerView(viewContext).apply {
+                this.player = player
+                useController = true
+                controllerAutoShow = true
+                controllerHideOnTouch = true
+                setShowBuffering(PlayerView.SHOW_BUFFERING_WHEN_PLAYING)
+                setBackgroundColor(android.graphics.Color.BLACK)
+            }
+        },
+        update = { view ->
+            view.player = player
+        },
+        modifier = Modifier.fillMaxSize()
+    )
 }
 
 @Composable
