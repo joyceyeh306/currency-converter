@@ -7,6 +7,7 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.database.Cursor
 import android.location.Geocoder
+import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.os.Build
 import android.provider.MediaStore
@@ -47,6 +48,7 @@ data class MediaItem(
     val width: Int,
     val height: Int,
     val duration: Long,
+    val folderHint: String,
     val wallTime: LocalDateTime,
     val timeSource: String
 )
@@ -196,9 +198,34 @@ class AlbumRepository(private val context: Context) {
         }
     }
 
-    suspend fun resolvePlace(item: MediaItem): String? = withContext(Dispatchers.IO) {
-        if (item.kind != MediaKind.IMAGE) return@withContext null
+    fun sourceLabel(item: MediaItem): String? {
+        val name = item.name.lowercase(Locale.ROOT)
+        val folder = item.folderHint.lowercase(Locale.ROOT)
 
+        val isScreenshot =
+            name.contains("screenshot") ||
+            name.contains("screen_shot") ||
+            name.contains("screen-shot") ||
+            name.contains("screen capture") ||
+            name.contains("screen_capture") ||
+            folder.contains("screenshot") ||
+            folder.contains("螢幕截圖")
+
+        if (isScreenshot) return "螢幕截圖"
+
+        val isLine =
+            folder == "line" ||
+            folder.contains("/line") ||
+            folder.contains("line/") ||
+            name.startsWith("line_") ||
+            name.startsWith("line-")
+
+        if (isLine) return "LINE 圖片"
+
+        return null
+    }
+
+    suspend fun resolvePlace(item: MediaItem): String? = withContext(Dispatchers.IO) {
         val detail = readDetail(item)
         val lat = detail.lat ?: return@withContext null
         val lon = detail.lon ?: return@withContext null
@@ -241,6 +268,52 @@ class AlbumRepository(private val context: Context) {
 
     fun readDetail(item: MediaItem): DetailInfo {
         if (item.kind == MediaKind.VIDEO) {
+            var lat: Double? = null
+            var lon: Double? = null
+            val rows = mutableListOf(
+                ExifRow("檔名", item.name, "DISPLAY_NAME"),
+                ExifRow("格式", item.mime, "MIME_TYPE"),
+                ExifRow("影片長度", formatDuration(item.duration), "DURATION"),
+                ExifRow(
+                    "解析度",
+                    item.width.toString() + " × " + item.height.toString(),
+                    "WIDTH × HEIGHT"
+                ),
+                ExifRow("檔案大小", formatBytes(item.size), "SIZE")
+            )
+
+            try {
+                val mediaUri = if (
+                    Build.VERSION.SDK_INT >= 29 &&
+                    ContextCompat.checkSelfPermission(
+                        context,
+                        Manifest.permission.ACCESS_MEDIA_LOCATION
+                    ) == PackageManager.PERMISSION_GRANTED
+                ) {
+                    MediaStore.setRequireOriginal(item.uri)
+                } else {
+                    item.uri
+                }
+
+                val retriever = MediaMetadataRetriever()
+                try {
+                    retriever.setDataSource(context, mediaUri)
+                    val location = retriever.extractMetadata(
+                        MediaMetadataRetriever.METADATA_KEY_LOCATION
+                    )
+                    val parsed = parseIso6709Location(location)
+                    if (parsed != null) {
+                        lat = parsed.first
+                        lon = parsed.second
+                        rows.add(ExifRow("GPS 緯度", lat.toString(), "METADATA_KEY_LOCATION"))
+                        rows.add(ExifRow("GPS 經度", lon.toString(), "METADATA_KEY_LOCATION"))
+                    }
+                } finally {
+                    retriever.release()
+                }
+            } catch (_: Exception) {
+            }
+
             return DetailInfo(
                 item = item,
                 make = "",
@@ -250,17 +323,11 @@ class AlbumRepository(private val context: Context) {
                 aperture = "",
                 exposure = "",
                 iso = "",
-                hasGps = false,
-                lat = null,
-                lon = null,
+                hasGps = lat != null && lon != null,
+                lat = lat,
+                lon = lon,
                 altitude = null,
-                rows = listOf(
-                    ExifRow("檔名", item.name, "DISPLAY_NAME"),
-                    ExifRow("格式", item.mime, "MIME_TYPE"),
-                    ExifRow("影片長度", formatDuration(item.duration), "DURATION"),
-                    ExifRow("解析度", item.width.toString() + " × " + item.height.toString(), "WIDTH × HEIGHT"),
-                    ExifRow("檔案大小", formatBytes(item.size), "SIZE")
-                )
+                rows = rows
             )
         }
 
@@ -407,7 +474,8 @@ class AlbumRepository(private val context: Context) {
             MediaStore.Images.Media.MIME_TYPE,
             MediaStore.Images.Media.SIZE,
             MediaStore.Images.Media.WIDTH,
-            MediaStore.Images.Media.HEIGHT
+            MediaStore.Images.Media.HEIGHT,
+            MediaStore.Images.Media.BUCKET_DISPLAY_NAME
         )
         return queryMedia(uri, projection, MediaKind.IMAGE, false)
     }
@@ -428,7 +496,8 @@ class AlbumRepository(private val context: Context) {
             MediaStore.Video.Media.SIZE,
             MediaStore.Video.Media.WIDTH,
             MediaStore.Video.Media.HEIGHT,
-            MediaStore.Video.Media.DURATION
+            MediaStore.Video.Media.DURATION,
+            MediaStore.Video.Media.BUCKET_DISPLAY_NAME
         )
         return queryMedia(uri, projection, MediaKind.VIDEO, true)
     }
@@ -458,6 +527,11 @@ class AlbumRepository(private val context: Context) {
                 val width = cursor.intOrZero(7)
                 val height = cursor.intOrZero(8)
                 val duration = if (hasDuration) cursor.longOrZero(9) else 0L
+                val folderHint = if (hasDuration) {
+                    cursor.stringOrEmpty(10)
+                } else {
+                    cursor.stringOrEmpty(9)
+                }
                 val itemUri = ContentUris.withAppendedId(baseUri, id)
                 val key = kind.name + ":" + id.toString()
 
@@ -495,6 +569,7 @@ class AlbumRepository(private val context: Context) {
                         width = width,
                         height = height,
                         duration = duration,
+                        folderHint = folderHint,
                         wallTime = effective,
                         timeSource = source
                     )
@@ -502,6 +577,20 @@ class AlbumRepository(private val context: Context) {
             }
         }
         return output
+    }
+
+    private fun parseIso6709Location(raw: String?): Pair<Double, Double>? {
+        val value = raw?.trim().orEmpty()
+        if (value.isBlank()) return null
+
+        val match = Regex(
+            """^([+-]\\d{1,2}(?:\\.\\d+)?)([+-]\\d{1,3}(?:\\.\\d+)?)(?:[+-]\\d+(?:\\.\\d+)?)?/?$"""
+        ).find(value) ?: return null
+
+        val lat = match.groupValues[1].toDoubleOrNull() ?: return null
+        val lon = match.groupValues[2].toDoubleOrNull() ?: return null
+        if (lat !in -90.0..90.0 || lon !in -180.0..180.0) return null
+        return lat to lon
     }
 
     private fun cacheKey(key: String): String = "time_" + key
