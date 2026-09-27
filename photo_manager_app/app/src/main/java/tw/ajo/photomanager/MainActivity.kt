@@ -228,6 +228,7 @@ private fun AlbumApp(repository: AlbumRepository, resumeVersion: Int) {
     var activeCollectionTitle by remember { mutableStateOf<String?>(null) }
     var activeCollectionKeys by remember { mutableStateOf<Set<String>?>(null) }
     var mapFocus by remember { mutableStateOf<Pair<Double, Double>?>(null) }
+    var mapNearbyRadiusMeters by remember { mutableStateOf<Double?>(null) }
     var mapBackScreen by remember { mutableStateOf(HomeScreen.COLLECTIONS) }
     var viewerOpenedFromMap by remember { mutableStateOf(false) }
     var albumDialogKeys by remember { mutableStateOf<Set<String>?>(null) }
@@ -446,15 +447,22 @@ private fun AlbumApp(repository: AlbumRepository, resumeVersion: Int) {
             onDismiss = { albumDialogKeys = null },
             onChanged = {
                 albumVersion += 1
+                if (activeCollectionTitle == "已收納") {
+                    activeCollectionKeys = repository.archivedKeys()
+                }
+                if (selectionMode) {
+                    selectionMode = false
+                    selected = emptySet()
+                }
                 haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
             }
         )
     }
 
-    val collectionMedia = remember(media, activeCollectionKeys) {
+    val collectionMedia = remember(media, activeCollectionKeys, activeCollectionTitle, albumVersion) {
         activeCollectionKeys?.let { keys ->
             media.filter { keys.contains(it.key) }
-        } ?: media
+        } ?: media.filterNot { repository.isArchived(it.key) }
     }
 
     val filteredByType = remember(collectionMedia, mediaFilter) {
@@ -509,6 +517,7 @@ private fun AlbumApp(repository: AlbumRepository, resumeVersion: Int) {
             },
             onOpenAlbumMap = { lat, lon ->
                 mapFocus = lat to lon
+                mapNearbyRadiusMeters = 500.0
                 mapBackScreen = HomeScreen.GALLERY
                 viewerOpenedFromMap = false
                 viewerKey = null
@@ -568,6 +577,7 @@ private fun AlbumApp(repository: AlbumRepository, resumeVersion: Int) {
                 activeCollectionTitle = null
                 activeCollectionKeys = null
                 mapFocus = null
+                mapNearbyRadiusMeters = null
                 mapBackScreen = HomeScreen.COLLECTIONS
                 homeScreen = HomeScreen.MAP
             }
@@ -580,8 +590,10 @@ private fun AlbumApp(repository: AlbumRepository, resumeVersion: Int) {
             media = media,
             repository = repository,
             focus = mapFocus,
+            nearbyRadiusMeters = mapNearbyRadiusMeters,
             onBack = {
                 mapFocus = null
+                mapNearbyRadiusMeters = null
                 homeScreen = mapBackScreen
             },
             onOpenMedia = { item ->
