@@ -103,6 +103,7 @@ class AlbumRepository(private val context: Context) {
     private val gpsPrefs = context.getSharedPreferences("ajo_album_gps_index", Context.MODE_PRIVATE)
     private val collectionPrefs = context.getSharedPreferences("ajo_album_collection_order", Context.MODE_PRIVATE)
     private val archivePrefs = context.getSharedPreferences("ajo_album_archive", Context.MODE_PRIVATE)
+    private val devicePrefs = context.getSharedPreferences("ajo_album_device_index", Context.MODE_PRIVATE)
 
     fun hasImagePermission(): Boolean {
         return if (Build.VERSION.SDK_INT >= 33) {
@@ -296,6 +297,175 @@ class AlbumRepository(private val context: Context) {
             ?: mutableSetOf()
         current.addAll(keys)
         albumPrefs.edit().putStringSet("keys_${albumId}", current).apply()
+    }
+
+    fun removeFromCustomAlbum(albumId: String, keys: Set<String>) {
+        if (keys.isEmpty()) return
+        val current = albumPrefs.getStringSet("keys_${albumId}", emptySet())?.toMutableSet()
+            ?: mutableSetOf()
+        current.removeAll(keys)
+        albumPrefs.edit().putStringSet("keys_${albumId}", current).apply()
+    }
+
+    fun customAlbumKeys(albumId: String): Set<String> =
+        albumPrefs.getStringSet("keys_${albumId}", emptySet())?.toSet() ?: emptySet()
+
+    fun removeMediaReferences(keys: Set<String>) {
+        if (keys.isEmpty()) return
+
+        customAlbums().forEach { album ->
+            val remaining = album.mediaKeys - keys
+            if (remaining.size != album.mediaKeys.size) {
+                albumPrefs.edit().putStringSet("keys_${album.id}", remaining).apply()
+            }
+        }
+
+        val archived = archivedKeys().toMutableSet()
+        archived.removeAll(keys)
+        archivePrefs.edit().putStringSet("archived", archived).apply()
+
+        val favorites = favoritePrefs.getStringSet("favorites", emptySet())?.toMutableSet()
+            ?: mutableSetOf()
+        favorites.removeAll(keys)
+        favoritePrefs.edit().putStringSet("favorites", favorites).apply()
+    }
+
+    suspend fun updateImportedDeviceIndex(media: List<MediaItem>) = withContext(Dispatchers.IO) {
+        val images = media.filter { item ->
+            if (item.kind != MediaKind.IMAGE) return@filter false
+            when (smartSourceTag(item)) {
+                "screenshot", "line", "instagram", "downloads" -> false
+                else -> true
+            }
+        }
+
+        val editor = devicePrefs.edit()
+        var changed = false
+
+        images.forEach { item ->
+            if (freshDeviceIdentity(item) != null) return@forEach
+            val identity = readCameraIdentity(item)
+            val make = identity?.first.orEmpty().replace("|", " ").trim()
+            val model = identity?.second.orEmpty().replace("|", " ").trim()
+            val encoded = if (make.isBlank() && model.isBlank()) {
+                "${item.dateModified}|NONE|NONE"
+            } else {
+                "${item.dateModified}|$make|$model"
+            }
+            editor.putString("device_${item.key}", encoded)
+            changed = true
+        }
+        if (changed) editor.apply()
+
+        val currentCandidates = images
+            .asSequence()
+            .sortedByDescending { it.wallTime }
+            .take(300)
+            .mapNotNull { item ->
+                val identity = cachedDeviceIdentity(item) ?: return@mapNotNull null
+                val make = identity.first.trim()
+                val model = identity.second.trim()
+                if (make.isBlank() && model.isBlank()) return@mapNotNull null
+                Triple(make, model, smartSourceTag(item) == "camera")
+            }
+            .toList()
+
+        val manufacturer = Build.MANUFACTURER.orEmpty().trim().lowercase(Locale.ROOT)
+        val buildModel = Build.MODEL.orEmpty().trim().lowercase(Locale.ROOT)
+
+        fun score(candidate: Triple<String, String, Boolean>): Int {
+            val make = candidate.first.lowercase(Locale.ROOT)
+            val model = candidate.second.lowercase(Locale.ROOT)
+            var value = 0
+            if (candidate.third) value += 3
+            if (manufacturer.isNotBlank() && make.contains(manufacturer)) value += 5
+            if (
+                buildModel.isNotBlank() &&
+                (model.contains(buildModel) || buildModel.contains(model))
+            ) {
+                value += 10
+            }
+            return value
+        }
+
+        val scored = currentCandidates.filter { score(it) > 0 }
+        val current = scored
+            .groupBy { it.first.trim().lowercase(Locale.ROOT) + "|" + it.second.trim().lowercase(Locale.ROOT) }
+            .maxByOrNull { (_, entries) ->
+                entries.size * 20 + entries.maxOfOrNull { score(it) }.orEmptyInt()
+            }
+            ?.value
+            ?.firstOrNull()
+
+        if (current != null) {
+            devicePrefs.edit()
+                .putString("current_make", current.first)
+                .putString("current_model", current.second)
+                .apply()
+        }
+    }
+
+    fun importedFromOtherDeviceKeys(media: List<MediaItem>): Set<String> {
+        val currentMake = devicePrefs.getString("current_make", "").orEmpty().trim()
+        val currentModel = devicePrefs.getString("current_model", "").orEmpty().trim()
+        val currentMakeNorm = currentMake.lowercase(Locale.ROOT)
+        val currentModelNorm = currentModel.lowercase(Locale.ROOT)
+        val manufacturer = Build.MANUFACTURER.orEmpty().trim().lowercase(Locale.ROOT)
+
+        return media.asSequence()
+            .filter { it.kind == MediaKind.IMAGE }
+            .filter {
+                when (smartSourceTag(it)) {
+                    "screenshot", "line", "instagram", "downloads" -> false
+                    else -> true
+                }
+            }
+            .filter { item ->
+                val identity = cachedDeviceIdentity(item) ?: return@filter false
+                val make = identity.first.trim()
+                val model = identity.second.trim()
+                if (make.isBlank() && model.isBlank()) return@filter false
+
+                val makeNorm = make.lowercase(Locale.ROOT)
+                val modelNorm = model.lowercase(Locale.ROOT)
+
+                if (currentModelNorm.isNotBlank()) {
+                    modelNorm.isNotBlank() && modelNorm != currentModelNorm
+                } else if (currentMakeNorm.isNotBlank()) {
+                    makeNorm.isNotBlank() && makeNorm != currentMakeNorm
+                } else {
+                    makeNorm.isNotBlank() && manufacturer.isNotBlank() && makeNorm != manufacturer
+                }
+            }
+            .map { it.key }
+            .toSet()
+    }
+
+    private fun freshDeviceIdentity(item: MediaItem): String? {
+        val raw = devicePrefs.getString("device_${item.key}", null) ?: return null
+        val parts = raw.split("|", limit = 3)
+        if (parts.size != 3 || parts[0].toLongOrNull() != item.dateModified) return null
+        return raw
+    }
+
+    private fun cachedDeviceIdentity(item: MediaItem): Pair<String, String>? {
+        val raw = freshDeviceIdentity(item) ?: return null
+        val parts = raw.split("|", limit = 3)
+        if (parts[1] == "NONE" && parts[2] == "NONE") return null
+        return parts[1] to parts[2]
+    }
+
+    private fun readCameraIdentity(item: MediaItem): Pair<String, String>? {
+        return try {
+            resolver.openInputStream(item.uri)?.use { stream ->
+                val exif = ExifInterface(stream)
+                val make = exif.getAttribute(ExifInterface.TAG_MAKE).orEmpty().trim()
+                val model = exif.getAttribute(ExifInterface.TAG_MODEL).orEmpty().trim()
+                if (make.isBlank() && model.isBlank()) null else make to model
+            }
+        } catch (_: Exception) {
+            null
+        }
     }
 
     fun collectionOrder(defaultIds: List<String>): List<String> {
@@ -760,6 +930,8 @@ class AlbumRepository(private val context: Context) {
         }
         return output
     }
+
+    private fun Int?.orEmptyInt(): Int = this ?: 0
 
     private fun parseIso6709Location(raw: String?): Pair<Double, Double>? {
         val value = raw?.trim().orEmpty()
