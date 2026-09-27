@@ -1845,7 +1845,25 @@ private fun RegularGrid(
         )
     }
 
-    LazyVerticalGrid(
+    val fastScrollLabels = remember(sections) {
+        buildList {
+            sections.forEach { section ->
+                val sectionLabel = section.items.firstOrNull()?.let {
+                    it.wallTime.year.toString() + "年 " + it.wallTime.monthValue.toString() + "月"
+                } ?: section.title
+                add(sectionLabel)
+                section.items.forEach { item ->
+                    add(
+                        item.wallTime.year.toString() + "年 " +
+                            item.wallTime.monthValue.toString() + "月"
+                    )
+                }
+            }
+        }
+    }
+
+    Box(Modifier.fillMaxSize()) {
+        LazyVerticalGrid(
         columns = GridCells.Fixed(columns.coerceIn(2, 40)),
         state = state,
         modifier = Modifier
@@ -1912,6 +1930,129 @@ private fun RegularGrid(
                     favorite = isFavorite(item.key),
                     dense = columns >= 12,
                     onClick = { onClick(item) }
+                )
+            }
+        }
+        }
+
+        if (fastScrollLabels.size >= 60) {
+            FastScrollRail(
+                labels = fastScrollLabels,
+                state = state,
+                modifier = Modifier.align(Alignment.CenterEnd)
+            )
+        }
+    }
+}
+
+@Composable
+private fun FastScrollRail(
+    labels: List<String>,
+    state: LazyGridState,
+    modifier: Modifier = Modifier
+) {
+    if (labels.isEmpty()) return
+
+    val scope = rememberCoroutineScope()
+    val haptic = LocalHapticFeedback.current
+    var dragging by remember { mutableStateOf(false) }
+    var targetIndex by remember { mutableIntStateOf(0) }
+    var bubbleLabel by remember { mutableStateOf(labels.first()) }
+    var lastHapticYear by remember { mutableStateOf<String?>(null) }
+    var scrubJob by remember { mutableStateOf<Job?>(null) }
+
+    val visibleIndex = state.firstVisibleItemIndex.coerceIn(0, labels.lastIndex)
+    val shownIndex = if (dragging) targetIndex.coerceIn(0, labels.lastIndex) else visibleIndex
+    val progress = if (labels.size <= 1) 0f else shownIndex.toFloat() / labels.lastIndex.toFloat()
+
+    BoxWithConstraints(
+        modifier = modifier
+            .width(32.dp)
+            .fillMaxHeight()
+            .pointerInput(labels.size) {
+                fun scrub(y: Float) {
+                    if (size.height <= 0) return
+                    val ratio = (y / size.height.toFloat()).coerceIn(0f, 1f)
+                    val index = (ratio * labels.lastIndex.toFloat()).toInt()
+                        .coerceIn(0, labels.lastIndex)
+                    targetIndex = index
+                    bubbleLabel = labels[index]
+
+                    val year = bubbleLabel.substringBefore("年", "")
+                    if (year.isNotBlank() && year != lastHapticYear) {
+                        lastHapticYear = year
+                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    }
+
+                    scrubJob?.cancel()
+                    scrubJob = scope.launch {
+                        state.scrollToItem(index)
+                    }
+                }
+
+                detectDragGestures(
+                    onDragStart = { offset ->
+                        dragging = true
+                        scrub(offset.y)
+                    },
+                    onDrag = { change, _ ->
+                        change.consume()
+                        scrub(change.position.y)
+                    },
+                    onDragEnd = {
+                        dragging = false
+                        lastHapticYear = null
+                    },
+                    onDragCancel = {
+                        dragging = false
+                        lastHapticYear = null
+                    }
+                )
+            }
+    ) {
+        Box(
+            Modifier
+                .align(Alignment.CenterEnd)
+                .padding(end = 5.dp, top = 10.dp, bottom = 10.dp)
+                .width(3.dp)
+                .fillMaxHeight()
+                .background(
+                    MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.18f),
+                    RoundedCornerShape(3.dp)
+                )
+        )
+
+        val thumbHeight = 42.dp
+        val travel = (maxHeight - thumbHeight).coerceAtLeast(0.dp)
+        val thumbY = travel * progress
+
+        Surface(
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .offset(y = thumbY)
+                .padding(end = 2.dp)
+                .size(width = 8.dp, height = thumbHeight),
+            shape = RoundedCornerShape(8.dp),
+            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(
+                alpha = if (dragging) 0.78f else 0.42f
+            )
+        ) {}
+
+        if (dragging) {
+            Surface(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .offset(x = (-34).dp, y = thumbY)
+                    .padding(end = 6.dp),
+                shape = RoundedCornerShape(14.dp),
+                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f),
+                tonalElevation = 3.dp
+            ) {
+                Text(
+                    bubbleLabel,
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.SemiBold
                 )
             }
         }
