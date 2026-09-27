@@ -239,6 +239,8 @@ private fun AlbumApp(repository: AlbumRepository, resumeVersion: Int) {
     var mapBackScreen by remember { mutableStateOf(HomeScreen.COLLECTIONS) }
     var viewerOpenedFromMap by remember { mutableStateOf(false) }
     var albumDialogKeys by remember { mutableStateOf<Set<String>?>(null) }
+    var organizerOpen by remember { mutableStateOf(false) }
+    var organizerKeys by remember { mutableStateOf<Set<String>>(emptySet()) }
     var albumVersion by remember { mutableIntStateOf(0) }
 
     var menuOpen by remember { mutableStateOf(false) }
@@ -668,7 +670,7 @@ private fun AlbumApp(repository: AlbumRepository, resumeVersion: Int) {
         filterMedia(collectionMedia, mediaFilter)
     }
 
-    val searched = remember(filteredByType, searchText) {
+    val searched = remember(filteredByType, searchText, albumVersion) {
         val query = searchText.trim()
         if (query.isBlank()) {
             filteredByType
@@ -677,13 +679,42 @@ private fun AlbumApp(repository: AlbumRepository, resumeVersion: Int) {
                 it.name.contains(query, true) ||
                     formatDateTime(it.wallTime).contains(query, true) ||
                     formatDateOnly(it.wallTime).contains(query, true) ||
-                    it.wallTime.year.toString().contains(query)
+                    it.wallTime.year.toString().contains(query) ||
+                    repository.matchesKeyword(it.key, query)
             }
         }
     }
 
     val ordered = remember(searched, sortField, sortDescending) {
         sortMedia(searched, sortField, sortDescending)
+    }
+
+    if (organizerOpen) {
+        val chosen = remember(media, organizerKeys) {
+            media.filter { organizerKeys.contains(it.key) }
+        }
+        PhotoOrganizerScreen(
+            selectedItems = chosen,
+            repository = repository,
+            onBack = {
+                organizerOpen = false
+            },
+            onOpenAlbumOrganize = { keys ->
+                organizerOpen = false
+                albumDialogKeys = keys
+            },
+            onSearchKeyword = { keyword ->
+                organizerOpen = false
+                selectionMode = false
+                selected = emptySet()
+                searchOpen = true
+                searchText = keyword
+            },
+            onKeywordsChanged = {
+                albumVersion += 1
+            }
+        )
+        return
     }
 
     val currentViewerKey = viewerKey
@@ -712,7 +743,8 @@ private fun AlbumApp(repository: AlbumRepository, resumeVersion: Int) {
                 shareItems(context, listOf(item))
             },
             onOrganize = { item ->
-                albumDialogKeys = setOf(item.key)
+                organizerKeys = setOf(item.key)
+                organizerOpen = true
             },
             onOpenAlbumMap = { lat, lon ->
                 mapFocus = lat to lon
@@ -1033,13 +1065,14 @@ private fun AlbumApp(repository: AlbumRepository, resumeVersion: Int) {
                                     }
                                 )
                                 DropdownMenuItem(
-                                    text = { Text("照片整理工具・下一階段") },
+                                    text = { Text("照片整理工具") },
                                     leadingIcon = {
                                         Icon(Icons.Default.Tune, contentDescription = null)
                                     },
                                     onClick = {
                                         menuOpen = false
-                                        infoDialog = "時間、GPS、檔名與 Metadata 批次整理會整合回這裡。"
+                                        organizerKeys = emptySet()
+                                        organizerOpen = true
                                     }
                                 )
                             }
@@ -1087,7 +1120,8 @@ private fun AlbumApp(repository: AlbumRepository, resumeVersion: Int) {
                     onOrganize = {
                         haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                         if (selected.isNotEmpty()) {
-                            albumDialogKeys = selected
+                            organizerKeys = selected
+                            organizerOpen = true
                         }
                     },
                     onDelete = {
@@ -1316,7 +1350,7 @@ private fun SearchTopBar(
                 .statusBarsPadding()
                 .padding(horizontal = 12.dp, vertical = 8.dp),
             placeholder = {
-                Text("搜尋日期、檔名；地點與照片文字後續加入")
+                Text("搜尋日期、檔名、關鍵字；地點與照片文字後續加入")
             },
             leadingIcon = {
                 Icon(Icons.Default.Search, contentDescription = null)
@@ -1849,13 +1883,16 @@ private fun RegularGrid(
         buildList {
             sections.forEach { section ->
                 val sectionLabel = section.items.firstOrNull()?.let {
-                    it.wallTime.year.toString() + "年 " + it.wallTime.monthValue.toString() + "月"
+                    it.wallTime.year.toString() + "年 " +
+                        it.wallTime.monthValue.toString() + "月 " +
+                        it.wallTime.dayOfMonth.toString() + "日"
                 } ?: section.title
                 add(sectionLabel)
                 section.items.forEach { item ->
                     add(
                         item.wallTime.year.toString() + "年 " +
-                            item.wallTime.monthValue.toString() + "月"
+                            item.wallTime.monthValue.toString() + "月 " +
+                            item.wallTime.dayOfMonth.toString() + "日"
                     )
                 }
             }
