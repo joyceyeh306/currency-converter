@@ -732,22 +732,31 @@ private fun AlbumApp(repository: AlbumRepository, resumeVersion: Int) {
                     index > 0 -> ordered[index - 1].key
                     else -> null
                 }
-                pendingTrashKeys = setOf(item.key)
+                val needsAlbumChoice =
+                    activeCollectionId?.startsWith("custom:") == true ||
+                        activeCollectionId == "system:archived"
 
-                val request = repository.trashRequest(listOf(item))
-                if (request != null) {
-                    trashDialogActive = true
-                    trashLauncher.launch(
-                        IntentSenderRequest.Builder(request.intentSender).build()
-                    )
+                if (needsAlbumChoice) {
+                    pendingCollectionDeleteKeys = setOf(item.key)
                 } else {
-                    media = media.filterNot { it.key == item.key }
-                    viewerKey = pendingViewerNextKey
-                    pendingTrashKeys = emptySet()
-                    pendingViewerNextKey = null
-                    scope.launch {
-                        delay(250)
-                        reload()
+                    pendingTrashKeys = setOf(item.key)
+                    val request = repository.trashRequest(listOf(item))
+                    if (request != null) {
+                        trashDialogActive = true
+                        trashLauncher.launch(
+                            IntentSenderRequest.Builder(request.intentSender).build()
+                        )
+                    } else {
+                        repository.removeMediaReferences(setOf(item.key))
+                        albumVersion += 1
+                        media = media.filterNot { it.key == item.key }
+                        viewerKey = pendingViewerNextKey
+                        pendingTrashKeys = emptySet()
+                        pendingViewerNextKey = null
+                        scope.launch {
+                            delay(250)
+                            reload()
+                        }
                     }
                 }
             }
@@ -1084,22 +1093,34 @@ private fun AlbumApp(repository: AlbumRepository, resumeVersion: Int) {
                     onDelete = {
                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                         val chosen = media.filter { selected.contains(it.key) }
-                        pendingTrashKeys = chosen.map { it.key }.toSet()
+                        val chosenKeys = chosen.map { it.key }.toSet()
                         pendingViewerNextKey = null
-                        val request = repository.trashRequest(chosen)
-                        if (request != null) {
-                            trashDialogActive = true
-                            trashLauncher.launch(
-                                IntentSenderRequest.Builder(request.intentSender).build()
-                            )
+
+                        val needsAlbumChoice =
+                            activeCollectionId?.startsWith("custom:") == true ||
+                                activeCollectionId == "system:archived"
+
+                        if (needsAlbumChoice) {
+                            pendingCollectionDeleteKeys = chosenKeys
                         } else {
-                            media = media.filterNot { pendingTrashKeys.contains(it.key) }
-                            selected = emptySet()
-                            selectionMode = false
-                            pendingTrashKeys = emptySet()
-                            scope.launch {
-                                delay(250)
-                                reload()
+                            pendingTrashKeys = chosenKeys
+                            val request = repository.trashRequest(chosen)
+                            if (request != null) {
+                                trashDialogActive = true
+                                trashLauncher.launch(
+                                    IntentSenderRequest.Builder(request.intentSender).build()
+                                )
+                            } else {
+                                repository.removeMediaReferences(chosenKeys)
+                                albumVersion += 1
+                                media = media.filterNot { chosenKeys.contains(it.key) }
+                                selected = emptySet()
+                                selectionMode = false
+                                pendingTrashKeys = emptySet()
+                                scope.launch {
+                                    delay(250)
+                                    reload()
+                                }
                             }
                         }
                     }
