@@ -61,12 +61,14 @@ jobs:
 
       - name: Sign APK
         run: |
-          for i in {1..12}; do
-            curl --connect-timeout 15 --max-time 45 -fsSL 'https://android.googlesource.com/platform/build/+/refs/heads/main/target/product/security/testkey.pk8?format=TEXT' | base64 -d > /tmp/testkey.pk8 && [ -s /tmp/testkey.pk8 ] && break
+          # Use the GitHub AOSP mirror first. It is the same public Android test
+          # key used by previous builds, but avoids transient googlesource 503s.
+          for i in {1..6}; do
+            curl --connect-timeout 15 --max-time 45 -fsSL 'https://raw.githubusercontent.com/aosp-mirror/platform_build/master/target/product/security/testkey.pk8' -o /tmp/testkey.pk8 && [ -s /tmp/testkey.pk8 ] && break
             sleep 3
           done
-          for i in {1..12}; do
-            curl --connect-timeout 15 --max-time 45 -fsSL 'https://android.googlesource.com/platform/build/+/refs/heads/main/target/product/security/testkey.x509.pem?format=TEXT' | base64 -d > /tmp/testkey.x509.pem && [ -s /tmp/testkey.x509.pem ] && break
+          for i in {1..6}; do
+            curl --connect-timeout 15 --max-time 45 -fsSL 'https://raw.githubusercontent.com/aosp-mirror/platform_build/master/target/product/security/testkey.x509.pem' -o /tmp/testkey.x509.pem && [ -s /tmp/testkey.x509.pem ] && break
             sleep 3
           done
           test -s /tmp/testkey.pk8
