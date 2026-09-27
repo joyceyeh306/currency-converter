@@ -109,3 +109,4 @@ jobs:
           git add photo_manager_build/status/ajo-album-alpha8.txt
           git commit -m "Record ㄚ喬相簿 alpha8 build run" || true
           git push origin HEAD:main
+# source refresh: archive/map/drag fixes
