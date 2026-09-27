@@ -102,6 +102,7 @@ class AlbumRepository(private val context: Context) {
     private val albumPrefs = context.getSharedPreferences("ajo_album_custom_albums", Context.MODE_PRIVATE)
     private val gpsPrefs = context.getSharedPreferences("ajo_album_gps_index", Context.MODE_PRIVATE)
     private val collectionPrefs = context.getSharedPreferences("ajo_album_collection_order", Context.MODE_PRIVATE)
+    private val archivePrefs = context.getSharedPreferences("ajo_album_archive", Context.MODE_PRIVATE)
 
     fun hasImagePermission(): Boolean {
         return if (Build.VERSION.SDK_INT >= 33) {
@@ -310,17 +311,73 @@ class AlbumRepository(private val context: Context) {
         collectionPrefs.edit().putString("order", ids.joinToString("|")).apply()
     }
 
+    fun archivedKeys(): Set<String> =
+        archivePrefs.getStringSet("archived", emptySet())?.toSet() ?: emptySet()
+
+    fun isArchived(key: String): Boolean =
+        archivePrefs.getStringSet("archived", emptySet())?.contains(key) == true
+
+    fun setArchived(keys: Set<String>, value: Boolean) {
+        if (keys.isEmpty()) return
+        val current = archivePrefs.getStringSet("archived", emptySet())?.toMutableSet()
+            ?: mutableSetOf()
+        if (value) current.addAll(keys) else current.removeAll(keys)
+        archivePrefs.edit().putStringSet("archived", current).apply()
+    }
+
+    private fun freshGpsCacheValue(item: MediaItem): String? {
+        val cached = gpsPrefs.getString("gps_${item.key}", null) ?: return null
+        val parts = cached.split("|")
+        if (parts.size != 3 || parts[0].toLongOrNull() != item.dateModified) return null
+        return cached
+    }
+
+    fun hasFreshGpsCache(item: MediaItem): Boolean = freshGpsCacheValue(item) != null
+
+    fun cachedGpsFor(item: MediaItem): Pair<Double, Double>? {
+        val cached = freshGpsCacheValue(item) ?: return null
+        val parts = cached.split("|")
+        if (parts[1] == "NONE") return null
+        val lat = parts[1].toDoubleOrNull()
+        val lon = parts[2].toDoubleOrNull()
+        return if (lat != null && lon != null) lat to lon else null
+    }
+
+    fun hasAnyGpsCache(): Boolean =
+        gpsPrefs.all.keys.any { it.startsWith("gps_") }
+
+    fun isMapIndexComplete(media: List<MediaItem>): Boolean {
+        if (media.isEmpty()) return true
+        val signature = mapIndexSignature(media)
+        if (gpsPrefs.getString("map_index_signature", null) == signature) return true
+
+        // alpha7 already cached GPS item-by-item. If every item is fresh, adopt that
+        // cache as the completed index without making the user rebuild it once more.
+        if (media.all { hasFreshGpsCache(it) }) {
+            gpsPrefs.edit().putString("map_index_signature", signature).apply()
+            return true
+        }
+        return false
+    }
+
+    fun markMapIndexComplete(media: List<MediaItem>) {
+        gpsPrefs.edit()
+            .putString("map_index_signature", mapIndexSignature(media))
+            .apply()
+    }
+
+    private fun mapIndexSignature(media: List<MediaItem>): String {
+        var hash = 1125899906842597L
+        media.sortedBy { it.key }.forEach { item ->
+            hash = 31L * hash + item.key.hashCode().toLong()
+            hash = 31L * hash + item.dateModified
+        }
+        return media.size.toString() + ":" + hash.toString()
+    }
+
     suspend fun gpsFor(item: MediaItem): Pair<Double, Double>? = withContext(Dispatchers.IO) {
-        val cacheKey = "gps_${item.key}"
-        val cached = gpsPrefs.getString(cacheKey, null)
-        if (cached != null) {
-            val parts = cached.split("|")
-            if (parts.size == 3 && parts[0].toLongOrNull() == item.dateModified) {
-                if (parts[1] == "NONE") return@withContext null
-                val lat = parts[1].toDoubleOrNull()
-                val lon = parts[2].toDoubleOrNull()
-                if (lat != null && lon != null) return@withContext lat to lon
-            }
+        if (hasFreshGpsCache(item)) {
+            return@withContext cachedGpsFor(item)
         }
 
         val detail = readDetail(item)
@@ -331,7 +388,7 @@ class AlbumRepository(private val context: Context) {
         } else {
             "${item.dateModified}|NONE|NONE"
         }
-        gpsPrefs.edit().putString(cacheKey, value).apply()
+        gpsPrefs.edit().putString("gps_${item.key}", value).apply()
         if (lat != null && lon != null) lat to lon else null
     }
 
