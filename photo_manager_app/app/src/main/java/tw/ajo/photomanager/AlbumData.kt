@@ -104,6 +104,9 @@ class AlbumRepository(private val context: Context) {
     private val collectionPrefs = context.getSharedPreferences("ajo_album_collection_order", Context.MODE_PRIVATE)
     private val archivePrefs = context.getSharedPreferences("ajo_album_archive", Context.MODE_PRIVATE)
     private val devicePrefs = context.getSharedPreferences("ajo_album_device_index", Context.MODE_PRIVATE)
+    private val keywordPrefs = context.getSharedPreferences("ajo_album_keywords", Context.MODE_PRIVATE)
+    private val organizerPrefs = context.getSharedPreferences("ajo_album_organizer_history", Context.MODE_PRIVATE)
+    private var keywordCache: MutableMap<String, Set<String>>? = null
 
     fun hasImagePermission(): Boolean {
         return if (Build.VERSION.SDK_INT >= 33) {
@@ -310,6 +313,113 @@ class AlbumRepository(private val context: Context) {
     fun customAlbumKeys(albumId: String): Set<String> =
         albumPrefs.getStringSet("keys_${albumId}", emptySet())?.toSet() ?: emptySet()
 
+    private fun keywordIndex(): MutableMap<String, Set<String>> {
+        keywordCache?.let { return it }
+        val loaded = mutableMapOf<String, Set<String>>()
+        keywordPrefs.all.forEach { (prefKey, value) ->
+            if (!prefKey.startsWith("kw_")) return@forEach
+            val mediaKey = prefKey.removePrefix("kw_")
+            @Suppress("UNCHECKED_CAST")
+            val set = (value as? Set<String>)
+                ?.map { it.trim() }
+                ?.filter { it.isNotBlank() }
+                ?.toSet()
+                .orEmpty()
+            if (set.isNotEmpty()) loaded[mediaKey] = set
+        }
+        keywordCache = loaded
+        return loaded
+    }
+
+    fun keywordsFor(key: String): Set<String> =
+        keywordIndex()[key].orEmpty()
+
+    fun allKeywordCounts(keys: Set<String>? = null): List<Pair<String, Int>> {
+        val counts = linkedMapOf<String, Int>()
+        keywordIndex().forEach { (mediaKey, words) ->
+            if (keys != null && mediaKey !in keys) return@forEach
+            words.forEach { word -> counts[word] = (counts[word] ?: 0) + 1 }
+        }
+        return counts.entries
+            .sortedWith(compareByDescending<Map.Entry<String, Int>> { it.value }.thenBy { it.key.lowercase(Locale.ROOT) })
+            .map { it.key to it.value }
+    }
+
+    fun addKeywords(keys: Set<String>, rawKeywords: Collection<String>) {
+        if (keys.isEmpty()) return
+        val cleanInput = rawKeywords
+            .map { it.trim().replace(Regex("\\s+"), " ") }
+            .filter { it.isNotBlank() }
+            .distinctBy { it.lowercase(Locale.ROOT) }
+        if (cleanInput.isEmpty()) return
+
+        val index = keywordIndex()
+        val canonical = allKeywordCounts()
+            .associate { it.first.lowercase(Locale.ROOT) to it.first }
+            .toMutableMap()
+        val words = cleanInput.map { input ->
+            canonical[input.lowercase(Locale.ROOT)] ?: input.also {
+                canonical[it.lowercase(Locale.ROOT)] = it
+            }
+        }.toSet()
+
+        val editor = keywordPrefs.edit()
+        keys.forEach { key ->
+            val next = index[key].orEmpty().toMutableSet()
+            next.addAll(words)
+            index[key] = next.toSet()
+            editor.putStringSet("kw_$key", next)
+        }
+        editor.apply()
+        appendOrganizerHistory("加入關鍵字「${words.joinToString("、")}」到 ${keys.size} 項")
+    }
+
+    fun removeKeyword(keys: Set<String>, keyword: String) {
+        if (keys.isEmpty() || keyword.isBlank()) return
+        val index = keywordIndex()
+        val editor = keywordPrefs.edit()
+        var changed = false
+        keys.forEach { key ->
+            val current = index[key].orEmpty()
+            val next = current.filterNot { it.equals(keyword, ignoreCase = true) }.toSet()
+            if (next != current) {
+                changed = true
+                if (next.isEmpty()) {
+                    index.remove(key)
+                    editor.remove("kw_$key")
+                } else {
+                    index[key] = next
+                    editor.putStringSet("kw_$key", next)
+                }
+            }
+        }
+        if (changed) {
+            editor.apply()
+            appendOrganizerHistory("移除關鍵字「${keyword.trim()}」自 ${keys.size} 項")
+        }
+    }
+
+    fun matchesKeyword(key: String, query: String): Boolean {
+        val needle = query.trim()
+        if (needle.isBlank()) return false
+        return keywordsFor(key).any { it.contains(needle, ignoreCase = true) }
+    }
+
+    fun organizerHistory(): List<String> =
+        organizerPrefs.getString("history", "")
+            .orEmpty()
+            .lineSequence()
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+            .take(80)
+            .toList()
+
+    private fun appendOrganizerHistory(message: String) {
+        val stamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy/MM/dd HH:mm", Locale.TAIWAN))
+        val previous = organizerHistory()
+        val next = (listOf("$stamp　$message") + previous).take(80)
+        organizerPrefs.edit().putString("history", next.joinToString("\n")).apply()
+    }
     fun removeMediaReferences(keys: Set<String>) {
         if (keys.isEmpty()) return
 
@@ -328,6 +438,14 @@ class AlbumRepository(private val context: Context) {
             ?: mutableSetOf()
         favorites.removeAll(keys)
         favoritePrefs.edit().putStringSet("favorites", favorites).apply()
+
+        val index = keywordIndex()
+        val keywordEditor = keywordPrefs.edit()
+        keys.forEach { key ->
+            index.remove(key)
+            keywordEditor.remove("kw_$key")
+        }
+        keywordEditor.apply()
     }
 
     suspend fun updateImportedDeviceIndex(media: List<MediaItem>) = withContext(Dispatchers.IO) {
