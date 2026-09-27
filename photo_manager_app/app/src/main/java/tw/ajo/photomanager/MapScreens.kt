@@ -415,10 +415,12 @@ fun MiniLocationMap(
         MapView(context).apply {
             setTileSource(TileSourceFactory.MAPNIK)
             setMultiTouchControls(false)
-            isTilesScaledToDpi = false
-            // The embedded detail map is for recognizing the immediate shooting
-            // spot, not for district-level browsing. Keep roughly a street-block view.
-            controller.setZoom(19.0)
+            // On high-DPI phones the raw 256 px raster tiles make street names,
+            // POI labels and road lines look unnaturally tiny. Scale the tiles for
+            // device density, then compensate with zoom so the geographic extent
+            // stays close to the previous mini-map view.
+            isTilesScaledToDpi = true
+            controller.setZoom(17.5)
             controller.setCenter(point)
             overlays.add(
                 Marker(this).apply {
