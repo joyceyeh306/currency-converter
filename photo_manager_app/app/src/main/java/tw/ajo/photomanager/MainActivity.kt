@@ -637,7 +637,7 @@ private fun AlbumApp(repository: AlbumRepository, resumeVersion: Int) {
             onDismiss = { albumDialogKeys = null },
             onChanged = {
                 albumVersion += 1
-                if (activeCollectionTitle == "已收納") {
+                if (activeCollectionId == "system:archived") {
                     activeCollectionKeys = repository.archivedKeys()
                 }
                 if (selectionMode) {
@@ -647,7 +647,7 @@ private fun AlbumApp(repository: AlbumRepository, resumeVersion: Int) {
                 val currentViewer = viewerKey
                 if (
                     currentViewer != null &&
-                    activeCollectionTitle == null &&
+                    activeCollectionId == null &&
                     repository.isArchived(currentViewer)
                 ) {
                     viewerKey = null
@@ -720,6 +720,7 @@ private fun AlbumApp(repository: AlbumRepository, resumeVersion: Int) {
                 mapBackScreen = HomeScreen.GALLERY
                 viewerOpenedFromMap = false
                 viewerKey = null
+                activeCollectionId = null
                 activeCollectionTitle = null
                 activeCollectionKeys = null
                 homeScreen = HomeScreen.MAP
@@ -760,9 +761,13 @@ private fun AlbumApp(repository: AlbumRepository, resumeVersion: Int) {
             repository = repository,
             refreshVersion = albumVersion,
             onBack = {
+                activeCollectionId = null
+                activeCollectionTitle = null
+                activeCollectionKeys = null
                 homeScreen = HomeScreen.GALLERY
             },
-            onOpenCollection = { title, keys ->
+            onOpenCollection = { id, title, keys ->
+                activeCollectionId = id
                 activeCollectionTitle = title
                 activeCollectionKeys = keys
                 mediaFilter = MediaFilter.ALL
@@ -773,6 +778,7 @@ private fun AlbumApp(repository: AlbumRepository, resumeVersion: Int) {
                 homeScreen = HomeScreen.GALLERY
             },
             onOpenMap = {
+                activeCollectionId = null
                 activeCollectionTitle = null
                 activeCollectionKeys = null
                 mapFocus = null
@@ -796,6 +802,7 @@ private fun AlbumApp(repository: AlbumRepository, resumeVersion: Int) {
                 homeScreen = mapBackScreen
             },
             onOpenMedia = { item ->
+                activeCollectionId = null
                 activeCollectionTitle = null
                 activeCollectionKeys = null
                 viewerOpenedFromMap = true
@@ -821,9 +828,7 @@ private fun AlbumApp(repository: AlbumRepository, resumeVersion: Int) {
                 previousGroupMode = null
                 prefs.edit().putString("groupMode", groupMode.name).apply()
             }
-            activeCollectionTitle != null -> {
-                activeCollectionTitle = null
-                activeCollectionKeys = null
+            activeCollectionId != null -> {
                 homeScreen = HomeScreen.COLLECTIONS
             }
             else -> exitDialog = true
@@ -999,6 +1004,7 @@ private fun AlbumApp(repository: AlbumRepository, resumeVersion: Int) {
                                     },
                                     onClick = {
                                         menuOpen = false
+                                        activeCollectionId = null
                                         activeCollectionTitle = null
                                         activeCollectionKeys = null
                                         mapFocus = null
