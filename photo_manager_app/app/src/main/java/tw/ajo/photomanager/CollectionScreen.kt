@@ -99,13 +99,18 @@ fun CollectionHomeScreen(
     repository: AlbumRepository,
     refreshVersion: Int,
     onBack: () -> Unit,
-    onOpenCollection: (String, Set<String>) -> Unit,
+    onOpenCollection: (String, String, Set<String>) -> Unit,
     onOpenMap: () -> Unit
 ) {
     BackHandler { onBack() }
 
     var createDialog by remember { mutableStateOf(false) }
     var localVersion by remember(refreshVersion) { mutableIntStateOf(refreshVersion) }
+
+    LaunchedEffect(media) {
+        repository.updateImportedDeviceIndex(media)
+        localVersion += 1
+    }
 
     val cards = remember(media, localVersion, refreshVersion) {
         buildCollectionCards(media, repository)
@@ -183,7 +188,7 @@ fun CollectionHomeScreen(
                 repository = repository,
                 onClick = { card ->
                     if (card.isMap) onOpenMap()
-                    else onOpenCollection(card.title, card.mediaKeys)
+                    else onOpenCollection(card.id, card.title, card.mediaKeys)
                 },
                 modifier = Modifier.weight(1f)
             )
@@ -236,6 +241,13 @@ private fun buildCollectionCards(
     addSmart("smart:instagram", "Instagram", media.filter { repository.smartSourceTag(it) == "instagram" })
     addSmart("smart:downloads", "下載項目", media.filter { repository.smartSourceTag(it) == "downloads" })
     addSmart("smart:camera", "相機", media.filter { repository.smartSourceTag(it) == "camera" })
+
+    val otherDeviceKeys = repository.importedFromOtherDeviceKeys(media)
+    addSmart(
+        "smart:other_devices",
+        "其他裝置匯入",
+        media.filter { otherDeviceKeys.contains(it.key) }
+    )
 
     result.add(
         CollectionCardModel(
@@ -305,6 +317,7 @@ private fun ReorderableCollectionGrid(
 
     var draggedId by remember { mutableStateOf<String?>(null) }
     var dragOffset by remember { mutableStateOf(Offset.Zero) }
+    var grabOffset by remember { mutableStateOf(Offset.Zero) }
     var suppressClickId by remember { mutableStateOf<String?>(null) }
 
     fun itemAt(position: Offset): androidx.compose.foundation.lazy.grid.LazyGridItemInfo? {
@@ -316,14 +329,27 @@ private fun ReorderableCollectionGrid(
         }
     }
 
+    fun nearestCard(position: Offset): androidx.compose.foundation.lazy.grid.LazyGridItemInfo? {
+        return gridState.layoutInfo.visibleItemsInfo
+            .filter { info -> cards.any { it.id == info.key?.toString() } }
+            .minByOrNull { info ->
+                val cx = info.offset.x + info.size.width / 2f
+                val cy = info.offset.y + info.size.height / 2f
+                val dx = position.x - cx
+                val dy = position.y - cy
+                dx * dx + dy * dy
+            }
+    }
+
     val gestureModifier = Modifier.pointerInput(cards.map { it.id }) {
         detectDragGesturesAfterLongPress(
             onDragStart = { start ->
                 val info = itemAt(start)
                 val id = info?.key?.toString()
-                if (id != null && cards.any { it.id == id }) {
+                if (id != null && cards.any { it.id == id } && info != null) {
                     draggedId = id
                     dragOffset = Offset.Zero
+                    grabOffset = start - Offset(info.offset.x.toFloat(), info.offset.y.toFloat())
                     suppressClickId = id
                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                 }
@@ -336,28 +362,28 @@ private fun ReorderableCollectionGrid(
                 val fromInfo = gridState.layoutInfo.visibleItemsInfo.firstOrNull {
                     it.key?.toString() == id
                 }
-                val targetInfo = itemAt(change.position)
+                val targetInfo = nearestCard(change.position)
                 val targetId = targetInfo?.key?.toString()
 
-                if (
-                    fromInfo != null &&
-                    targetInfo != null &&
-                    targetId != null &&
-                    targetId != id
-                ) {
+                if (targetInfo != null && targetId != null && targetId != id) {
                     val from = cards.indexOfFirst { it.id == id }
                     val to = cards.indexOfFirst { it.id == targetId }
                     if (from >= 0 && to >= 0 && from != to) {
-                        // Compensate for the dragged card's new base cell so its
-                        // visual position stays under the finger instead of snapping.
-                        dragOffset -= Offset(
-                            (targetInfo.offset.x - fromInfo.offset.x).toFloat(),
-                            (targetInfo.offset.y - fromInfo.offset.y).toFloat()
-                        )
                         val moved = cards.removeAt(from)
                         cards.add(to, moved)
+
+                        // Base the floating card directly on the destination cell.
+                        // This lets one gesture jump from the first row to the third
+                        // (or farther) instead of forcing adjacent-row exchanges.
+                        dragOffset = change.position -
+                            Offset(targetInfo.offset.x.toFloat(), targetInfo.offset.y.toFloat()) -
+                            grabOffset
                         haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                     }
+                } else if (fromInfo != null) {
+                    dragOffset = change.position -
+                        Offset(fromInfo.offset.x.toFloat(), fromInfo.offset.y.toFloat()) -
+                        grabOffset
                 }
 
                 val edge = 92f
