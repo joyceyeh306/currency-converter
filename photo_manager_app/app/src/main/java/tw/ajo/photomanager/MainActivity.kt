@@ -454,6 +454,15 @@ private fun AlbumApp(repository: AlbumRepository, resumeVersion: Int) {
                     selectionMode = false
                     selected = emptySet()
                 }
+                val currentViewer = viewerKey
+                if (
+                    currentViewer != null &&
+                    activeCollectionTitle == null &&
+                    repository.isArchived(currentViewer)
+                ) {
+                    viewerKey = null
+                    viewerStartKey = null
+                }
                 haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
             }
         )
@@ -803,6 +812,7 @@ private fun AlbumApp(repository: AlbumRepository, resumeVersion: Int) {
                                         activeCollectionTitle = null
                                         activeCollectionKeys = null
                                         mapFocus = null
+                                        mapNearbyRadiusMeters = null
                                         mapBackScreen = HomeScreen.GALLERY
                                         homeScreen = HomeScreen.MAP
                                     }
