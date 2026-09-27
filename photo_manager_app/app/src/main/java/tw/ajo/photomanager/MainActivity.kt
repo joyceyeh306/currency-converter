@@ -460,6 +460,176 @@ private fun AlbumApp(repository: AlbumRepository, resumeVersion: Int) {
         )
     }
 
+    pendingCollectionDeleteKeys?.let { keys ->
+        val collectionId = activeCollectionId
+        val customAlbumId = collectionId
+            ?.takeIf { it.startsWith("custom:") }
+            ?.removePrefix("custom:")
+        val isArchivedCollection = collectionId == "system:archived"
+
+        fun finishNonDestructiveRemoval() {
+            if (viewerKey != null && keys.contains(viewerKey)) {
+                viewerKey = pendingViewerNextKey
+                viewerStartKey = null
+            }
+            if (selectionMode) {
+                selectionMode = false
+                selected = emptySet()
+            }
+            pendingViewerNextKey = null
+            pendingCollectionDeleteKeys = null
+            albumVersion += 1
+            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+        }
+
+        AlertDialog(
+            onDismissRequest = {
+                pendingCollectionDeleteKeys = null
+                pendingViewerNextKey = null
+            },
+            title = {
+                Text(
+                    when {
+                        customAlbumId != null -> "要怎麼處理這些照片？"
+                        isArchivedCollection -> "已收納照片"
+                        else -> "刪除照片"
+                    }
+                )
+            },
+            text = {
+                Column {
+                    if (customAlbumId != null) {
+                        Text(
+                            "相簿只是ㄚ喬的相簿內的分類；只有「真正刪除照片」才會動到手機原始照片。",
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(bottom = 8.dp)
+                        )
+
+                        Surface(
+                            onClick = {
+                                repository.removeFromCustomAlbum(customAlbumId, keys)
+                                activeCollectionKeys = repository.customAlbumKeys(customAlbumId)
+                                finishNonDestructiveRemoval()
+                            },
+                            shape = RoundedCornerShape(14.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 4.dp)
+                        ) {
+                            Column(Modifier.padding(13.dp)) {
+                                Text("從這本相簿移除", fontWeight = FontWeight.Medium)
+                                Text(
+                                    "若照片原本已收納，仍會留在「已收納」",
+                                    fontSize = 10.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+
+                        Surface(
+                            onClick = {
+                                repository.removeFromCustomAlbum(customAlbumId, keys)
+                                repository.setArchived(keys, false)
+                                activeCollectionKeys = repository.customAlbumKeys(customAlbumId)
+                                finishNonDestructiveRemoval()
+                            },
+                            shape = RoundedCornerShape(14.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 4.dp)
+                        ) {
+                            Column(Modifier.padding(13.dp)) {
+                                Text("從相簿移除並取消收納", fontWeight = FontWeight.Medium)
+                                Text(
+                                    "照片會重新顯示在平常的照片牆",
+                                    fontSize = 10.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    } else if (isArchivedCollection) {
+                        Surface(
+                            onClick = {
+                                repository.setArchived(keys, false)
+                                activeCollectionKeys = repository.archivedKeys()
+                                finishNonDestructiveRemoval()
+                            },
+                            shape = RoundedCornerShape(14.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 4.dp)
+                        ) {
+                            Column(Modifier.padding(13.dp)) {
+                                Text("顯示回照片牆", fontWeight = FontWeight.Medium)
+                                Text(
+                                    "取消收納，不會刪除原始照片",
+                                    fontSize = 10.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
+
+                    HorizontalDivider(Modifier.padding(vertical = 8.dp))
+
+                    TextButton(
+                        onClick = {
+                            pendingCollectionDeleteKeys = null
+                            val chosen = media.filter { keys.contains(it.key) }
+                            pendingTrashKeys = keys
+                            val request = repository.trashRequest(chosen)
+                            if (request != null) {
+                                trashDialogActive = true
+                                trashLauncher.launch(
+                                    IntentSenderRequest.Builder(request.intentSender).build()
+                                )
+                            } else {
+                                repository.removeMediaReferences(keys)
+                                albumVersion += 1
+                                media = media.filterNot { keys.contains(it.key) }
+                                if (viewerKey != null && keys.contains(viewerKey)) {
+                                    viewerKey = pendingViewerNextKey
+                                    viewerStartKey = null
+                                }
+                                if (selectionMode) {
+                                    selectionMode = false
+                                    selected = emptySet()
+                                }
+                                pendingTrashKeys = emptySet()
+                                pendingViewerNextKey = null
+                                scope.launch {
+                                    delay(250)
+                                    reload()
+                                }
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(
+                            Icons.Default.DeleteOutline,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(Modifier.size(6.dp))
+                        Text("真正刪除照片")
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        pendingCollectionDeleteKeys = null
+                        pendingViewerNextKey = null
+                    }
+                ) { Text("取消") }
+            }
+        )
+    }
+
     albumDialogKeys?.let { keys ->
         AddToAlbumDialog(
             repository = repository,
