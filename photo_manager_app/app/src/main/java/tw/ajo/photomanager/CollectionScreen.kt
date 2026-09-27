@@ -1,13 +1,18 @@
-@file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+@file:OptIn(
+    androidx.compose.foundation.ExperimentalFoundationApi::class,
+    androidx.compose.material3.ExperimentalMaterial3Api::class
+)
 
 package tw.ajo.photomanager
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
@@ -26,15 +31,19 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.Inventory2
 import androidx.compose.material.icons.filled.Map
 import androidx.compose.material.icons.filled.PhotoAlbum
+import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.VideoLibrary
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CenterAlignedTopAppBar
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -45,25 +54,29 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.zIndex
 import coil.compose.AsyncImage
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 enum class HomeScreen { GALLERY, COLLECTIONS, MAP }
 
@@ -74,7 +87,9 @@ data class CollectionCardModel(
     val cover: MediaItem?,
     val mediaKeys: Set<String>,
     val isMap: Boolean = false,
-    val isCustom: Boolean = false
+    val isCustom: Boolean = false,
+    val isAllPhotos: Boolean = false,
+    val isArchived: Boolean = false
 )
 
 @Composable
@@ -100,8 +115,13 @@ fun CollectionHomeScreen(
     val orderedCards = remember(cards, orderedIds) {
         orderedIds.mapNotNull { id -> cards.firstOrNull { it.id == id } }
     }
-    val current = remember(orderedCards) {
-        mutableStateListOf<CollectionCardModel>().apply { addAll(orderedCards) }
+
+    // Keep one stable list instance. Dynamic cards (first favorite, a newly-created
+    // album, etc.) can now appear without replacing the drag state mid-session.
+    val current = remember { mutableStateListOf<CollectionCardModel>() }
+    LaunchedEffect(orderedCards) {
+        current.clear()
+        current.addAll(orderedCards)
     }
 
     if (createDialog) {
@@ -240,6 +260,34 @@ private fun buildCollectionCards(
             )
         )
     }
+
+    val archived = repository.archivedKeys()
+    val archivedItems = media.filter { archived.contains(it.key) }
+
+    // These are system collections, not a second main navigation layer. Existing
+    // users' saved card order remains intact; new cards are appended and can be
+    // dragged lower if they are only occasionally needed.
+    result.add(
+        CollectionCardModel(
+            id = "system:archived",
+            title = "已收納",
+            count = archivedItems.size,
+            cover = archivedItems.firstOrNull(),
+            mediaKeys = archivedItems.map { it.key }.toSet(),
+            isArchived = true
+        )
+    )
+    result.add(
+        CollectionCardModel(
+            id = "system:all",
+            title = "全部照片",
+            count = media.size,
+            cover = media.firstOrNull(),
+            mediaKeys = media.map { it.key }.toSet(),
+            isAllPhotos = true
+        )
+    )
+
     return result
 }
 
@@ -250,101 +298,155 @@ private fun ReorderableCollectionGrid(
     onClick: (CollectionCardModel) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val haptic = LocalHapticFeedback.current
-    val density = LocalDensity.current
-    val thresholdX = with(density) { 86.dp.toPx() }
-    val thresholdY = with(density) { 98.dp.toPx() }
+    val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
+    val scope = rememberCoroutineScope()
+    val gridState = rememberLazyGridState()
+
+    var draggedId by remember { mutableStateOf<String?>(null) }
+    var dragOffset by remember { mutableStateOf(Offset.Zero) }
+    var suppressClickId by remember { mutableStateOf<String?>(null) }
+
+    fun itemAt(position: Offset): androidx.compose.foundation.lazy.grid.LazyGridItemInfo? {
+        return gridState.layoutInfo.visibleItemsInfo.firstOrNull { info ->
+            position.x >= info.offset.x &&
+                position.x <= info.offset.x + info.size.width &&
+                position.y >= info.offset.y &&
+                position.y <= info.offset.y + info.size.height
+        }
+    }
+
+    val gestureModifier = Modifier.pointerInput(cards.map { it.id }) {
+        detectDragGesturesAfterLongPress(
+            onDragStart = { start ->
+                val info = itemAt(start)
+                val id = info?.key?.toString()
+                if (id != null && cards.any { it.id == id }) {
+                    draggedId = id
+                    dragOffset = Offset.Zero
+                    suppressClickId = id
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                }
+            },
+            onDrag = { change, amount ->
+                val id = draggedId ?: return@detectDragGesturesAfterLongPress
+                change.consume()
+                dragOffset += amount
+
+                val fromInfo = gridState.layoutInfo.visibleItemsInfo.firstOrNull {
+                    it.key?.toString() == id
+                }
+                val targetInfo = itemAt(change.position)
+                val targetId = targetInfo?.key?.toString()
+
+                if (
+                    fromInfo != null &&
+                    targetInfo != null &&
+                    targetId != null &&
+                    targetId != id
+                ) {
+                    val from = cards.indexOfFirst { it.id == id }
+                    val to = cards.indexOfFirst { it.id == targetId }
+                    if (from >= 0 && to >= 0 && from != to) {
+                        // Compensate for the dragged card's new base cell so its
+                        // visual position stays under the finger instead of snapping.
+                        dragOffset -= Offset(
+                            (targetInfo.offset.x - fromInfo.offset.x).toFloat(),
+                            (targetInfo.offset.y - fromInfo.offset.y).toFloat()
+                        )
+                        val moved = cards.removeAt(from)
+                        cards.add(to, moved)
+                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    }
+                }
+
+                val edge = 92f
+                when {
+                    change.position.y < edge -> scope.launch { gridState.scrollBy(-48f) }
+                    change.position.y > size.height - edge -> scope.launch { gridState.scrollBy(48f) }
+                }
+            },
+            onDragEnd = {
+                val id = draggedId
+                draggedId = null
+                dragOffset = Offset.Zero
+                repository.saveCollectionOrder(cards.map { it.id })
+                if (id != null) {
+                    scope.launch {
+                        delay(220)
+                        if (suppressClickId == id) suppressClickId = null
+                    }
+                }
+            },
+            onDragCancel = {
+                val id = draggedId
+                draggedId = null
+                dragOffset = Offset.Zero
+                if (id != null) {
+                    scope.launch {
+                        delay(180)
+                        if (suppressClickId == id) suppressClickId = null
+                    }
+                }
+            }
+        )
+    }
 
     LazyVerticalGrid(
         columns = GridCells.Fixed(3),
-        modifier = modifier.fillMaxWidth(),
+        state = gridState,
+        modifier = modifier
+            .fillMaxWidth()
+            .then(gestureModifier),
         contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
         verticalArrangement = Arrangement.spacedBy(7.dp),
         horizontalArrangement = Arrangement.spacedBy(7.dp)
     ) {
         items(cards, key = { it.id }) { card ->
-            var dragging by remember(card.id) { mutableStateOf(false) }
-            var dx by remember(card.id) { mutableFloatStateOf(0f) }
-            var dy by remember(card.id) { mutableFloatStateOf(0f) }
-
+            val isDragging = draggedId == card.id
             val scale by animateFloatAsState(
-                targetValue = if (dragging) 1.055f else 1f,
-                animationSpec = tween(110),
+                targetValue = if (isDragging) 1.035f else 1f,
+                animationSpec = spring(
+                    dampingRatio = Spring.DampingRatioMediumBouncy,
+                    stiffness = Spring.StiffnessMedium
+                ),
                 label = "collection-scale"
             )
             val infinite = rememberInfiniteTransition(label = "collection-wiggle")
             val wiggle by infinite.animateFloat(
-                initialValue = -0.7f,
-                targetValue = 0.7f,
+                initialValue = -0.32f,
+                targetValue = 0.32f,
                 animationSpec = infiniteRepeatable(
-                    animation = tween(135),
+                    animation = tween(180),
                     repeatMode = RepeatMode.Reverse
                 ),
                 label = "collection-wiggle-value"
             )
 
+            val placement = if (isDragging) {
+                Modifier
+            } else {
+                Modifier.animateItemPlacement(
+                    animationSpec = spring(
+                        dampingRatio = Spring.DampingRatioNoBouncy,
+                        stiffness = Spring.StiffnessMediumLow
+                    )
+                )
+            }
+
             CollectionCard(
                 card = card,
-                onClick = { if (!dragging) onClick(card) },
-                modifier = Modifier
+                onClick = {
+                    if (draggedId == null && suppressClickId != card.id) onClick(card)
+                },
+                modifier = placement
+                    .zIndex(if (isDragging) 4f else 0f)
                     .graphicsLayer {
                         scaleX = scale
                         scaleY = scale
-                        rotationZ = if (dragging) wiggle else 0f
-                        translationX = if (dragging) dx * 0.2f else 0f
-                        translationY = if (dragging) dy * 0.2f else 0f
-                        shadowElevation = if (dragging) 20f else 0f
-                    }
-                    .pointerInput(card.id, cards.size) {
-                        detectDragGesturesAfterLongPress(
-                            onDragStart = {
-                                dragging = true
-                                dx = 0f
-                                dy = 0f
-                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                            },
-                            onDragEnd = {
-                                dragging = false
-                                dx = 0f
-                                dy = 0f
-                                repository.saveCollectionOrder(cards.map { it.id })
-                            },
-                            onDragCancel = {
-                                dragging = false
-                                dx = 0f
-                                dy = 0f
-                            },
-                            onDrag = { change, amount ->
-                                change.consume()
-                                dx += amount.x
-                                dy += amount.y
-                                var deltaIndex = 0
-                                if (dx > thresholdX) {
-                                    deltaIndex = 1
-                                    dx = 0f
-                                } else if (dx < -thresholdX) {
-                                    deltaIndex = -1
-                                    dx = 0f
-                                }
-                                if (dy > thresholdY) {
-                                    deltaIndex = 3
-                                    dy = 0f
-                                } else if (dy < -thresholdY) {
-                                    deltaIndex = -3
-                                    dy = 0f
-                                }
-
-                                if (deltaIndex != 0) {
-                                    val from = cards.indexOfFirst { it.id == card.id }
-                                    val to = (from + deltaIndex).coerceIn(0, cards.lastIndex)
-                                    if (from >= 0 && to != from) {
-                                        val moved = cards.removeAt(from)
-                                        cards.add(to, moved)
-                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                    }
-                                }
-                            }
-                        )
+                        rotationZ = if (isDragging) wiggle else 0f
+                        translationX = if (isDragging) dragOffset.x else 0f
+                        translationY = if (isDragging) dragOffset.y else 0f
+                        shadowElevation = if (isDragging) 15f else 0f
                     }
             )
         }
@@ -380,7 +482,12 @@ private fun CollectionCard(
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
-                        if (card.isMap) Icons.Default.Map else Icons.Default.PhotoAlbum,
+                        when {
+                            card.isMap -> Icons.Default.Map
+                            card.isAllPhotos -> Icons.Default.PhotoLibrary
+                            card.isArchived -> Icons.Default.Inventory2
+                            else -> Icons.Default.PhotoAlbum
+                        },
                         contentDescription = null,
                         modifier = Modifier.size(30.dp),
                         tint = MaterialTheme.colorScheme.onSurfaceVariant
@@ -410,29 +517,52 @@ private fun CollectionCard(
                 }
             }
 
-            if (card.isMap) {
-                Surface(
-                    shape = RoundedCornerShape(10.dp),
-                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.82f),
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(6.dp)
-                ) {
+            when {
+                card.isMap -> {
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.82f),
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(6.dp)
+                    ) {
+                        Icon(
+                            Icons.Default.Map,
+                            contentDescription = null,
+                            modifier = Modifier.padding(5.dp).size(15.dp)
+                        )
+                    }
+                }
+                card.isArchived -> {
                     Icon(
-                        Icons.Default.Map,
+                        Icons.Default.Inventory2,
                         contentDescription = null,
-                        modifier = Modifier.padding(5.dp).size(15.dp)
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(7.dp)
+                            .size(18.dp)
                     )
                 }
-            } else if (card.mediaKeys.any { it.startsWith("VIDEO:") }) {
-                Icon(
-                    Icons.Default.VideoLibrary,
-                    contentDescription = null,
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(7.dp)
-                        .size(18.dp)
-                )
+                card.isAllPhotos -> {
+                    Icon(
+                        Icons.Default.PhotoLibrary,
+                        contentDescription = null,
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(7.dp)
+                            .size(18.dp)
+                    )
+                }
+                card.mediaKeys.any { it.startsWith("VIDEO:") } -> {
+                    Icon(
+                        Icons.Default.VideoLibrary,
+                        contentDescription = null,
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(7.dp)
+                            .size(18.dp)
+                    )
+                }
             }
         }
     }
@@ -478,13 +608,63 @@ fun AddToAlbumDialog(
     var createMode by remember { mutableStateOf(false) }
     var newName by remember { mutableStateOf("") }
     var version by remember { mutableIntStateOf(0) }
+    var archiveAfterAdd by remember(selectedKeys) {
+        mutableStateOf(
+            selectedKeys.isNotEmpty() && selectedKeys.all { repository.isArchived(it) }
+        )
+    }
     val albums = remember(version) { repository.customAlbums() }
+    val allAlreadyArchived = selectedKeys.isNotEmpty() &&
+        selectedKeys.all { repository.isArchived(it) }
+
+    fun finishAdd(albumId: String) {
+        repository.addToCustomAlbum(albumId, selectedKeys)
+        // The checkbox is the explicit decision for whether these selected items
+        // should remain visible on the normal photo wall.
+        repository.setArchived(selectedKeys, archiveAfterAdd)
+        onChanged()
+        onDismiss()
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(if (createMode) "建立相簿" else "加入相簿") },
         text = {
             Column {
+                Surface(
+                    shape = RoundedCornerShape(14.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 10.dp)
+                ) {
+                    Row(
+                        Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Checkbox(
+                            checked = archiveAfterAdd,
+                            onCheckedChange = { archiveAfterAdd = it }
+                        )
+                        Column(Modifier.padding(start = 4.dp)) {
+                            Text(
+                                "收納這些照片",
+                                fontWeight = FontWeight.Medium,
+                                fontSize = 14.sp
+                            )
+                            Text(
+                                if (archiveAfterAdd) {
+                                    "加入相簿後，不顯示在平常的照片牆"
+                                } else {
+                                    "相簿與平常照片牆都會看得到"
+                                },
+                                fontSize = 10.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+
                 if (createMode) {
                     OutlinedTextField(
                         value = newName,
@@ -502,11 +682,7 @@ fun AddToAlbumDialog(
                     }
                     albums.forEach { album ->
                         Surface(
-                            onClick = {
-                                repository.addToCustomAlbum(album.id, selectedKeys)
-                                onChanged()
-                                onDismiss()
-                            },
+                            onClick = { finishAdd(album.id) },
                             shape = RoundedCornerShape(14.dp),
                             color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
                             modifier = Modifier
@@ -523,10 +699,23 @@ fun AddToAlbumDialog(
                             }
                         }
                     }
+
                     TextButton(onClick = { createMode = true }) {
                         Icon(Icons.Default.Add, contentDescription = null)
                         Spacer(Modifier.size(6.dp))
                         Text("建立新相簿")
+                    }
+
+                    if (allAlreadyArchived) {
+                        TextButton(
+                            onClick = {
+                                repository.setArchived(selectedKeys, false)
+                                onChanged()
+                                onDismiss()
+                            }
+                        ) {
+                            Text("顯示回照片牆")
+                        }
                     }
                 }
             }
@@ -537,10 +726,8 @@ fun AddToAlbumDialog(
                     enabled = newName.trim().isNotBlank(),
                     onClick = {
                         val album = repository.createCustomAlbum(newName)
-                        repository.addToCustomAlbum(album.id, selectedKeys)
                         version += 1
-                        onChanged()
-                        onDismiss()
+                        finishAdd(album.id)
                     }
                 ) { Text("建立並加入") }
             } else {
