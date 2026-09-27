@@ -537,8 +537,15 @@ class AlbumRepository(private val context: Context) {
 
                 val cached = if (kind == MediaKind.IMAGE) readIndexedTime(key, modified) else null
                 val filenameTime = parseFilenameTime(name)
+                val mediaStoreTaken = if (dateTaken > 0L) {
+                    LocalDateTime.ofInstant(
+                        Instant.ofEpochMilli(dateTaken),
+                        ZoneId.systemDefault()
+                    )
+                } else {
+                    null
+                }
                 val fallbackMillis = when {
-                    dateTaken > 0L -> dateTaken
                     modified > 0L -> modified
                     added > 0L -> added
                     else -> System.currentTimeMillis()
@@ -547,10 +554,18 @@ class AlbumRepository(private val context: Context) {
                     Instant.ofEpochMilli(fallbackMillis),
                     ZoneId.systemDefault()
                 )
-                val effective = cached ?: filenameTime ?: fallback
+                val effective = when {
+                    kind == MediaKind.VIDEO && mediaStoreTaken != null -> mediaStoreTaken
+                    cached != null -> cached
+                    filenameTime != null -> filenameTime
+                    mediaStoreTaken != null -> mediaStoreTaken
+                    else -> fallback
+                }
                 val source = when {
+                    kind == MediaKind.VIDEO && mediaStoreTaken != null -> "Android MediaStore 拍攝時間"
                     cached != null -> "EXIF 原始拍攝時間"
                     filenameTime != null -> "檔名時間"
+                    mediaStoreTaken != null -> "Android MediaStore 拍攝時間"
                     else -> "Android MediaStore"
                 }
 
