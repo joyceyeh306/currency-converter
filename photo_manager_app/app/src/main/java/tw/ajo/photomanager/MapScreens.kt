@@ -390,7 +390,7 @@ fun AlbumMapScreen(
                                             modifier = Modifier.padding(horizontal = 7.dp, vertical = 5.dp)
                                         )
                                     }
-                                )
+                                }
                             }
                         }
                     }
