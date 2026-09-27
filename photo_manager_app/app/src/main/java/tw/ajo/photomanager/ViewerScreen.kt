@@ -109,6 +109,7 @@ fun ViewerScreen(
     onBack: (String) -> Unit,
     onShare: (MediaItem) -> Unit,
     onOrganize: (MediaItem) -> Unit,
+    onOpenAlbumMap: (Double, Double) -> Unit,
     onTrash: (MediaItem) -> Unit
 ) {
     if (items.isEmpty()) {
@@ -130,6 +131,7 @@ fun ViewerScreen(
     var showExif by remember { mutableStateOf(false) }
     var detail by remember { mutableStateOf<DetailInfo?>(null) }
     var headerLabel by remember { mutableStateOf<String?>(null) }
+    var locationLabel by remember { mutableStateOf<String?>(null) }
     var favoriteVersion by remember { mutableIntStateOf(0) }
     var zoomed by remember { mutableStateOf(false) }
     var moreOpen by remember { mutableStateOf(false) }
@@ -152,9 +154,12 @@ fun ViewerScreen(
     LaunchedEffect(current.key) {
         detail = null
         headerLabel = null
+        locationLabel = null
         zoomed = false
 
-        headerLabel = repository.sourceLabel(current) ?: repository.resolvePlace(current)
+        val resolvedPlace = repository.resolvePlace(current)
+        locationLabel = resolvedPlace
+        headerLabel = repository.sourceLabel(current) ?: resolvedPlace
 
         if (current.kind == MediaKind.VIDEO) {
             sharedVideoPlayer.stop()
@@ -414,11 +419,16 @@ fun ViewerScreen(
             } else {
                 PhotoInfoSheet(
                     detail = detail!!,
+                    placeLabel = locationLabel,
                     onExif = {
                         infoVisible = false
                         showExif = true
                     },
-                    onMap = { lat, lon ->
+                    onOpenAlbumMap = { lat, lon ->
+                        infoVisible = false
+                        onOpenAlbumMap(lat, lon)
+                    },
+                    onGoogleMaps = { lat, lon ->
                         openGoogleMaps(context, lat, lon)
                     }
                 )
@@ -620,8 +630,10 @@ private fun VideoThumbnail(
 @Composable
 private fun PhotoInfoSheet(
     detail: DetailInfo,
+    placeLabel: String?,
     onExif: () -> Unit,
-    onMap: (Double, Double) -> Unit
+    onOpenAlbumMap: (Double, Double) -> Unit,
+    onGoogleMaps: (Double, Double) -> Unit
 ) {
     LazyColumn(
         contentPadding = PaddingValues(
@@ -669,49 +681,26 @@ private fun PhotoInfoSheet(
 
             if (detail.hasGps && detail.lat != null && detail.lon != null) {
                 HorizontalDivider(Modifier.padding(vertical = 18.dp))
-                Surface(
-                    shape = RoundedCornerShape(18.dp),
-                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.72f)
-                ) {
-                    Column(
-                        Modifier
-                            .fillMaxWidth()
-                            .padding(16.dp)
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.Map, contentDescription = null)
-                            Spacer(Modifier.width(8.dp))
-                            Text(
-                                "拍攝位置",
-                                fontWeight = FontWeight.SemiBold
-                            )
-                        }
-                        Text(
-                            String.format(
-                                Locale.US,
-                                "%.6f, %.6f",
-                                detail.lat,
-                                detail.lon
-                            ),
-                            modifier = Modifier.padding(top = 10.dp)
-                        )
-                        if (detail.altitude != null) {
-                            Text(
-                                "海拔 " +
-                                    String.format(Locale.US, "%.1f", detail.altitude) +
-                                    " m",
-                                fontSize = 12.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(top = 3.dp)
-                            )
-                        }
-                        TextButton(
-                            onClick = { onMap(detail.lat, detail.lon) },
-                            contentPadding = PaddingValues(0.dp)
-                        ) {
-                            Text("用 Google Maps 開啟")
-                        }
+                MiniLocationMap(
+                    lat = detail.lat,
+                    lon = detail.lon,
+                    placeLabel = placeLabel,
+                    onOpenAlbumMap = {
+                        onOpenAlbumMap(detail.lat, detail.lon)
+                    },
+                    onGoogleMaps = {
+                        onGoogleMaps(detail.lat, detail.lon)
                     }
+                )
+                if (detail.altitude != null) {
+                    Text(
+                        "海拔 " +
+                            String.format(Locale.US, "%.1f", detail.altitude) +
+                            " m",
+                        fontSize = 11.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 6.dp, start = 4.dp)
+                    )
                 }
             }
         }
