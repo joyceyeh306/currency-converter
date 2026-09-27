@@ -1966,94 +1966,113 @@ private fun FastScrollRail(
     val progress = if (labels.size <= 1) 0f else shownIndex.toFloat() / labels.lastIndex.toFloat()
 
     BoxWithConstraints(
-        modifier = modifier
-            .width(32.dp)
-            .fillMaxHeight()
-            .pointerInput(labels.size) {
-                fun scrub(y: Float) {
-                    if (size.height <= 0) return
-                    val ratio = (y / size.height.toFloat()).coerceIn(0f, 1f)
-                    val index = (ratio * labels.lastIndex.toFloat()).toInt()
-                        .coerceIn(0, labels.lastIndex)
-                    targetIndex = index
-                    bubbleLabel = labels[index]
-
-                    val year = bubbleLabel.substringBefore("年", "")
-                    if (year.isNotBlank() && year != lastHapticYear) {
-                        lastHapticYear = year
-                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                    }
-
-                    scrubJob?.cancel()
-                    scrubJob = scope.launch {
-                        state.scrollToItem(index)
-                    }
-                }
-
-                detectDragGestures(
-                    onDragStart = { offset ->
-                        dragging = true
-                        scrub(offset.y)
-                    },
-                    onDrag = { change, _ ->
-                        change.consume()
-                        scrub(change.position.y)
-                    },
-                    onDragEnd = {
-                        dragging = false
-                        lastHapticYear = null
-                    },
-                    onDragCancel = {
-                        dragging = false
-                        lastHapticYear = null
-                    }
-                )
-            }
+        modifier = modifier.fillMaxSize()
     ) {
-        Box(
-            Modifier
-                .align(Alignment.CenterEnd)
-                .padding(end = 5.dp, top = 10.dp, bottom = 10.dp)
-                .width(3.dp)
-                .fillMaxHeight()
-                .background(
-                    MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.18f),
-                    RoundedCornerShape(3.dp)
-                )
-        )
-
         val thumbHeight = 42.dp
+        val labelHeight = 40.dp
         val travel = (maxHeight - thumbHeight).coerceAtLeast(0.dp)
         val thumbY = travel * progress
+        val labelTravel = (maxHeight - labelHeight).coerceAtLeast(0.dp)
+        val labelY = (thumbY + (thumbHeight - labelHeight) / 2)
+            .coerceIn(0.dp, labelTravel)
 
-        Surface(
+        Box(
             modifier = Modifier
-                .align(Alignment.TopEnd)
-                .offset(y = thumbY)
-                .padding(end = 2.dp)
-                .size(width = 8.dp, height = thumbHeight),
-            shape = RoundedCornerShape(8.dp),
-            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(
-                alpha = if (dragging) 0.78f else 0.42f
+                .align(Alignment.CenterEnd)
+                .width(32.dp)
+                .fillMaxHeight()
+                .pointerInput(labels.size) {
+                    fun scrub(y: Float) {
+                        if (size.height <= 0) return
+                        val ratio = (y / size.height.toFloat()).coerceIn(0f, 1f)
+                        val index = (ratio * labels.lastIndex.toFloat()).toInt()
+                            .coerceIn(0, labels.lastIndex)
+                        targetIndex = index
+                        bubbleLabel = labels[index]
+
+                        val year = bubbleLabel.substringBefore("年", "")
+                        if (year.isNotBlank() && year != lastHapticYear) {
+                            lastHapticYear = year
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        }
+
+                        scrubJob?.cancel()
+                        scrubJob = scope.launch {
+                            state.scrollToItem(index)
+                        }
+                    }
+
+                    detectDragGestures(
+                        onDragStart = { offset ->
+                            dragging = true
+                            scrub(offset.y)
+                        },
+                        onDrag = { change, _ ->
+                            change.consume()
+                            scrub(change.position.y)
+                        },
+                        onDragEnd = {
+                            dragging = false
+                            lastHapticYear = null
+                        },
+                        onDragCancel = {
+                            dragging = false
+                            lastHapticYear = null
+                        }
+                    )
+                }
+        ) {
+            Box(
+                Modifier
+                    .align(Alignment.CenterEnd)
+                    .padding(end = 5.dp, top = 10.dp, bottom = 10.dp)
+                    .width(3.dp)
+                    .fillMaxHeight()
+                    .background(
+                        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.18f),
+                        RoundedCornerShape(3.dp)
+                    )
             )
-        ) {}
+
+            Surface(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .offset(y = thumbY)
+                    .padding(end = 2.dp)
+                    .size(width = 8.dp, height = thumbHeight),
+                shape = RoundedCornerShape(8.dp),
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(
+                    alpha = if (dragging) 0.78f else 0.42f
+                )
+            ) {}
+        }
 
         if (dragging) {
             Surface(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
-                    .offset(x = (-34).dp, y = thumbY)
-                    .padding(end = 6.dp),
+                    .offset(x = (-38).dp, y = labelY)
+                    .width(126.dp)
+                    .heightIn(min = labelHeight),
                 shape = RoundedCornerShape(14.dp),
-                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f),
+                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f),
                 tonalElevation = 3.dp
             ) {
-                Text(
-                    bubbleLabel,
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.SemiBold
-                )
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = labelHeight),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        bubbleLabel,
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        softWrap = false
+                    )
+                }
             }
         }
     }
