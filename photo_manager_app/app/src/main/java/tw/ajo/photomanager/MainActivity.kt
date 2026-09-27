@@ -224,6 +224,14 @@ private fun AlbumApp(repository: AlbumRepository, resumeVersion: Int) {
     var searchOpen by remember { mutableStateOf(false) }
     var searchText by remember { mutableStateOf("") }
     var viewerKey by remember { mutableStateOf<String?>(null) }
+    var homeScreen by remember { mutableStateOf(HomeScreen.GALLERY) }
+    var activeCollectionTitle by remember { mutableStateOf<String?>(null) }
+    var activeCollectionKeys by remember { mutableStateOf<Set<String>?>(null) }
+    var mapFocus by remember { mutableStateOf<Pair<Double, Double>?>(null) }
+    var mapBackScreen by remember { mutableStateOf(HomeScreen.COLLECTIONS) }
+    var viewerOpenedFromMap by remember { mutableStateOf(false) }
+    var albumDialogKeys by remember { mutableStateOf<Set<String>?>(null) }
+    var albumVersion by remember { mutableIntStateOf(0) }
 
     var menuOpen by remember { mutableStateOf(false) }
     var sortDialog by remember { mutableStateOf(false) }
@@ -431,8 +439,26 @@ private fun AlbumApp(repository: AlbumRepository, resumeVersion: Int) {
         )
     }
 
-    val filteredByType = remember(media, mediaFilter) {
-        filterMedia(media, mediaFilter)
+    albumDialogKeys?.let { keys ->
+        AddToAlbumDialog(
+            repository = repository,
+            selectedKeys = keys,
+            onDismiss = { albumDialogKeys = null },
+            onChanged = {
+                albumVersion += 1
+                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+            }
+        )
+    }
+
+    val collectionMedia = remember(media, activeCollectionKeys) {
+        activeCollectionKeys?.let { keys ->
+            media.filter { keys.contains(it.key) }
+        } ?: media
+    }
+
+    val filteredByType = remember(collectionMedia, mediaFilter) {
+        filterMedia(collectionMedia, mediaFilter)
     }
 
     val searched = remember(filteredByType, searchText) {
@@ -461,20 +487,34 @@ private fun AlbumApp(repository: AlbumRepository, resumeVersion: Int) {
             repository = repository,
             onBack = { key ->
                 viewerKey = null
-                if (key == viewerStartKey) {
-                    restoreGridPosition = viewerReturnIndex to viewerReturnOffset
-                    targetMediaKey = null
+                if (viewerOpenedFromMap) {
+                    viewerOpenedFromMap = false
+                    homeScreen = HomeScreen.MAP
                 } else {
-                    restoreGridPosition = null
-                    targetMediaKey = key
+                    if (key == viewerStartKey) {
+                        restoreGridPosition = viewerReturnIndex to viewerReturnOffset
+                        targetMediaKey = null
+                    } else {
+                        restoreGridPosition = null
+                        targetMediaKey = key
+                    }
                 }
                 viewerStartKey = null
             },
             onShare = { item ->
                 shareItems(context, listOf(item))
             },
-            onOrganize = {
-                infoDialog = "照片整理工具會在下一階段接回時間、GPS、檔名與 Metadata。"
+            onOrganize = { item ->
+                albumDialogKeys = setOf(item.key)
+            },
+            onOpenAlbumMap = { lat, lon ->
+                mapFocus = lat to lon
+                mapBackScreen = HomeScreen.GALLERY
+                viewerOpenedFromMap = false
+                viewerKey = null
+                activeCollectionTitle = null
+                activeCollectionKeys = null
+                homeScreen = HomeScreen.MAP
             },
             onTrash = { item ->
                 val index = ordered.indexOfFirst { it.key == item.key }
@@ -506,6 +546,55 @@ private fun AlbumApp(repository: AlbumRepository, resumeVersion: Int) {
         return
     }
 
+    if (homeScreen == HomeScreen.COLLECTIONS) {
+        CollectionHomeScreen(
+            media = media,
+            repository = repository,
+            refreshVersion = albumVersion,
+            onBack = {
+                homeScreen = HomeScreen.GALLERY
+            },
+            onOpenCollection = { title, keys ->
+                activeCollectionTitle = title
+                activeCollectionKeys = keys
+                mediaFilter = MediaFilter.ALL
+                selectionMode = false
+                selected = emptySet()
+                searchOpen = false
+                searchText = ""
+                homeScreen = HomeScreen.GALLERY
+            },
+            onOpenMap = {
+                activeCollectionTitle = null
+                activeCollectionKeys = null
+                mapFocus = null
+                mapBackScreen = HomeScreen.COLLECTIONS
+                homeScreen = HomeScreen.MAP
+            }
+        )
+        return
+    }
+
+    if (homeScreen == HomeScreen.MAP) {
+        AlbumMapScreen(
+            media = media,
+            repository = repository,
+            focus = mapFocus,
+            onBack = {
+                mapFocus = null
+                homeScreen = mapBackScreen
+            },
+            onOpenMedia = { item ->
+                activeCollectionTitle = null
+                activeCollectionKeys = null
+                viewerOpenedFromMap = true
+                viewerStartKey = item.key
+                viewerKey = item.key
+            }
+        )
+        return
+    }
+
     BackHandler {
         when {
             menuOpen -> menuOpen = false
@@ -520,6 +609,11 @@ private fun AlbumApp(repository: AlbumRepository, resumeVersion: Int) {
                 groupMode = previousGroupMode!!
                 previousGroupMode = null
                 prefs.edit().putString("groupMode", groupMode.name).apply()
+            }
+            activeCollectionTitle != null -> {
+                activeCollectionTitle = null
+                activeCollectionKeys = null
+                homeScreen = HomeScreen.COLLECTIONS
             }
             else -> exitDialog = true
         }
@@ -570,11 +664,23 @@ private fun AlbumApp(repository: AlbumRepository, resumeVersion: Int) {
 
                 else -> CenterAlignedTopAppBar(
                     title = {
-                        Text(
-                            "圖庫",
-                            fontSize = 23.sp,
-                            fontWeight = FontWeight.SemiBold
-                        )
+                        TextButton(
+                            onClick = {
+                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                homeScreen = HomeScreen.COLLECTIONS
+                            }
+                        ) {
+                            Text(
+                                activeCollectionTitle ?: "圖庫",
+                                fontSize = 23.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            Text(
+                                "⌄",
+                                fontSize = 16.sp,
+                                modifier = Modifier.padding(start = 4.dp, bottom = 4.dp)
+                            )
+                        }
                     },
                     navigationIcon = {
                         Box {
@@ -676,13 +782,17 @@ private fun AlbumApp(repository: AlbumRepository, resumeVersion: Int) {
                                 HorizontalDivider()
 
                                 DropdownMenuItem(
-                                    text = { Text("地圖相簿・即將開放") },
+                                    text = { Text("照片地圖") },
                                     leadingIcon = {
                                         Icon(Icons.Default.Map, contentDescription = null)
                                     },
                                     onClick = {
                                         menuOpen = false
-                                        infoDialog = "地圖相簿入口先保留，後續版本再正式開放。"
+                                        activeCollectionTitle = null
+                                        activeCollectionKeys = null
+                                        mapFocus = null
+                                        mapBackScreen = HomeScreen.GALLERY
+                                        homeScreen = HomeScreen.MAP
                                     }
                                 )
                                 DropdownMenuItem(
@@ -749,7 +859,9 @@ private fun AlbumApp(repository: AlbumRepository, resumeVersion: Int) {
                     },
                     onOrganize = {
                         haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                        infoDialog = "批次整理工具會在下一階段接回。"
+                        if (selected.isNotEmpty()) {
+                            albumDialogKeys = selected
+                        }
                     },
                     onDelete = {
                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
