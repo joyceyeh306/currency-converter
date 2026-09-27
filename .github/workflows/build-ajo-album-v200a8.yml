@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build:
@@ -53,12 +53,14 @@ jobs:
           grep -q "nearbyRadiusMeters" photo_manager_app/app/src/main/java/tw/ajo/photomanager/MapScreens.kt
 
       - name: Build release APK
+        id: build
         working-directory: photo_manager_app
         run: |
           set -o pipefail
           gradle :app:assembleRelease --stacktrace 2>&1 | tee /tmp/ajo-album-v200a8-build.log
 
       - name: Sign APK
+        id: sign
         run: |
           for i in {1..12}; do
             curl --connect-timeout 15 --max-time 45 -fsSL 'https://android.googlesource.com/platform/build/+/refs/heads/main/target/product/security/testkey.pk8?format=TEXT' | base64 -d > /tmp/testkey.pk8 && [ -s /tmp/testkey.pk8 ] && break
@@ -76,8 +78,34 @@ jobs:
           "$BT/apksigner" verify --verbose --print-certs /tmp/ajo-album-v2.0.0-alpha8.apk
 
       - name: Upload APK artifact
+        id: upload
         uses: actions/upload-artifact@v4
         with:
           name: ajo-album-v2.0.0-alpha8
           path: /tmp/ajo-album-v2.0.0-alpha8.apk
           retention-days: 30
+
+
+      - name: Record workflow run
+        if: always()
+        env:
+          BUILD_OUTCOME: ${{ steps.build.outcome }}
+          SIGN_OUTCOME: ${{ steps.sign.outcome }}
+          UPLOAD_OUTCOME: ${{ steps.upload.outcome }}
+        run: |
+          git fetch origin main
+          git worktree add /tmp/alpha8-status origin/main
+          cd /tmp/alpha8-status
+          mkdir -p photo_manager_build/status
+          {
+            echo "run_id=$GITHUB_RUN_ID"
+            echo "run_attempt=$GITHUB_RUN_ATTEMPT"
+            echo "build=$BUILD_OUTCOME"
+            echo "sign=$SIGN_OUTCOME"
+            echo "upload=$UPLOAD_OUTCOME"
+          } > photo_manager_build/status/ajo-album-alpha8.txt
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add photo_manager_build/status/ajo-album-alpha8.txt
+          git commit -m "Record ㄚ喬相簿 alpha8 build run" || true
+          git push origin HEAD:main
