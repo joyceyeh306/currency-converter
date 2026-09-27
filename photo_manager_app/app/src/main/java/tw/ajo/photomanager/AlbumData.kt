@@ -63,6 +63,18 @@ data class MonthBucket(
 
 data class ExifRow(val label: String, val value: String, val rawTag: String)
 
+data class CustomAlbum(
+    val id: String,
+    val name: String,
+    val mediaKeys: Set<String>
+)
+
+data class MediaLocation(
+    val item: MediaItem,
+    val lat: Double,
+    val lon: Double
+)
+
 data class DetailInfo(
     val item: MediaItem,
     val make: String,
@@ -87,6 +99,9 @@ class AlbumRepository(private val context: Context) {
     private val favoritePrefs = context.getSharedPreferences("ajo_album_favorites", Context.MODE_PRIVATE)
     private val timeIndexPrefs = context.getSharedPreferences("ajo_album_time_index", Context.MODE_PRIVATE)
     private val placePrefs = context.getSharedPreferences("ajo_album_place_cache", Context.MODE_PRIVATE)
+    private val albumPrefs = context.getSharedPreferences("ajo_album_custom_albums", Context.MODE_PRIVATE)
+    private val gpsPrefs = context.getSharedPreferences("ajo_album_gps_index", Context.MODE_PRIVATE)
+    private val collectionPrefs = context.getSharedPreferences("ajo_album_collection_order", Context.MODE_PRIVATE)
 
     fun hasImagePermission(): Boolean {
         return if (Build.VERSION.SDK_INT >= 33) {
@@ -223,6 +238,101 @@ class AlbumRepository(private val context: Context) {
         if (isLine) return "LINE 圖片"
 
         return null
+    }
+
+    fun smartSourceTag(item: MediaItem): String? {
+        val name = item.name.lowercase(Locale.ROOT)
+        val folder = item.folderHint.lowercase(Locale.ROOT)
+
+        if (sourceLabel(item) == "螢幕截圖") return "screenshot"
+        if (sourceLabel(item) == "LINE 圖片") return "line"
+        if (folder.contains("instagram") || name.startsWith("instagram_") || name.startsWith("ig_")) {
+            return "instagram"
+        }
+        if (folder.contains("download")) return "downloads"
+        if (folder.contains("camera") || name.startsWith("img_") || name.startsWith("vid_")) {
+            return "camera"
+        }
+        return null
+    }
+
+    fun customAlbums(): List<CustomAlbum> {
+        val ids = albumPrefs.getString("album_ids", "")
+            .orEmpty()
+            .split("|")
+            .filter { it.isNotBlank() }
+
+        return ids.mapNotNull { id ->
+            val name = albumPrefs.getString("name_${id}", null)?.trim().orEmpty()
+            if (name.isBlank()) return@mapNotNull null
+            CustomAlbum(
+                id = id,
+                name = name,
+                mediaKeys = albumPrefs.getStringSet("keys_${id}", emptySet())?.toSet() ?: emptySet()
+            )
+        }
+    }
+
+    fun createCustomAlbum(name: String): CustomAlbum {
+        val clean = name.trim().ifBlank { "未命名相簿" }
+        val id = System.currentTimeMillis().toString()
+        val currentIds = albumPrefs.getString("album_ids", "").orEmpty()
+            .split("|")
+            .filter { it.isNotBlank() }
+            .toMutableList()
+        currentIds.add(id)
+        albumPrefs.edit()
+            .putString("album_ids", currentIds.joinToString("|"))
+            .putString("name_${id}", clean)
+            .putStringSet("keys_${id}", emptySet())
+            .apply()
+        return CustomAlbum(id, clean, emptySet())
+    }
+
+    fun addToCustomAlbum(albumId: String, keys: Set<String>) {
+        if (keys.isEmpty()) return
+        val current = albumPrefs.getStringSet("keys_${albumId}", emptySet())?.toMutableSet()
+            ?: mutableSetOf()
+        current.addAll(keys)
+        albumPrefs.edit().putStringSet("keys_${albumId}", current).apply()
+    }
+
+    fun collectionOrder(defaultIds: List<String>): List<String> {
+        val saved = collectionPrefs.getString("order", "").orEmpty()
+            .split("|")
+            .filter { it.isNotBlank() }
+        val valid = saved.filter { defaultIds.contains(it) }.toMutableList()
+        defaultIds.forEach { if (!valid.contains(it)) valid.add(it) }
+        return valid
+    }
+
+    fun saveCollectionOrder(ids: List<String>) {
+        collectionPrefs.edit().putString("order", ids.joinToString("|")).apply()
+    }
+
+    suspend fun gpsFor(item: MediaItem): Pair<Double, Double>? = withContext(Dispatchers.IO) {
+        val cacheKey = "gps_${item.key}"
+        val cached = gpsPrefs.getString(cacheKey, null)
+        if (cached != null) {
+            val parts = cached.split("|")
+            if (parts.size == 3 && parts[0].toLongOrNull() == item.dateModified) {
+                if (parts[1] == "NONE") return@withContext null
+                val lat = parts[1].toDoubleOrNull()
+                val lon = parts[2].toDoubleOrNull()
+                if (lat != null && lon != null) return@withContext lat to lon
+            }
+        }
+
+        val detail = readDetail(item)
+        val lat = detail.lat
+        val lon = detail.lon
+        val value = if (lat != null && lon != null) {
+            "${item.dateModified}|${lat}|${lon}"
+        } else {
+            "${item.dateModified}|NONE|NONE"
+        }
+        gpsPrefs.edit().putString(cacheKey, value).apply()
+        if (lat != null && lon != null) lat to lon else null
     }
 
     suspend fun resolvePlace(item: MediaItem): String? = withContext(Dispatchers.IO) {
