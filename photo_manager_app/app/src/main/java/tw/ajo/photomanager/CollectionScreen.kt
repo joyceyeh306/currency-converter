@@ -316,8 +316,8 @@ private fun ReorderableCollectionGrid(
     val gridState = rememberLazyGridState()
 
     var draggedId by remember { mutableStateOf<String?>(null) }
+    var dragTargetId by remember { mutableStateOf<String?>(null) }
     var dragOffset by remember { mutableStateOf(Offset.Zero) }
-    var grabOffset by remember { mutableStateOf(Offset.Zero) }
     var suppressClickId by remember { mutableStateOf<String?>(null) }
 
     fun itemAt(position: Offset): androidx.compose.foundation.lazy.grid.LazyGridItemInfo? {
@@ -348,8 +348,8 @@ private fun ReorderableCollectionGrid(
                 val id = info?.key?.toString()
                 if (id != null && cards.any { it.id == id } && info != null) {
                     draggedId = id
+                    dragTargetId = id
                     dragOffset = Offset.Zero
-                    grabOffset = start - Offset(info.offset.x.toFloat(), info.offset.y.toFloat())
                     suppressClickId = id
                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                 }
@@ -359,42 +359,44 @@ private fun ReorderableCollectionGrid(
                 change.consume()
                 dragOffset += amount
 
-                val fromInfo = gridState.layoutInfo.visibleItemsInfo.firstOrNull {
-                    it.key?.toString() == id
-                }
-                val targetInfo = nearestCard(change.position)
-                val targetId = targetInfo?.key?.toString()
-
-                if (targetInfo != null && targetId != null && targetId != id) {
-                    val from = cards.indexOfFirst { it.id == id }
-                    val to = cards.indexOfFirst { it.id == targetId }
-                    if (from >= 0 && to >= 0 && from != to) {
-                        val moved = cards.removeAt(from)
-                        cards.add(to, moved)
-
-                        // Base the floating card directly on the destination cell.
-                        // This lets one gesture jump from the first row to the third
-                        // (or farther) instead of forcing adjacent-row exchanges.
-                        dragOffset = change.position -
-                            Offset(targetInfo.offset.x.toFloat(), targetInfo.offset.y.toFloat()) -
-                            grabOffset
+                // Keep the source list fixed while the card is in the air.
+                // Only remember the destination under the finger. Reordering the
+                // list on every crossed cell was the reason the old version could
+                // only move one slot/row at a time.
+                val targetId = nearestCard(change.position)?.key?.toString()
+                if (targetId != null && cards.any { it.id == targetId }) {
+                    if (dragTargetId != targetId) {
+                        dragTargetId = targetId
                         haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                     }
-                } else if (fromInfo != null) {
-                    dragOffset = change.position -
-                        Offset(fromInfo.offset.x.toFloat(), fromInfo.offset.y.toFloat()) -
-                        grabOffset
                 }
 
                 val edge = 92f
                 when {
-                    change.position.y < edge -> scope.launch { gridState.scrollBy(-48f) }
-                    change.position.y > size.height - edge -> scope.launch { gridState.scrollBy(48f) }
+                    change.position.y < edge -> scope.launch {
+                        val consumed = gridState.scrollBy(-64f)
+                        dragOffset += Offset(0f, consumed)
+                    }
+                    change.position.y > size.height - edge -> scope.launch {
+                        val consumed = gridState.scrollBy(64f)
+                        dragOffset += Offset(0f, consumed)
+                    }
                 }
             },
             onDragEnd = {
                 val id = draggedId
+                val targetId = dragTargetId
+                if (id != null && targetId != null && id != targetId) {
+                    val from = cards.indexOfFirst { it.id == id }
+                    val to = cards.indexOfFirst { it.id == targetId }
+                    if (from >= 0 && to >= 0 && from != to) {
+                        val moved = cards.removeAt(from)
+                        cards.add(to.coerceIn(0, cards.size), moved)
+                    }
+                }
+
                 draggedId = null
+                dragTargetId = null
                 dragOffset = Offset.Zero
                 repository.saveCollectionOrder(cards.map { it.id })
                 if (id != null) {
@@ -407,6 +409,7 @@ private fun ReorderableCollectionGrid(
             onDragCancel = {
                 val id = draggedId
                 draggedId = null
+                dragTargetId = null
                 dragOffset = Offset.Zero
                 if (id != null) {
                     scope.launch {
