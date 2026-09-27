@@ -302,6 +302,7 @@ private fun AlbumApp(repository: AlbumRepository, resumeVersion: Int) {
 
     var pendingTrashKeys by remember { mutableStateOf<Set<String>>(emptySet()) }
     var pendingViewerNextKey by remember { mutableStateOf<String?>(null) }
+    var pendingCollectionDeleteKeys by remember { mutableStateOf<Set<String>?>(null) }
     var trashDialogActive by remember { mutableStateOf(false) }
 
     val trashLauncher = rememberLauncherForActivityResult(
@@ -313,8 +314,20 @@ private fun AlbumApp(repository: AlbumRepository, resumeVersion: Int) {
             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
             val deleted = pendingTrashKeys
             if (deleted.isNotEmpty()) {
+                repository.removeMediaReferences(deleted)
+                albumVersion += 1
                 media = media.filterNot { deleted.contains(it.key) }
                 selected = selected - deleted
+
+                when {
+                    activeCollectionId?.startsWith("custom:") == true -> {
+                        val albumId = activeCollectionId!!.removePrefix("custom:")
+                        activeCollectionKeys = repository.customAlbumKeys(albumId)
+                    }
+                    activeCollectionId == "system:archived" -> {
+                        activeCollectionKeys = repository.archivedKeys()
+                    }
+                }
             }
 
             if (viewerKey != null && deleted.contains(viewerKey)) {
