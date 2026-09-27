@@ -6,8 +6,10 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Paint
+import android.graphics.Path
 import android.graphics.Typeface
 import android.graphics.drawable.BitmapDrawable
+import android.location.Location
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
@@ -80,6 +82,7 @@ fun AlbumMapScreen(
     media: List<MediaItem>,
     repository: AlbumRepository,
     focus: Pair<Double, Double>?,
+    nearbyRadiusMeters: Double?,
     onBack: () -> Unit,
     onOpenMedia: (MediaItem) -> Unit
 ) {
@@ -88,31 +91,73 @@ fun AlbumMapScreen(
 
     var locations by remember { mutableStateOf<List<MediaLocation>>(emptyList()) }
     var progress by remember { mutableFloatStateOf(0f) }
-    var scanning by remember { mutableStateOf(true) }
+    var scanning by remember { mutableStateOf(false) }
+    var firstIndexBuild by remember { mutableStateOf(false) }
     var zoom by remember { mutableDoubleStateOf(5.5) }
     var selected by remember { mutableStateOf<List<MediaLocation>>(emptyList()) }
 
     LaunchedEffect(media) {
+        selected = emptyList()
+        val complete = repository.isMapIndexComplete(media)
+        if (complete) {
+            locations = media.mapNotNull { item ->
+                repository.cachedGpsFor(item)?.let { gps ->
+                    MediaLocation(item, gps.first, gps.second)
+                }
+            }
+            progress = 1f
+            scanning = false
+            return@LaunchedEffect
+        }
+
+        firstIndexBuild = !repository.hasAnyGpsCache()
         scanning = true
         progress = 0f
-        val found = mutableListOf<MediaLocation>()
-        val total = media.size.coerceAtLeast(1)
 
-        media.forEachIndexed { index, item ->
+        val found = media.mapNotNull { item ->
+            if (repository.hasFreshGpsCache(item)) {
+                repository.cachedGpsFor(item)?.let { gps ->
+                    MediaLocation(item, gps.first, gps.second)
+                }
+            } else null
+        }.toMutableList()
+
+        val pending = media.filterNot { repository.hasFreshGpsCache(it) }
+        if (pending.isEmpty()) {
+            locations = found
+            repository.markMapIndexComplete(media)
+            progress = 1f
+            scanning = false
+            return@LaunchedEffect
+        }
+
+        pending.forEachIndexed { index, item ->
             repository.gpsFor(item)?.let { gps ->
                 found.add(MediaLocation(item, gps.first, gps.second))
             }
-            if (index % 24 == 0 || index == media.lastIndex) {
+            if (index % 24 == 0 || index == pending.lastIndex) {
                 locations = found.toList()
-                progress = (index + 1).toFloat() / total.toFloat()
+                progress = (index + 1).toFloat() / pending.size.toFloat()
                 yield()
             }
         }
+
+        repository.markMapIndexComplete(media)
         scanning = false
     }
 
-    val clusters = remember(locations, zoom) {
-        clusterLocations(locations, zoom)
+    val visibleLocations = remember(locations, focus, nearbyRadiusMeters) {
+        val center = focus
+        val radius = nearbyRadiusMeters
+        if (center != null && radius != null) {
+            locations.filter { distanceMeters(center.first, center.second, it.lat, it.lon) <= radius }
+        } else {
+            locations
+        }
+    }
+
+    val clusters = remember(visibleLocations, zoom) {
+        clusterLocations(visibleLocations, zoom)
     }
 
     val mapView = remember {
@@ -120,6 +165,7 @@ fun AlbumMapScreen(
         MapView(context).apply {
             setTileSource(TileSourceFactory.MAPNIK)
             setMultiTouchControls(true)
+            isTilesScaledToDpi = false
             minZoomLevel = 2.5
             maxZoomLevel = 20.0
             controller.setZoom(5.5)
@@ -141,10 +187,11 @@ fun AlbumMapScreen(
         }
     }
 
-    LaunchedEffect(focus, locations.isNotEmpty()) {
+    LaunchedEffect(focus, nearbyRadiusMeters, locations.isNotEmpty()) {
         when {
             focus != null -> {
-                mapView.controller.setZoom(15.0)
+                val targetZoom = if (nearbyRadiusMeters != null) 17.0 else 15.0
+                mapView.controller.setZoom(targetZoom)
                 mapView.controller.animateTo(GeoPoint(focus.first, focus.second))
             }
             locations.isNotEmpty() -> {
@@ -161,12 +208,16 @@ fun AlbumMapScreen(
             CenterAlignedTopAppBar(
                 title = {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text("照片地圖", fontWeight = FontWeight.SemiBold)
                         Text(
-                            if (scanning) {
-                                "整理定位 ${(progress * 100).toInt()}%"
-                            } else {
-                                locations.size.toString() + " 個有定位的項目"
+                            if (nearbyRadiusMeters != null) "附近照片" else "照片地圖",
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Text(
+                            when {
+                                scanning -> "整理定位 ${(progress * 100).toInt()}%"
+                                nearbyRadiusMeters != null ->
+                                    "${nearbyRadiusMeters.toInt()} 公尺內・${visibleLocations.size} 項"
+                                else -> locations.size.toString() + " 個有定位的項目"
                             },
                             fontSize = 10.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -197,7 +248,11 @@ fun AlbumMapScreen(
                         val marker = Marker(map).apply {
                             position = GeoPoint(cluster.lat, cluster.lon)
                             setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
-                            icon = clusterDrawable(context, cluster.items.size)
+                            icon = if (cluster.items.size == 1) {
+                                smallPinDrawable(context)
+                            } else {
+                                clusterDrawable(context, cluster.items.size)
+                            }
                             title = if (cluster.items.size == 1) {
                                 cluster.items.first().item.name
                             } else {
@@ -241,12 +296,15 @@ fun AlbumMapScreen(
                             strokeWidth = 2.dp
                         )
                         Spacer(Modifier.size(8.dp))
-                        Text("第一次建立地圖索引", fontSize = 11.sp)
+                        Text(
+                            if (firstIndexBuild) "第一次建立地圖索引" else "更新定位資料",
+                            fontSize = 11.sp
+                        )
                     }
                 }
             }
 
-            if (!scanning && locations.isEmpty()) {
+            if (!scanning && visibleLocations.isEmpty()) {
                 Surface(
                     shape = RoundedCornerShape(20.dp),
                     color = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
@@ -258,7 +316,11 @@ fun AlbumMapScreen(
                     ) {
                         Icon(Icons.Default.Map, contentDescription = null)
                         Text(
-                            "目前沒有找到含 GPS 的照片或影片",
+                            if (nearbyRadiusMeters != null) {
+                                "這個範圍內沒有其他含 GPS 的照片"
+                            } else {
+                                "目前沒有找到含 GPS 的照片或影片"
+                            },
                             modifier = Modifier.padding(top = 8.dp),
                             fontSize = 13.sp
                         )
@@ -328,7 +390,7 @@ fun AlbumMapScreen(
                                             modifier = Modifier.padding(horizontal = 7.dp, vertical = 5.dp)
                                         )
                                     }
-                                }
+                                )
                             }
                         }
                     }
@@ -353,14 +415,14 @@ fun MiniLocationMap(
         MapView(context).apply {
             setTileSource(TileSourceFactory.MAPNIK)
             setMultiTouchControls(false)
-            isTilesScaledToDpi = true
-            controller.setZoom(15.5)
+            isTilesScaledToDpi = false
+            controller.setZoom(17.0)
             controller.setCenter(point)
             overlays.add(
                 Marker(this).apply {
                     position = point
                     setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
-                    icon = clusterDrawable(context, 1)
+                    icon = smallPinDrawable(context)
                 }
             )
         }
@@ -415,6 +477,17 @@ fun MiniLocationMap(
     }
 }
 
+private fun distanceMeters(
+    lat1: Double,
+    lon1: Double,
+    lat2: Double,
+    lon2: Double
+): Double {
+    val result = FloatArray(1)
+    Location.distanceBetween(lat1, lon1, lat2, lon2, result)
+    return result[0].toDouble()
+}
+
 private fun clusterLocations(
     locations: List<MediaLocation>,
     zoom: Double
@@ -447,31 +520,58 @@ private fun clusterDrawable(
     count: Int
 ): BitmapDrawable {
     val density = context.resources.displayMetrics.density
-    val size = (if (count > 99) 48 else 42) * density
+    val size = (if (count > 99) 40 else 35) * density
     val bitmap = Bitmap.createBitmap(size.toInt(), size.toInt(), Bitmap.Config.ARGB_8888)
     val canvas = Canvas(bitmap)
 
     val circlePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = android.graphics.Color.argb(225, 42, 54, 64)
+        color = android.graphics.Color.argb(205, 48, 60, 70)
     }
-    canvas.drawCircle(size / 2f, size / 2f, size * 0.44f, circlePaint)
+    canvas.drawCircle(size / 2f, size / 2f, size * 0.41f, circlePaint)
 
     val ringPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = android.graphics.Color.argb(210, 255, 255, 255)
+        color = android.graphics.Color.argb(190, 255, 255, 255)
         style = Paint.Style.STROKE
-        strokeWidth = 2f * density
+        strokeWidth = 1.5f * density
     }
-    canvas.drawCircle(size / 2f, size / 2f, size * 0.44f, ringPaint)
+    canvas.drawCircle(size / 2f, size / 2f, size * 0.41f, ringPaint)
 
     val text = if (count > 999) "999+" else count.toString()
     val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = android.graphics.Color.WHITE
         textAlign = Paint.Align.CENTER
         typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-        textSize = (if (count > 99) 11f else 13f) * density
+        textSize = (if (count > 99) 9.5f else 11.5f) * density
     }
     val y = size / 2f - (textPaint.ascent() + textPaint.descent()) / 2f
     canvas.drawText(text, size / 2f, y, textPaint)
 
+    return BitmapDrawable(context.resources, bitmap)
+}
+
+private fun smallPinDrawable(context: Context): BitmapDrawable {
+    val density = context.resources.displayMetrics.density
+    val w = 22f * density
+    val h = 29f * density
+    val bitmap = Bitmap.createBitmap(w.toInt(), h.toInt(), Bitmap.Config.ARGB_8888)
+    val canvas = Canvas(bitmap)
+
+    val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = android.graphics.Color.argb(225, 48, 60, 70)
+    }
+    val path = Path().apply {
+        moveTo(w / 2f, h)
+        cubicTo(w * 0.42f, h * 0.77f, w * 0.15f, h * 0.63f, w * 0.15f, h * 0.37f)
+        cubicTo(w * 0.15f, h * 0.14f, w * 0.31f, 0f, w / 2f, 0f)
+        cubicTo(w * 0.69f, 0f, w * 0.85f, h * 0.14f, w * 0.85f, h * 0.37f)
+        cubicTo(w * 0.85f, h * 0.63f, w * 0.58f, h * 0.77f, w / 2f, h)
+        close()
+    }
+    canvas.drawPath(path, fill)
+
+    val dot = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = android.graphics.Color.WHITE
+    }
+    canvas.drawCircle(w / 2f, h * 0.36f, 3.2f * density, dot)
     return BitmapDrawable(context.resources, bitmap)
 }
