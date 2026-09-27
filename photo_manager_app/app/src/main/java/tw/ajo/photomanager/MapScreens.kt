@@ -416,7 +416,9 @@ fun MiniLocationMap(
             setTileSource(TileSourceFactory.MAPNIK)
             setMultiTouchControls(false)
             isTilesScaledToDpi = false
-            controller.setZoom(17.0)
+            // The embedded detail map is for recognizing the immediate shooting
+            // spot, not for district-level browsing. Keep roughly a street-block view.
+            controller.setZoom(19.0)
             controller.setCenter(point)
             overlays.add(
                 Marker(this).apply {
