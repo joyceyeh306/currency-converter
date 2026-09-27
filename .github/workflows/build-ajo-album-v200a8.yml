@@ -1,0 +1,83 @@
+name: Build Ajo Album v2.0.0-alpha8
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - '.github/workflows/build-ajo-album-v200a8.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout album source branch
+        uses: actions/checkout@v6
+        with:
+          ref: photo-manager-v1
+          fetch-depth: 0
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Install Android SDK 35
+        run: |
+          SDKMANAGER=/usr/local/lib/android/sdk/cmdline-tools/latest/bin/sdkmanager
+          yes | "$SDKMANAGER" --licenses >/dev/null 2>&1 || true
+          "$SDKMANAGER" "platforms;android-35" "build-tools;35.0.0"
+
+      - name: Set up Gradle 8.9
+        uses: gradle/actions/setup-gradle@v6
+        with:
+          gradle-version: '8.9'
+
+      - name: Restore selected app icon
+        run: |
+          mkdir -p photo_manager_app/app/src/main/res/drawable
+          tr -d '\n\r ' < photo_manager_build/icon.b64 | base64 -d > /tmp/ajo-photo-icon.png
+          cp /tmp/ajo-photo-icon.png photo_manager_app/app/src/main/res/drawable/app_icon.png
+
+      - name: Verify alpha8 sources
+        run: |
+          grep -q "versionName '2.0.0-alpha8'" photo_manager_app/app/build.gradle
+          grep -q "system:archived" photo_manager_app/app/src/main/java/tw/ajo/photomanager/CollectionScreen.kt
+          grep -q "system:all" photo_manager_app/app/src/main/java/tw/ajo/photomanager/CollectionScreen.kt
+          grep -q "收納這些照片" photo_manager_app/app/src/main/java/tw/ajo/photomanager/CollectionScreen.kt
+          grep -q "map_index_signature" photo_manager_app/app/src/main/java/tw/ajo/photomanager/AlbumData.kt
+          grep -q "nearbyRadiusMeters" photo_manager_app/app/src/main/java/tw/ajo/photomanager/MapScreens.kt
+
+      - name: Build release APK
+        working-directory: photo_manager_app
+        run: |
+          set -o pipefail
+          gradle :app:assembleRelease --stacktrace 2>&1 | tee /tmp/ajo-album-v200a8-build.log
+
+      - name: Sign APK
+        run: |
+          for i in {1..12}; do
+            curl --connect-timeout 15 --max-time 45 -fsSL 'https://android.googlesource.com/platform/build/+/refs/heads/main/target/product/security/testkey.pk8?format=TEXT' | base64 -d > /tmp/testkey.pk8 && [ -s /tmp/testkey.pk8 ] && break
+            sleep 3
+          done
+          for i in {1..12}; do
+            curl --connect-timeout 15 --max-time 45 -fsSL 'https://android.googlesource.com/platform/build/+/refs/heads/main/target/product/security/testkey.x509.pem?format=TEXT' | base64 -d > /tmp/testkey.x509.pem && [ -s /tmp/testkey.x509.pem ] && break
+            sleep 3
+          done
+          test -s /tmp/testkey.pk8
+          test -s /tmp/testkey.x509.pem
+          BT="$ANDROID_HOME/build-tools/35.0.0"
+          "$BT/zipalign" -f -p 4 photo_manager_app/app/build/outputs/apk/release/app-release-unsigned.apk /tmp/ajo-album-v2.0.0-alpha8-aligned.apk
+          "$BT/apksigner" sign --key /tmp/testkey.pk8 --cert /tmp/testkey.x509.pem --out /tmp/ajo-album-v2.0.0-alpha8.apk /tmp/ajo-album-v2.0.0-alpha8-aligned.apk
+          "$BT/apksigner" verify --verbose --print-certs /tmp/ajo-album-v2.0.0-alpha8.apk
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ajo-album-v2.0.0-alpha8
+          path: /tmp/ajo-album-v2.0.0-alpha8.apk
+          retention-days: 30
