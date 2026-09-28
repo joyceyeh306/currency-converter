@@ -40,6 +40,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -549,6 +550,32 @@ private fun KeywordEditorDialog(
     )
 }
 
+private enum class GpsBatchMode(
+    val label: String,
+    val description: String,
+    val changeTime: Boolean,
+    val changeFilename: Boolean
+) {
+    BOTH(
+        "時間＋檔名",
+        "用 GPS 當地時間修正拍攝時間，並改成日期時間檔名",
+        true,
+        true
+    ),
+    TIME_ONLY(
+        "只修正時間",
+        "保留原檔名，只把拍攝時間改成 GPS 當地時間",
+        true,
+        false
+    ),
+    FILENAME_ONLY(
+        "只改檔名",
+        "不動 EXIF 時間，只依 GPS 當地時間重新命名",
+        false,
+        true
+    )
+}
+
 @Composable
 private fun TimeCorrectionDialog(
     selectedItems: List<MediaItem>,
@@ -556,39 +583,44 @@ private fun TimeCorrectionDialog(
     onDismiss: () -> Unit,
     onMediaChanged: () -> Unit
 ) {
-    val first = selectedItems.firstOrNull()
     val scope = rememberCoroutineScope()
-    var suggestion by remember(first?.key) { mutableStateOf<GpsTimeSuggestion?>(null) }
-    var loading by remember(first?.key) { mutableStateOf(false) }
-    var fixing by remember(first?.key) { mutableStateOf(false) }
-    var resultMessage by remember(first?.key) { mutableStateOf<String?>(null) }
-    var confirmSuggestion by remember(first?.key) { mutableStateOf<GpsTimeSuggestion?>(null) }
-    var pendingSuggestion by remember(first?.key) { mutableStateOf<GpsTimeSuggestion?>(null) }
+    var previews by remember(selectedItems.map { it.key }) {
+        mutableStateOf<List<GpsBatchPreview>>(emptyList())
+    }
+    var loading by remember(selectedItems.map { it.key }) { mutableStateOf(false) }
+    var processing by remember { mutableStateOf(false) }
+    var mode by remember { mutableStateOf(GpsBatchMode.BOTH) }
+    var confirmMode by remember { mutableStateOf<GpsBatchMode?>(null) }
+    var pendingMode by remember { mutableStateOf<GpsBatchMode?>(null) }
+    var batchResult by remember { mutableStateOf<GpsBatchResult?>(null) }
 
-    LaunchedEffect(first?.key, selectedItems.size) {
-        if (selectedItems.size == 1 && first?.kind == MediaKind.IMAGE) {
+    val limitedItems = remember(selectedItems) { selectedItems.take(2000) }
+
+    LaunchedEffect(limitedItems.map { it.key }) {
+        if (limitedItems.isNotEmpty()) {
             loading = true
-            suggestion = withContext(Dispatchers.IO) {
-                repository.readGpsTimeSuggestion(first)
+            batchResult = null
+            previews = withContext(Dispatchers.IO) {
+                repository.buildGpsBatchPreviews(limitedItems)
             }
             loading = false
         }
     }
 
-    fun applySuggestion(value: GpsTimeSuggestion) {
-        val item = first ?: return
-        fixing = true
-        resultMessage = null
+    fun applyBatch(chosenMode: GpsBatchMode) {
+        processing = true
+        batchResult = null
         scope.launch {
             val result = withContext(Dispatchers.IO) {
-                repository.applyGpsTimeSuggestion(item, value)
+                repository.applyGpsBatch(
+                    previews = previews,
+                    changeTime = chosenMode.changeTime,
+                    changeFilename = chosenMode.changeFilename
+                )
             }
-            fixing = false
-            resultMessage = result.message
-            if (result.success) {
-                suggestion = withContext(Dispatchers.IO) {
-                    repository.readGpsTimeSuggestion(item)
-                }
+            processing = false
+            batchResult = result
+            if (result.succeeded > 0) {
                 onMediaChanged()
             }
         }
@@ -597,22 +629,33 @@ private fun TimeCorrectionDialog(
     val writeLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartIntentSenderForResult()
     ) { result ->
-        val pending = pendingSuggestion
-        pendingSuggestion = null
-        if (result.resultCode == Activity.RESULT_OK && pending != null) {
-            applySuggestion(pending)
+        val chosenMode = pendingMode
+        pendingMode = null
+        if (result.resultCode == Activity.RESULT_OK && chosenMode != null) {
+            applyBatch(chosenMode)
         } else if (result.resultCode != Activity.RESULT_OK) {
-            resultMessage = "已取消，照片沒有修改。"
+            batchResult = GpsBatchResult(
+                total = previews.size,
+                succeeded = 0,
+                skipped = previews.count { it.suggestion == null },
+                failed = 0,
+                details = listOf("已取消，照片沒有修改。")
+            )
         }
     }
 
-    fun requestWrite(value: GpsTimeSuggestion) {
-        val item = first ?: return
-        val request = repository.createMetadataWriteRequest(item)
+    fun requestBatch(chosenMode: GpsBatchMode) {
+        val eligibleItems = previews
+            .filter { it.suggestion != null }
+            .map { it.item }
+
+        if (eligibleItems.isEmpty()) return
+
+        val request = repository.createMetadataWriteRequest(eligibleItems)
         if (request == null) {
-            applySuggestion(value)
+            applyBatch(chosenMode)
         } else {
-            pendingSuggestion = value
+            pendingMode = chosenMode
             writeLauncher.launch(
                 IntentSenderRequest.Builder(request.intentSender).build()
             )
@@ -623,157 +666,270 @@ private fun TimeCorrectionDialog(
         DateTimeFormatter.ofPattern("yyyy/MM/dd HH:mm:ss")
     }
 
+    val eligibleCount = previews.count { it.suggestion != null }
+    val skippedCount = previews.size - eligibleCount
+
     AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("拍攝時間") },
+        onDismissRequest = {
+            if (!processing) onDismiss()
+        },
+        title = {
+            Column {
+                Text("GPS 批次整理")
+                Text(
+                    if (selectedItems.size == 1) "已選 1 張"
+                    else "已選 ${selectedItems.size} 張",
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        },
         text = {
             LazyColumn(
-                modifier = Modifier.heightIn(max = 520.dp),
+                modifier = Modifier.heightIn(max = 560.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                when {
-                    selectedItems.isEmpty() -> {
-                        item { Text("請先選取照片。") }
+                if (selectedItems.isEmpty()) {
+                    item { Text("請先選取照片。") }
+                } else if (loading) {
+                    item {
+                        Text("正在讀取 GPS 日期、時間、座標與拍攝地時區中…")
                     }
-                    selectedItems.size != 1 -> {
+                } else {
+                    if (selectedItems.size > 2000) {
                         item {
                             Text(
-                                "GPS 時間修正這一版先支援單張照片。請一次只選一張。",
+                                "一次最多處理 2000 張；這次先處理前 2000 張。",
+                                fontSize = 11.sp,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
                     }
-                    first?.kind != MediaKind.IMAGE -> {
-                        item { Text("目前只支援照片的 EXIF 時間修正。") }
-                    }
-                    loading -> {
-                        item { Text("讀取 EXIF、GPS 時間與拍攝地時區中…") }
-                    }
-                    suggestion == null -> {
-                        item {
-                            Text(
-                                "這張照片沒有完整的 GPS 日期、時間與座標，因此不會自動修改。",
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-                    else -> {
-                        val s = suggestion!!
-                        item {
-                            Text(first.name, fontWeight = FontWeight.SemiBold)
-                        }
-                        item {
-                            Column {
+
+                    item {
+                        Surface(
+                            shape = RoundedCornerShape(16.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
+                        ) {
+                            Column(Modifier.padding(13.dp)) {
                                 Text(
-                                    "目前 EXIF 原始拍攝時間",
-                                    fontSize = 11.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    "可處理 $eligibleCount 張",
+                                    fontWeight = FontWeight.SemiBold
                                 )
-                                Text(
-                                    s.currentOriginal?.format(displayFormatter) ?: "沒有資料",
-                                    fontSize = 15.sp
-                                )
-                            }
-                        }
-                        item {
-                            Column {
-                                Text(
-                                    "GPS 時間（UTC）",
-                                    fontSize = 11.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                                Text(s.gpsUtc.format(displayFormatter), fontSize = 15.sp)
-                            }
-                        }
-                        item {
-                            Surface(
-                                shape = RoundedCornerShape(16.dp),
-                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.48f)
-                            ) {
-                                Column(Modifier.padding(13.dp)) {
+                                if (skippedCount > 0) {
                                     Text(
-                                        "GPS 地點換算後",
+                                        "略過 $skippedCount 張：缺少完整 GPS 時間／座標，或不是照片",
                                         fontSize = 11.sp,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
+                                }
+                                Text(
+                                    "新檔名格式：YYYYMMDD_HHMMSS.JPG",
+                                    fontSize = 11.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
+
+                    item {
+                        Text(
+                            "要怎麼整理？",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+
+                    items(GpsBatchMode.entries, key = { "mode_" + it.name }) { option ->
+                        Surface(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable(enabled = !processing) { mode = option },
+                            shape = RoundedCornerShape(16.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(
+                                alpha = if (mode == option) 0.58f else 0.28f
+                            )
+                        ) {
+                            Row(
+                                Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                RadioButton(
+                                    selected = mode == option,
+                                    onClick = { if (!processing) mode = option }
+                                )
+                                Column(Modifier.padding(start = 4.dp)) {
                                     Text(
-                                        s.localTime.format(displayFormatter),
-                                        fontSize = 17.sp,
-                                        fontWeight = FontWeight.SemiBold
+                                        option.label,
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Medium
                                     )
                                     Text(
-                                        s.zoneId + "  " + s.offsetText,
-                                        fontSize = 11.sp,
+                                        option.description,
+                                        fontSize = 10.sp,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                 }
                             }
                         }
-                        if (s.suspicious) {
-                            item {
-                                Text(
-                                    "目前 EXIF 與 GPS 當地時間差異明顯，這張照片適合用 GPS 時間檢查修正。",
-                                    fontSize = 12.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        }
-                        item {
-                            TextButton(
-                                enabled = !fixing,
-                                onClick = { confirmSuggestion = s },
-                                modifier = Modifier.fillMaxWidth()
+                    }
+
+                    item {
+                        Text(
+                            "預覽",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.padding(top = 4.dp)
+                        )
+                    }
+
+                    items(
+                        previews.take(60),
+                        key = { "preview_" + it.item.key }
+                    ) { preview ->
+                        val s = preview.suggestion
+                        Surface(
+                            shape = RoundedCornerShape(14.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.30f)
+                        ) {
+                            Column(
+                                Modifier.padding(horizontal = 11.dp, vertical = 9.dp),
+                                verticalArrangement = Arrangement.spacedBy(3.dp)
                             ) {
-                                Text(if (fixing) "修正中…" else "以 GPS 當地時間修正")
+                                Text(
+                                    preview.item.name,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Medium
+                                )
+                                if (s == null) {
+                                    Text(
+                                        "略過：" + (preview.skipReason ?: "沒有可用 GPS 資料"),
+                                        fontSize = 10.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                } else {
+                                    Text(
+                                        "目前：" +
+                                            (s.currentOriginal?.format(displayFormatter) ?: "沒有 EXIF 時間"),
+                                        fontSize = 10.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    Text(
+                                        "GPS 當地：" + s.localTime.format(displayFormatter) +
+                                            "  " + s.zoneId,
+                                        fontSize = 11.sp
+                                    )
+                                    Text(
+                                        "新檔名：" + (preview.proposedName ?: "—"),
+                                        fontSize = 11.sp
+                                    )
+                                }
                             }
                         }
+                    }
+
+                    if (previews.size > 60) {
                         item {
                             Text(
-                                "只修改照片的時間 metadata 與系統拍攝時間索引，不重新編碼影像。",
+                                "畫面先顯示前 60 張預覽；執行時會處理全部 ${previews.size} 張。",
                                 fontSize = 10.sp,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
                     }
-                }
 
-                resultMessage?.let { message ->
+                    item {
+                        TextButton(
+                            enabled = eligibleCount > 0 && !processing,
+                            onClick = { confirmMode = mode },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                if (processing) "處理中…"
+                                else "執行「${mode.label}」"
+                            )
+                        }
+                    }
+
                     item {
                         Text(
-                            message,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Medium
+                            "沒有完整 GPS 日期、GPS 時間與座標的照片會自動略過。修改時間只寫 metadata；改檔名只重新命名，兩者都不重新編碼照片。",
+                            fontSize = 10.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
+                    }
+                }
+
+                batchResult?.let { result ->
+                    item {
+                        Surface(
+                            shape = RoundedCornerShape(16.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.50f)
+                        ) {
+                            Column(
+                                Modifier.padding(12.dp),
+                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Text(
+                                    "處理完成",
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                                Text(
+                                    "成功 ${result.succeeded}　略過 ${result.skipped}　失敗 ${result.failed}",
+                                    fontSize = 12.sp
+                                )
+                                result.details.take(12).forEach { line ->
+                                    Text(
+                                        line,
+                                        fontSize = 9.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                                if (result.details.size > 12) {
+                                    Text(
+                                        "其餘 ${result.details.size - 12} 筆可到「修改紀錄」查看摘要。",
+                                        fontSize = 9.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
             }
         },
         confirmButton = {
-            TextButton(onClick = onDismiss, enabled = !fixing) { Text("完成") }
+            TextButton(
+                onClick = onDismiss,
+                enabled = !processing
+            ) { Text("完成") }
         }
     )
 
-    confirmSuggestion?.let { s ->
+    confirmMode?.let { chosenMode ->
         AlertDialog(
-            onDismissRequest = { confirmSuggestion = null },
-            title = { Text("確認修正拍攝時間") },
+            onDismissRequest = { confirmMode = null },
+            title = { Text("確認 GPS 批次整理") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(
-                        "目前：" +
-                            (s.currentOriginal?.format(displayFormatter) ?: "沒有資料")
-                    )
-                    Text(
-                        "修正後：" + s.localTime.format(displayFormatter),
+                        "將處理 $eligibleCount 張照片",
                         fontWeight = FontWeight.SemiBold
                     )
+                    Text("方式：" + chosenMode.label)
                     Text(
-                        "時區：" + s.zoneId + "  " + s.offsetText,
-                        fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        when (chosenMode) {
+                            GpsBatchMode.BOTH ->
+                                "先寫入 GPS 當地拍攝時間並驗證；成功後才重新命名。"
+                            GpsBatchMode.TIME_ONLY ->
+                                "只修正照片時間，不改檔名。"
+                            GpsBatchMode.FILENAME_ONLY ->
+                                "只依 GPS 當地時間重新命名，不改照片時間。"
+                        },
+                        fontSize = 12.sp
                     )
                     Text(
-                        "會直接修改原始照片的時間 metadata；影像像素不重新編碼。",
+                        "影像像素不會重新編碼。沒有完整 GPS 資料的照片不會修改。",
                         fontSize = 11.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -782,13 +938,13 @@ private fun TimeCorrectionDialog(
             confirmButton = {
                 TextButton(
                     onClick = {
-                        confirmSuggestion = null
-                        requestWrite(s)
+                        confirmMode = null
+                        requestBatch(chosenMode)
                     }
-                ) { Text("修正時間") }
+                ) { Text("開始處理") }
             },
             dismissButton = {
-                TextButton(onClick = { confirmSuggestion = null }) { Text("取消") }
+                TextButton(onClick = { confirmMode = null }) { Text("取消") }
             }
         )
     }
