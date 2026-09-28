@@ -463,8 +463,8 @@ private fun AlbumApp(repository: AlbumRepository, resumeVersion: Int) {
                         "目前版本：${BuildConfig.VERSION_NAME}\n" +
                         "版本代碼：${BuildConfig.VERSION_CODE}\n\n" +
                         "穩定母版：${BuildConfig.STABLE_BASELINE}\n\n" +
-                        "本次更新：新增版本資訊\n" +
-                        "製作日期：2026-09-28"
+                        "本次更新：GPS 批次修正時間與檔名\n" +
+                        "製作日期：2026-09-29"
                 )
             },
             confirmButton = {
