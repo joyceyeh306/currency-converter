@@ -666,16 +666,8 @@ private fun AlbumApp(repository: AlbumRepository, resumeVersion: Int) {
         } ?: media.filterNot { repository.isArchived(it.key) }
     }
 
-    val searchSource = remember(media, collectionMedia, activeCollectionId, searchText, albumVersion) {
-        if (activeCollectionId == null && searchText.isNotBlank()) {
-            media
-        } else {
-            collectionMedia
-        }
-    }
-
-    val filteredByType = remember(searchSource, mediaFilter) {
-        filterMedia(searchSource, mediaFilter)
+    val filteredByType = remember(collectionMedia, mediaFilter) {
+        filterMedia(collectionMedia, mediaFilter)
     }
 
     val searched = remember(filteredByType, searchText, albumVersion) {
@@ -706,6 +698,10 @@ private fun AlbumApp(repository: AlbumRepository, resumeVersion: Int) {
             repository = repository,
             onBack = {
                 organizerOpen = false
+            },
+            onOpenAlbumOrganize = { keys ->
+                organizerOpen = false
+                albumDialogKeys = keys
             },
             onSearchKeyword = { keyword ->
                 organizerOpen = false
@@ -1121,12 +1117,6 @@ private fun AlbumApp(repository: AlbumRepository, resumeVersion: Int) {
                         media.filter { selected.contains(it.key) }
                             .forEach { repository.setFavorite(it.key, true) }
                     },
-                    onAlbum = {
-                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                        if (selected.isNotEmpty()) {
-                            albumDialogKeys = selected
-                        }
-                    },
                     onOrganize = {
                         haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                         if (selected.isNotEmpty()) {
@@ -1381,7 +1371,6 @@ private fun SelectionBottomBar(
     enabled: Boolean,
     onShare: () -> Unit,
     onFavorite: () -> Unit,
-    onAlbum: () -> Unit,
     onOrganize: () -> Unit,
     onDelete: () -> Unit
 ) {
@@ -1408,13 +1397,6 @@ private fun SelectionBottomBar(
                 icon = Icons.Default.FavoriteBorder,
                 label = "收藏",
                 onClick = onFavorite
-            )
-            SelectionAction(
-                modifier = Modifier.weight(1f),
-                enabled = enabled,
-                icon = Icons.Default.PhotoLibrary,
-                label = "相簿",
-                onClick = onAlbum
             )
             SelectionAction(
                 modifier = Modifier.weight(1f),
@@ -1901,14 +1883,14 @@ private fun RegularGrid(
         buildList {
             sections.forEach { section ->
                 val sectionLabel = section.items.firstOrNull()?.let {
-                    (it.wallTime.year - 1911).toString() + "年 " +
+                    it.wallTime.year.toString() + "年 " +
                         it.wallTime.monthValue.toString() + "月 " +
                         it.wallTime.dayOfMonth.toString() + "日"
                 } ?: section.title
                 add(sectionLabel)
                 section.items.forEach { item ->
                     add(
-                        (item.wallTime.year - 1911).toString() + "年 " +
+                        item.wallTime.year.toString() + "年 " +
                             item.wallTime.monthValue.toString() + "月 " +
                             item.wallTime.dayOfMonth.toString() + "日"
                     )
@@ -2106,8 +2088,8 @@ private fun FastScrollRail(
             Surface(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
-                    .offset(x = (-60).dp, y = labelY)
-                    .width(118.dp)
+                    .offset(x = (-38).dp, y = labelY)
+                    .width(126.dp)
                     .heightIn(min = labelHeight),
                 shape = RoundedCornerShape(14.dp),
                 color = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f),
