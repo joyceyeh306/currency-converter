@@ -4,11 +4,7 @@
 
 package tw.ajo.photomanager
 
-import android.app.Activity
 import androidx.activity.compose.BackHandler
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.IntentSenderRequest
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -40,7 +36,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -52,7 +47,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -63,7 +57,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.launch
 import java.time.format.DateTimeFormatter
 
 @Composable
@@ -73,8 +66,7 @@ fun PhotoOrganizerScreen(
     onBack: () -> Unit,
     onOpenAlbumOrganize: (Set<String>) -> Unit,
     onSearchKeyword: (String) -> Unit,
-    onKeywordsChanged: () -> Unit,
-    onMediaChanged: () -> Unit
+    onKeywordsChanged: () -> Unit
 ) {
     BackHandler { onBack() }
 
@@ -263,21 +255,12 @@ fun PhotoOrganizerScreen(
     }
 
     simpleDialog?.let { kind ->
-        if (kind == OrganizerDialogKind.TIME) {
-            TimeCorrectionDialog(
-                selectedItems = selectedItems,
-                repository = repository,
-                onDismiss = { simpleDialog = null },
-                onMediaChanged = onMediaChanged
-            )
-        } else {
-            OrganizerInfoDialog(
-                kind = kind,
-                selectedItems = selectedItems,
-                repository = repository,
-                onDismiss = { simpleDialog = null }
-            )
-        }
+        OrganizerInfoDialog(
+            kind = kind,
+            selectedItems = selectedItems,
+            repository = repository,
+            onDismiss = { simpleDialog = null }
+        )
     }
 }
 
@@ -548,406 +531,6 @@ private fun KeywordEditorDialog(
             TextButton(onClick = onDismiss) { Text("完成") }
         }
     )
-}
-
-private enum class GpsBatchMode(
-    val label: String,
-    val description: String,
-    val changeTime: Boolean,
-    val changeFilename: Boolean
-) {
-    BOTH(
-        "時間＋檔名",
-        "用 GPS 當地時間修正拍攝時間，並改成日期時間檔名",
-        true,
-        true
-    ),
-    TIME_ONLY(
-        "只修正時間",
-        "保留原檔名，只把拍攝時間改成 GPS 當地時間",
-        true,
-        false
-    ),
-    FILENAME_ONLY(
-        "只改檔名",
-        "不動 EXIF 時間，只依 GPS 當地時間重新命名",
-        false,
-        true
-    )
-}
-
-@Composable
-private fun TimeCorrectionDialog(
-    selectedItems: List<MediaItem>,
-    repository: AlbumRepository,
-    onDismiss: () -> Unit,
-    onMediaChanged: () -> Unit
-) {
-    val scope = rememberCoroutineScope()
-    var previews by remember(selectedItems.map { it.key }) {
-        mutableStateOf<List<GpsBatchPreview>>(emptyList())
-    }
-    var loading by remember(selectedItems.map { it.key }) { mutableStateOf(false) }
-    var processing by remember { mutableStateOf(false) }
-    var mode by remember { mutableStateOf(GpsBatchMode.BOTH) }
-    var confirmMode by remember { mutableStateOf<GpsBatchMode?>(null) }
-    var pendingMode by remember { mutableStateOf<GpsBatchMode?>(null) }
-    var batchResult by remember { mutableStateOf<GpsBatchResult?>(null) }
-
-    val limitedItems = remember(selectedItems) { selectedItems.take(2000) }
-
-    LaunchedEffect(limitedItems.map { it.key }) {
-        if (limitedItems.isNotEmpty()) {
-            loading = true
-            batchResult = null
-            previews = withContext(Dispatchers.IO) {
-                repository.buildGpsBatchPreviews(limitedItems)
-            }
-            loading = false
-        }
-    }
-
-    fun applyBatch(chosenMode: GpsBatchMode) {
-        processing = true
-        batchResult = null
-        scope.launch {
-            val result = withContext(Dispatchers.IO) {
-                repository.applyGpsBatch(
-                    previews = previews,
-                    changeTime = chosenMode.changeTime,
-                    changeFilename = chosenMode.changeFilename
-                )
-            }
-            processing = false
-            batchResult = result
-            if (result.succeeded > 0) {
-                onMediaChanged()
-            }
-        }
-    }
-
-    val writeLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.StartIntentSenderForResult()
-    ) { result ->
-        val chosenMode = pendingMode
-        pendingMode = null
-        if (result.resultCode == Activity.RESULT_OK && chosenMode != null) {
-            applyBatch(chosenMode)
-        } else if (result.resultCode != Activity.RESULT_OK) {
-            batchResult = GpsBatchResult(
-                total = previews.size,
-                succeeded = 0,
-                skipped = previews.count { it.suggestion == null },
-                failed = 0,
-                details = listOf("已取消，照片沒有修改。")
-            )
-        }
-    }
-
-    fun requestBatch(chosenMode: GpsBatchMode) {
-        val eligibleItems = previews
-            .filter { it.suggestion != null }
-            .map { it.item }
-
-        if (eligibleItems.isEmpty()) return
-
-        val request = repository.createMetadataWriteRequest(eligibleItems)
-        if (request == null) {
-            applyBatch(chosenMode)
-        } else {
-            pendingMode = chosenMode
-            writeLauncher.launch(
-                IntentSenderRequest.Builder(request.intentSender).build()
-            )
-        }
-    }
-
-    val displayFormatter = remember {
-        DateTimeFormatter.ofPattern("yyyy/MM/dd HH:mm:ss")
-    }
-
-    val eligibleCount = previews.count { it.suggestion != null }
-    val skippedCount = previews.size - eligibleCount
-
-    AlertDialog(
-        onDismissRequest = {
-            if (!processing) onDismiss()
-        },
-        title = {
-            Column {
-                Text("GPS 批次整理")
-                Text(
-                    if (selectedItems.size == 1) "已選 1 張"
-                    else "已選 ${selectedItems.size} 張",
-                    fontSize = 11.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-        },
-        text = {
-            LazyColumn(
-                modifier = Modifier.heightIn(max = 560.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                if (selectedItems.isEmpty()) {
-                    item { Text("請先選取照片。") }
-                } else if (loading) {
-                    item {
-                        Text("正在讀取 GPS 日期、時間、座標與拍攝地時區中…")
-                    }
-                } else {
-                    if (selectedItems.size > 2000) {
-                        item {
-                            Text(
-                                "一次最多處理 2000 張；這次先處理前 2000 張。",
-                                fontSize = 11.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-
-                    item {
-                        Surface(
-                            shape = RoundedCornerShape(16.dp),
-                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
-                        ) {
-                            Column(Modifier.padding(13.dp)) {
-                                Text(
-                                    "可處理 $eligibleCount 張",
-                                    fontWeight = FontWeight.SemiBold
-                                )
-                                if (skippedCount > 0) {
-                                    Text(
-                                        "略過 $skippedCount 張：缺少完整 GPS 時間／座標，或不是照片",
-                                        fontSize = 11.sp,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-                                Text(
-                                    "新檔名格式：YYYYMMDD_HHMMSS.JPG",
-                                    fontSize = 11.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        }
-                    }
-
-                    item {
-                        Text(
-                            "要怎麼整理？",
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                    }
-
-                    items(GpsBatchMode.entries, key = { "mode_" + it.name }) { option ->
-                        Surface(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable(enabled = !processing) { mode = option },
-                            shape = RoundedCornerShape(16.dp),
-                            color = MaterialTheme.colorScheme.surfaceVariant.copy(
-                                alpha = if (mode == option) 0.58f else 0.28f
-                            )
-                        ) {
-                            Row(
-                                Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                RadioButton(
-                                    selected = mode == option,
-                                    onClick = { if (!processing) mode = option }
-                                )
-                                Column(Modifier.padding(start = 4.dp)) {
-                                    Text(
-                                        option.label,
-                                        fontSize = 13.sp,
-                                        fontWeight = FontWeight.Medium
-                                    )
-                                    Text(
-                                        option.description,
-                                        fontSize = 10.sp,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-                            }
-                        }
-                    }
-
-                    item {
-                        Text(
-                            "預覽",
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            modifier = Modifier.padding(top = 4.dp)
-                        )
-                    }
-
-                    items(
-                        previews.take(60),
-                        key = { "preview_" + it.item.key }
-                    ) { preview ->
-                        val s = preview.suggestion
-                        Surface(
-                            shape = RoundedCornerShape(14.dp),
-                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.30f)
-                        ) {
-                            Column(
-                                Modifier.padding(horizontal = 11.dp, vertical = 9.dp),
-                                verticalArrangement = Arrangement.spacedBy(3.dp)
-                            ) {
-                                Text(
-                                    preview.item.name,
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Medium
-                                )
-                                if (s == null) {
-                                    Text(
-                                        "略過：" + (preview.skipReason ?: "沒有可用 GPS 資料"),
-                                        fontSize = 10.sp,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                } else {
-                                    Text(
-                                        "目前：" +
-                                            (s.currentOriginal?.format(displayFormatter) ?: "沒有 EXIF 時間"),
-                                        fontSize = 10.sp,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                    Text(
-                                        "GPS 當地：" + s.localTime.format(displayFormatter) +
-                                            "  " + s.zoneId,
-                                        fontSize = 11.sp
-                                    )
-                                    Text(
-                                        "新檔名：" + (preview.proposedName ?: "—"),
-                                        fontSize = 11.sp
-                                    )
-                                }
-                            }
-                        }
-                    }
-
-                    if (previews.size > 60) {
-                        item {
-                            Text(
-                                "畫面先顯示前 60 張預覽；執行時會處理全部 ${previews.size} 張。",
-                                fontSize = 10.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-
-                    item {
-                        TextButton(
-                            enabled = eligibleCount > 0 && !processing,
-                            onClick = { confirmMode = mode },
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Text(
-                                if (processing) "處理中…"
-                                else "執行「${mode.label}」"
-                            )
-                        }
-                    }
-
-                    item {
-                        Text(
-                            "沒有完整 GPS 日期、GPS 時間與座標的照片會自動略過。修改時間只寫 metadata；改檔名只重新命名，兩者都不重新編碼照片。",
-                            fontSize = 10.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-
-                batchResult?.let { result ->
-                    item {
-                        Surface(
-                            shape = RoundedCornerShape(16.dp),
-                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.50f)
-                        ) {
-                            Column(
-                                Modifier.padding(12.dp),
-                                verticalArrangement = Arrangement.spacedBy(4.dp)
-                            ) {
-                                Text(
-                                    "處理完成",
-                                    fontWeight = FontWeight.SemiBold
-                                )
-                                Text(
-                                    "成功 ${result.succeeded}　略過 ${result.skipped}　失敗 ${result.failed}",
-                                    fontSize = 12.sp
-                                )
-                                result.details.take(12).forEach { line ->
-                                    Text(
-                                        line,
-                                        fontSize = 9.sp,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-                                if (result.details.size > 12) {
-                                    Text(
-                                        "其餘 ${result.details.size - 12} 筆可到「修改紀錄」查看摘要。",
-                                        fontSize = 9.sp,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        },
-        confirmButton = {
-            TextButton(
-                onClick = onDismiss,
-                enabled = !processing
-            ) { Text("完成") }
-        }
-    )
-
-    confirmMode?.let { chosenMode ->
-        AlertDialog(
-            onDismissRequest = { confirmMode = null },
-            title = { Text("確認 GPS 批次整理") },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(
-                        "將處理 $eligibleCount 張照片",
-                        fontWeight = FontWeight.SemiBold
-                    )
-                    Text("方式：" + chosenMode.label)
-                    Text(
-                        when (chosenMode) {
-                            GpsBatchMode.BOTH ->
-                                "先寫入 GPS 當地拍攝時間並驗證；成功後才重新命名。"
-                            GpsBatchMode.TIME_ONLY ->
-                                "只修正照片時間，不改檔名。"
-                            GpsBatchMode.FILENAME_ONLY ->
-                                "只依 GPS 當地時間重新命名，不改照片時間。"
-                        },
-                        fontSize = 12.sp
-                    )
-                    Text(
-                        "影像像素不會重新編碼。沒有完整 GPS 資料的照片不會修改。",
-                        fontSize = 11.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        confirmMode = null
-                        requestBatch(chosenMode)
-                    }
-                ) { Text("開始處理") }
-            },
-            dismissButton = {
-                TextButton(onClick = { confirmMode = null }) { Text("取消") }
-            }
-        )
-    }
 }
 
 private enum class OrganizerDialogKind { TIME, GPS, FILENAME, DETAIL, HISTORY }
