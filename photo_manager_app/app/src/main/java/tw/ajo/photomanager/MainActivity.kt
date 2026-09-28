@@ -463,7 +463,7 @@ private fun AlbumApp(repository: AlbumRepository, resumeVersion: Int) {
                         "目前版本：${BuildConfig.VERSION_NAME}\n" +
                         "版本代碼：${BuildConfig.VERSION_CODE}\n\n" +
                         "穩定母版：${BuildConfig.STABLE_BASELINE}\n\n" +
-                        "本次更新：搜尋可找到已收納照片\n" +
+                        "本次更新：相簿名稱緊湊雙行顯示\n" +
                         "製作日期：2026-09-29"
                 )
             },
