@@ -463,7 +463,7 @@ private fun AlbumApp(repository: AlbumRepository, resumeVersion: Int) {
                         "目前版本：${BuildConfig.VERSION_NAME}\n" +
                         "版本代碼：${BuildConfig.VERSION_CODE}\n\n" +
                         "穩定母版：${BuildConfig.STABLE_BASELINE}\n\n" +
-                        "本次更新：相簿名稱緊湊雙行顯示\n" +
+                        "本次更新：批次關鍵字完成後自動退出選取\n" +
                         "製作日期：2026-09-29"
                 )
             },
@@ -749,6 +749,10 @@ private fun AlbumApp(repository: AlbumRepository, resumeVersion: Int) {
             },
             onKeywordsChanged = {
                 albumVersion += 1
+                organizerOpen = false
+                organizerKeys = emptySet()
+                selectionMode = false
+                selected = emptySet()
             }
         )
         return
