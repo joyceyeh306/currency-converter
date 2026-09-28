@@ -734,6 +734,13 @@ private fun AlbumApp(repository: AlbumRepository, resumeVersion: Int) {
             },
             onKeywordsChanged = {
                 albumVersion += 1
+            },
+            onMediaChanged = {
+                albumVersion += 1
+                scope.launch {
+                    delay(200)
+                    reload()
+                }
             }
         )
         return
