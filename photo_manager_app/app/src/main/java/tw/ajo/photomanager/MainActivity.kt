@@ -2035,7 +2035,9 @@ private fun FastScrollRail(
     val progress = if (labels.size <= 1) 0f else shownIndex.toFloat() / labels.lastIndex.toFloat()
 
     BoxWithConstraints(
-        modifier = modifier.fillMaxSize()
+        modifier = modifier
+            .fillMaxSize()
+            .padding(bottom = 88.dp)
     ) {
         val thumbHeight = 42.dp
         val labelHeight = 40.dp
