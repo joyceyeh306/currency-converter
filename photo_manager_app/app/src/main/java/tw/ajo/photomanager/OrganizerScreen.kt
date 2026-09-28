@@ -124,22 +124,6 @@ fun PhotoOrganizerScreen(
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             item {
-                KeywordHeroCard(
-                    selectedCount = selectedItems.size,
-                    selectedKeywordCounts = selectedKeywordCounts,
-                    allKeywordCounts = allKeywordCounts,
-                    onOpen = {
-                        haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
-                        keywordDialog = true
-                    },
-                    onSearch = { word ->
-                        haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
-                        onSearchKeyword(word)
-                    }
-                )
-            }
-
-            item {
                 Text(
                     "整理",
                     modifier = Modifier.padding(start = 4.dp, top = 2.dp),
@@ -147,6 +131,33 @@ fun PhotoOrganizerScreen(
                     fontWeight = FontWeight.Medium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+            }
+
+            item {
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    OrganizerToolCard(
+                        modifier = Modifier.weight(1f),
+                        icon = Icons.Default.PhotoLibrary,
+                        title = "相簿與收納",
+                        subtitle = "加入相簿・收納照片",
+                        enabled = selectedItems.isNotEmpty(),
+                        onClick = { onOpenAlbumOrganize(selectedKeys) }
+                    )
+                    OrganizerToolCard(
+                        modifier = Modifier.weight(1f),
+                        icon = Icons.Default.Label,
+                        title = "關鍵字",
+                        subtitle = if (selectedItems.isNotEmpty()) "加入或移除關鍵字" else "管理與搜尋關鍵字",
+                        enabled = true,
+                        onClick = {
+                            haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                            keywordDialog = true
+                        }
+                    )
+                }
             }
 
             item {
@@ -185,30 +196,6 @@ fun PhotoOrganizerScreen(
                         subtitle = "檢查檔名・批次準備",
                         enabled = selectedItems.isNotEmpty(),
                         onClick = { simpleDialog = OrganizerDialogKind.FILENAME }
-                    )
-                    OrganizerToolCard(
-                        modifier = Modifier.weight(1f),
-                        icon = Icons.Default.Info,
-                        title = "完整照片資料",
-                        subtitle = if (selectedItems.size == 1) "EXIF・MediaStore" else "單張照片可查看",
-                        enabled = selectedItems.size == 1,
-                        onClick = { simpleDialog = OrganizerDialogKind.DETAIL }
-                    )
-                }
-            }
-
-            item {
-                Row(
-                    Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    OrganizerToolCard(
-                        modifier = Modifier.weight(1f),
-                        icon = Icons.Default.PhotoLibrary,
-                        title = "相簿與收納",
-                        subtitle = "加入相簿・收納照片",
-                        enabled = selectedItems.isNotEmpty(),
-                        onClick = { onOpenAlbumOrganize(selectedKeys) }
                     )
                     OrganizerToolCard(
                         modifier = Modifier.weight(1f),
