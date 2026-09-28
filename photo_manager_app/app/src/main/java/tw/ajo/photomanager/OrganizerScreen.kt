@@ -66,7 +66,8 @@ fun PhotoOrganizerScreen(
     onBack: () -> Unit,
     onOpenAlbumOrganize: (Set<String>) -> Unit,
     onSearchKeyword: (String) -> Unit,
-    onKeywordsChanged: () -> Unit
+    onKeywordsChanged: () -> Unit,
+    onKeywordEditingFinished: () -> Unit
 ) {
     BackHandler { onBack() }
 
@@ -250,6 +251,10 @@ fun PhotoOrganizerScreen(
             onChanged = {
                 localVersion += 1
                 onKeywordsChanged()
+            },
+            onFinished = { changed ->
+                keywordDialog = false
+                if (changed) onKeywordEditingFinished()
             }
         )
     }
@@ -383,15 +388,17 @@ private fun KeywordEditorDialog(
     version: Int,
     onDismiss: () -> Unit,
     onSearch: (String) -> Unit,
-    onChanged: () -> Unit
+    onChanged: () -> Unit,
+    onFinished: (Boolean) -> Unit
 ) {
     var input by remember { mutableStateOf("") }
+    var changed by remember { mutableStateOf(false) }
     val selectedCounts = remember(selectedKeys, version) { repository.allKeywordCounts(selectedKeys) }
     val suggestions = remember(version) { repository.allKeywordCounts() }
     val selectedMap = selectedCounts.associate { it.first.lowercase() to it.second }
 
     AlertDialog(
-        onDismissRequest = onDismiss,
+        onDismissRequest = { onFinished(changed) },
         title = {
             Column {
                 Text(if (selectedKeys.isEmpty()) "關鍵字" else "編輯關鍵字")
@@ -423,6 +430,7 @@ private fun KeywordEditorDialog(
                                         .filter { it.isNotBlank() }
                                     repository.addKeywords(selectedKeys, words)
                                     input = ""
+                                    changed = true
                                     onChanged()
                                 }
                             ) { Text("加入") }
@@ -456,6 +464,7 @@ private fun KeywordEditorDialog(
                                     selected = allSelected,
                                     onClick = {
                                         repository.removeKeyword(selectedKeys, word)
+                                        changed = true
                                         onChanged()
                                     },
                                     label = {
@@ -496,6 +505,7 @@ private fun KeywordEditorDialog(
                                             onSearch(word)
                                         } else if (!alreadyAll) {
                                             repository.addKeywords(selectedKeys, listOf(word))
+                                            changed = true
                                             onChanged()
                                         }
                                     },
@@ -528,7 +538,7 @@ private fun KeywordEditorDialog(
             }
         },
         confirmButton = {
-            TextButton(onClick = onDismiss) { Text("完成") }
+            TextButton(onClick = { onFinished(changed) }) { Text("完成") }
         }
     )
 }
