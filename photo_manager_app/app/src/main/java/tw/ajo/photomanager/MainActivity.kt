@@ -463,7 +463,7 @@ private fun AlbumApp(repository: AlbumRepository, resumeVersion: Int) {
                         "目前版本：${BuildConfig.VERSION_NAME}\n" +
                         "版本代碼：${BuildConfig.VERSION_CODE}\n\n" +
                         "穩定母版：${BuildConfig.STABLE_BASELINE}\n\n" +
-                        "本次更新：移除 GPS 時區資料庫，恢復輕量版\n" +
+                        "本次更新：搜尋可找到已收納照片\n" +
                         "製作日期：2026-09-29"
                 )
             },
@@ -688,8 +688,23 @@ private fun AlbumApp(repository: AlbumRepository, resumeVersion: Int) {
         } ?: media.filterNot { repository.isArchived(it.key) }
     }
 
-    val filteredByType = remember(collectionMedia, mediaFilter) {
-        filterMedia(collectionMedia, mediaFilter)
+    val searchBaseMedia = remember(
+        media,
+        collectionMedia,
+        searchText,
+        activeCollectionKeys,
+        albumVersion
+    ) {
+        val query = searchText.trim()
+        if (query.isNotBlank() && activeCollectionKeys == null) {
+            media
+        } else {
+            collectionMedia
+        }
+    }
+
+    val filteredByType = remember(searchBaseMedia, mediaFilter) {
+        filterMedia(searchBaseMedia, mediaFilter)
     }
 
     val searched = remember(filteredByType, searchText, albumVersion) {
