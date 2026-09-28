@@ -3,6 +3,7 @@ package tw.ajo.photomanager
 import android.Manifest
 import android.app.PendingIntent
 import android.content.ContentUris
+import android.content.ContentValues
 import android.content.Context
 import android.content.pm.PackageManager
 import android.database.Cursor
@@ -15,12 +16,15 @@ import androidx.core.content.ContextCompat
 import androidx.exifinterface.media.ExifInterface
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.time.Duration
 import java.time.Instant
 import java.time.LocalDateTime
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 import java.util.regex.Pattern
+import kotlin.math.abs
+import us.dustinj.timezonemap.TimeZoneMap
 
 enum class GroupMode(val label: String) { YEAR("年"), MONTH("月"), DAY("日"), ALL("全部") }
 enum class MediaKind { IMAGE, VIDEO }
@@ -91,6 +95,22 @@ data class DetailInfo(
     val rows: List<ExifRow>
 )
 
+data class GpsTimeSuggestion(
+    val gpsUtcMillis: Long,
+    val gpsUtc: LocalDateTime,
+    val zoneId: String,
+    val localTime: LocalDateTime,
+    val offsetText: String,
+    val currentOriginal: LocalDateTime?,
+    val differenceSeconds: Long?,
+    val suspicious: Boolean
+)
+
+data class TimeFixResult(
+    val success: Boolean,
+    val message: String
+)
+
 class AlbumRepository(private val context: Context) {
     private val resolver = context.contentResolver
     private val filename14 = Pattern.compile("((?:19|20)\\d{12})")
@@ -107,6 +127,7 @@ class AlbumRepository(private val context: Context) {
     private val keywordPrefs = context.getSharedPreferences("ajo_album_keywords", Context.MODE_PRIVATE)
     private val organizerPrefs = context.getSharedPreferences("ajo_album_organizer_history", Context.MODE_PRIVATE)
     private var keywordCache: MutableMap<String, Set<String>>? = null
+    private val timeZoneMap by lazy { TimeZoneMap.forEverywhere() }
 
     fun hasImagePermission(): Boolean {
         return if (Build.VERSION.SDK_INT >= 33) {
@@ -884,6 +905,147 @@ class AlbumRepository(private val context: Context) {
             altitude = altitude,
             rows = rows
         )
+    }
+
+    fun readGpsTimeSuggestion(item: MediaItem): GpsTimeSuggestion? {
+        if (item.kind != MediaKind.IMAGE) return null
+
+        return try {
+            val exifUri = if (
+                Build.VERSION.SDK_INT >= 29 &&
+                ContextCompat.checkSelfPermission(
+                    context,
+                    Manifest.permission.ACCESS_MEDIA_LOCATION
+                ) == PackageManager.PERMISSION_GRANTED
+            ) {
+                MediaStore.setRequireOriginal(item.uri)
+            } else {
+                item.uri
+            }
+
+            resolver.openInputStream(exifUri)?.use { stream ->
+                val exif = ExifInterface(stream)
+                val gpsMillis = exif.gpsDateTime
+                if (gpsMillis <= 0L) return null
+
+                val ll = FloatArray(2)
+                if (!exif.getLatLong(ll)) return null
+                val lat = ll[0].toDouble()
+                val lon = ll[1].toDouble()
+
+                val zoneId = timeZoneMap
+                    .getOverlappingTimeZone(lat, lon)
+                    ?.zoneId
+                    ?: "UTC"
+                val instant = Instant.ofEpochMilli(gpsMillis)
+                val zoned = instant.atZone(ZoneId.of(zoneId))
+                val localTime = zoned.toLocalDateTime().withNano(0)
+                val offsetText = zoned.offset.id.let { if (it == "Z") "+00:00" else it }
+                val gpsUtc = LocalDateTime.ofInstant(instant, ZoneId.of("UTC")).withNano(0)
+
+                val currentOriginal = exif
+                    .getAttribute(ExifInterface.TAG_DATETIME_ORIGINAL)
+                    ?.take(19)
+                    ?.let { raw ->
+                        try {
+                            LocalDateTime.parse(raw, exifFormatter)
+                        } catch (_: Exception) {
+                            null
+                        }
+                    }
+
+                val differenceSeconds = currentOriginal?.let {
+                    abs(Duration.between(it, localTime).seconds)
+                }
+
+                GpsTimeSuggestion(
+                    gpsUtcMillis = gpsMillis,
+                    gpsUtc = gpsUtc,
+                    zoneId = zoneId,
+                    localTime = localTime,
+                    offsetText = offsetText,
+                    currentOriginal = currentOriginal,
+                    differenceSeconds = differenceSeconds,
+                    suspicious = differenceSeconds == null || differenceSeconds >= 6L * 60L * 60L
+                )
+            }
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    fun createMetadataWriteRequest(item: MediaItem): PendingIntent? {
+        return if (Build.VERSION.SDK_INT >= 30) {
+            MediaStore.createWriteRequest(resolver, listOf(item.uri))
+        } else {
+            null
+        }
+    }
+
+    fun applyGpsTimeSuggestion(
+        item: MediaItem,
+        suggestion: GpsTimeSuggestion
+    ): TimeFixResult {
+        if (item.kind != MediaKind.IMAGE) {
+            return TimeFixResult(false, "目前只支援照片。")
+        }
+
+        val supported = item.mime.equals("image/jpeg", true) ||
+            item.mime.equals("image/jpg", true) ||
+            item.mime.equals("image/png", true) ||
+            item.mime.equals("image/webp", true)
+        if (!supported) {
+            return TimeFixResult(false, "這個圖片格式目前不開放寫回 EXIF。")
+        }
+
+        val localTime = suggestion.localTime.withNano(0)
+        val exifTime = localTime.format(exifFormatter)
+
+        try {
+            val pfd = resolver.openFileDescriptor(item.uri, "rw")
+                ?: return TimeFixResult(false, "無法開啟原始照片進行修改。")
+            pfd.use {
+                val exif = ExifInterface(it.fileDescriptor)
+                exif.setAttribute(ExifInterface.TAG_DATETIME_ORIGINAL, exifTime)
+                exif.setAttribute(ExifInterface.TAG_DATETIME_DIGITIZED, exifTime)
+                exif.setAttribute(ExifInterface.TAG_DATETIME, exifTime)
+                exif.setAttribute(ExifInterface.TAG_OFFSET_TIME_ORIGINAL, suggestion.offsetText)
+                exif.setAttribute(ExifInterface.TAG_OFFSET_TIME_DIGITIZED, suggestion.offsetText)
+                exif.setAttribute(ExifInterface.TAG_OFFSET_TIME, suggestion.offsetText)
+                exif.saveAttributes()
+            }
+        } catch (security: SecurityException) {
+            return TimeFixResult(false, "系統尚未授權修改這張照片。")
+        } catch (e: Exception) {
+            return TimeFixResult(false, "寫入 EXIF 失敗：" + (e.message ?: "未知錯誤"))
+        }
+
+        val verified = readOriginalTime(item.uri)?.withNano(0)
+        if (verified != localTime) {
+            return TimeFixResult(false, "寫入後驗證失敗，沒有把這次修改視為完成。")
+        }
+
+        var mediaStoreUpdated = false
+        try {
+            val values = ContentValues().apply {
+                put(MediaStore.Images.Media.DATE_TAKEN, suggestion.gpsUtcMillis)
+            }
+            mediaStoreUpdated = resolver.update(item.uri, values, null, null) > 0
+        } catch (_: Exception) {
+        }
+
+        timeIndexPrefs.edit().remove(cacheKey(item.key)).apply()
+        appendOrganizerHistory(
+            "以 GPS 時間修正「" + item.name + "」為 " +
+                localTime.format(DateTimeFormatter.ofPattern("yyyy/MM/dd HH:mm:ss", Locale.TAIWAN)) +
+                "（" + suggestion.zoneId + " " + suggestion.offsetText + "）"
+        )
+
+        return if (mediaStoreUpdated) {
+            TimeFixResult(true, "已修正 EXIF 與系統拍攝時間。")
+        } else {
+            TimeFixResult(true, "EXIF 已修正；系統拍攝時間索引將在重新掃描後更新。")
+        }
     }
 
     fun isFavorite(key: String): Boolean {
