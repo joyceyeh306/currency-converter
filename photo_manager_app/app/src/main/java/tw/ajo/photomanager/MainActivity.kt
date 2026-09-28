@@ -2121,7 +2121,7 @@ private fun FastScrollRail(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
                     .offset(x = (-38).dp, y = labelY)
-                    .width(126.dp)
+                    .widthIn(min = 150.dp, max = 190.dp)
                     .heightIn(min = labelHeight),
                 shape = RoundedCornerShape(14.dp),
                 color = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f),
