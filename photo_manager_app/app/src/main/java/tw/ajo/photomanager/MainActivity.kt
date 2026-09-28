@@ -463,7 +463,7 @@ private fun AlbumApp(repository: AlbumRepository, resumeVersion: Int) {
                         "目前版本：${BuildConfig.VERSION_NAME}\n" +
                         "版本代碼：${BuildConfig.VERSION_CODE}\n\n" +
                         "穩定母版：${BuildConfig.STABLE_BASELINE}\n\n" +
-                        "本次更新：GPS 批次修正時間與檔名\n" +
+                        "本次更新：移除 GPS 時區資料庫，恢復輕量版\n" +
                         "製作日期：2026-09-29"
                 )
             },
@@ -734,13 +734,6 @@ private fun AlbumApp(repository: AlbumRepository, resumeVersion: Int) {
             },
             onKeywordsChanged = {
                 albumVersion += 1
-            },
-            onMediaChanged = {
-                albumVersion += 1
-                scope.launch {
-                    delay(200)
-                    reload()
-                }
             }
         )
         return
