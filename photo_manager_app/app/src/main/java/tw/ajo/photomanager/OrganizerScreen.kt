@@ -4,7 +4,11 @@
 
 package tw.ajo.photomanager
 
+import android.app.Activity
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.IntentSenderRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -47,6 +51,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -57,6 +62,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.launch
 import java.time.format.DateTimeFormatter
 
 @Composable
@@ -66,7 +72,8 @@ fun PhotoOrganizerScreen(
     onBack: () -> Unit,
     onOpenAlbumOrganize: (Set<String>) -> Unit,
     onSearchKeyword: (String) -> Unit,
-    onKeywordsChanged: () -> Unit
+    onKeywordsChanged: () -> Unit,
+    onMediaChanged: () -> Unit
 ) {
     BackHandler { onBack() }
 
@@ -255,12 +262,21 @@ fun PhotoOrganizerScreen(
     }
 
     simpleDialog?.let { kind ->
-        OrganizerInfoDialog(
-            kind = kind,
-            selectedItems = selectedItems,
-            repository = repository,
-            onDismiss = { simpleDialog = null }
-        )
+        if (kind == OrganizerDialogKind.TIME) {
+            TimeCorrectionDialog(
+                selectedItems = selectedItems,
+                repository = repository,
+                onDismiss = { simpleDialog = null },
+                onMediaChanged = onMediaChanged
+            )
+        } else {
+            OrganizerInfoDialog(
+                kind = kind,
+                selectedItems = selectedItems,
+                repository = repository,
+                onDismiss = { simpleDialog = null }
+            )
+        }
     }
 }
 
@@ -531,6 +547,251 @@ private fun KeywordEditorDialog(
             TextButton(onClick = onDismiss) { Text("完成") }
         }
     )
+}
+
+@Composable
+private fun TimeCorrectionDialog(
+    selectedItems: List<MediaItem>,
+    repository: AlbumRepository,
+    onDismiss: () -> Unit,
+    onMediaChanged: () -> Unit
+) {
+    val first = selectedItems.firstOrNull()
+    val scope = rememberCoroutineScope()
+    var suggestion by remember(first?.key) { mutableStateOf<GpsTimeSuggestion?>(null) }
+    var loading by remember(first?.key) { mutableStateOf(false) }
+    var fixing by remember(first?.key) { mutableStateOf(false) }
+    var resultMessage by remember(first?.key) { mutableStateOf<String?>(null) }
+    var confirmSuggestion by remember(first?.key) { mutableStateOf<GpsTimeSuggestion?>(null) }
+    var pendingSuggestion by remember(first?.key) { mutableStateOf<GpsTimeSuggestion?>(null) }
+
+    LaunchedEffect(first?.key, selectedItems.size) {
+        if (selectedItems.size == 1 && first?.kind == MediaKind.IMAGE) {
+            loading = true
+            suggestion = withContext(Dispatchers.IO) {
+                repository.readGpsTimeSuggestion(first)
+            }
+            loading = false
+        }
+    }
+
+    fun applySuggestion(value: GpsTimeSuggestion) {
+        val item = first ?: return
+        fixing = true
+        resultMessage = null
+        scope.launch {
+            val result = withContext(Dispatchers.IO) {
+                repository.applyGpsTimeSuggestion(item, value)
+            }
+            fixing = false
+            resultMessage = result.message
+            if (result.success) {
+                suggestion = withContext(Dispatchers.IO) {
+                    repository.readGpsTimeSuggestion(item)
+                }
+                onMediaChanged()
+            }
+        }
+    }
+
+    val writeLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartIntentSenderForResult()
+    ) { result ->
+        val pending = pendingSuggestion
+        pendingSuggestion = null
+        if (result.resultCode == Activity.RESULT_OK && pending != null) {
+            applySuggestion(pending)
+        } else if (result.resultCode != Activity.RESULT_OK) {
+            resultMessage = "已取消，照片沒有修改。"
+        }
+    }
+
+    fun requestWrite(value: GpsTimeSuggestion) {
+        val item = first ?: return
+        val request = repository.createMetadataWriteRequest(item)
+        if (request == null) {
+            applySuggestion(value)
+        } else {
+            pendingSuggestion = value
+            writeLauncher.launch(
+                IntentSenderRequest.Builder(request.intentSender).build()
+            )
+        }
+    }
+
+    val displayFormatter = remember {
+        DateTimeFormatter.ofPattern("yyyy/MM/dd HH:mm:ss")
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("拍攝時間") },
+        text = {
+            LazyColumn(
+                modifier = Modifier.heightIn(max = 520.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                when {
+                    selectedItems.isEmpty() -> {
+                        item { Text("請先選取照片。") }
+                    }
+                    selectedItems.size != 1 -> {
+                        item {
+                            Text(
+                                "GPS 時間修正這一版先支援單張照片。請一次只選一張。",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                    first?.kind != MediaKind.IMAGE -> {
+                        item { Text("目前只支援照片的 EXIF 時間修正。") }
+                    }
+                    loading -> {
+                        item { Text("讀取 EXIF、GPS 時間與拍攝地時區中…") }
+                    }
+                    suggestion == null -> {
+                        item {
+                            Text(
+                                "這張照片沒有完整的 GPS 日期、時間與座標，因此不會自動修改。",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                    else -> {
+                        val s = suggestion!!
+                        item {
+                            Text(first.name, fontWeight = FontWeight.SemiBold)
+                        }
+                        item {
+                            Column {
+                                Text(
+                                    "目前 EXIF 原始拍攝時間",
+                                    fontSize = 11.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Text(
+                                    s.currentOriginal?.format(displayFormatter) ?: "沒有資料",
+                                    fontSize = 15.sp
+                                )
+                            }
+                        }
+                        item {
+                            Column {
+                                Text(
+                                    "GPS 時間（UTC）",
+                                    fontSize = 11.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Text(s.gpsUtc.format(displayFormatter), fontSize = 15.sp)
+                            }
+                        }
+                        item {
+                            Surface(
+                                shape = RoundedCornerShape(16.dp),
+                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.48f)
+                            ) {
+                                Column(Modifier.padding(13.dp)) {
+                                    Text(
+                                        "GPS 地點換算後",
+                                        fontSize = 11.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    Text(
+                                        s.localTime.format(displayFormatter),
+                                        fontSize = 17.sp,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                    Text(
+                                        s.zoneId + "  " + s.offsetText,
+                                        fontSize = 11.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                        }
+                        if (s.suspicious) {
+                            item {
+                                Text(
+                                    "目前 EXIF 與 GPS 當地時間差異明顯，這張照片適合用 GPS 時間檢查修正。",
+                                    fontSize = 12.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                        item {
+                            TextButton(
+                                enabled = !fixing,
+                                onClick = { confirmSuggestion = s },
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text(if (fixing) "修正中…" else "以 GPS 當地時間修正")
+                            }
+                        }
+                        item {
+                            Text(
+                                "只修改照片的時間 metadata 與系統拍攝時間索引，不重新編碼影像。",
+                                fontSize = 10.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+
+                resultMessage?.let { message ->
+                    item {
+                        Text(
+                            message,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss, enabled = !fixing) { Text("完成") }
+        }
+    )
+
+    confirmSuggestion?.let { s ->
+        AlertDialog(
+            onDismissRequest = { confirmSuggestion = null },
+            title = { Text("確認修正拍攝時間") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        "目前：" +
+                            (s.currentOriginal?.format(displayFormatter) ?: "沒有資料")
+                    )
+                    Text(
+                        "修正後：" + s.localTime.format(displayFormatter),
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Text(
+                        "時區：" + s.zoneId + "  " + s.offsetText,
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        "會直接修改原始照片的時間 metadata；影像像素不重新編碼。",
+                        fontSize = 11.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        confirmSuggestion = null
+                        requestWrite(s)
+                    }
+                ) { Text("修正時間") }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmSuggestion = null }) { Text("取消") }
+            }
+        )
+    }
 }
 
 private enum class OrganizerDialogKind { TIME, GPS, FILENAME, DETAIL, HISTORY }
