@@ -55,6 +55,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Map
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PhotoLibrary
@@ -250,6 +251,7 @@ private fun AlbumApp(repository: AlbumRepository, resumeVersion: Int) {
     var permissionDialog by remember { mutableStateOf(false) }
     var exitDialog by remember { mutableStateOf(false) }
     var infoDialog by remember { mutableStateOf<String?>(null) }
+    var versionInfoOpen by remember { mutableStateOf(false) }
     var previousGroupMode by remember { mutableStateOf<GroupMode?>(null) }
     var targetMonthKey by remember { mutableStateOf<String?>(null) }
     var targetYear by remember { mutableStateOf<Int?>(null) }
@@ -447,6 +449,26 @@ private fun AlbumApp(repository: AlbumRepository, resumeVersion: Int) {
             },
             dismissButton = {
                 TextButton(onClick = { exitDialog = false }) { Text("取消") }
+            }
+        )
+    }
+
+    if (versionInfoOpen) {
+        AlertDialog(
+            onDismissRequest = { versionInfoOpen = false },
+            title = { Text("版本資訊") },
+            text = {
+                Text(
+                    "ㄚ喬的相簿\n\n" +
+                        "目前版本：${BuildConfig.VERSION_NAME}\n" +
+                        "版本代碼：${BuildConfig.VERSION_CODE}\n\n" +
+                        "穩定母版：${BuildConfig.STABLE_BASELINE}\n\n" +
+                        "本次更新：新增版本資訊\n" +
+                        "製作日期：2026-09-28"
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = { versionInfoOpen = false }) { Text("知道了") }
             }
         )
     }
@@ -1062,6 +1084,16 @@ private fun AlbumApp(repository: AlbumRepository, resumeVersion: Int) {
                                     onClick = {
                                         menuOpen = false
                                         infoDialog = "重複、相似照片與照片比對會在後續版本加入。"
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("版本資訊") },
+                                    leadingIcon = {
+                                        Icon(Icons.Default.Info, contentDescription = null)
+                                    },
+                                    onClick = {
+                                        menuOpen = false
+                                        versionInfoOpen = true
                                     }
                                 )
                                 DropdownMenuItem(
