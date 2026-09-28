@@ -111,11 +111,27 @@ data class TimeFixResult(
     val message: String
 )
 
+data class GpsBatchPreview(
+    val item: MediaItem,
+    val suggestion: GpsTimeSuggestion?,
+    val proposedName: String?,
+    val skipReason: String?
+)
+
+data class GpsBatchResult(
+    val total: Int,
+    val succeeded: Int,
+    val skipped: Int,
+    val failed: Int,
+    val details: List<String>
+)
+
 class AlbumRepository(private val context: Context) {
     private val resolver = context.contentResolver
     private val filename14 = Pattern.compile("((?:19|20)\\d{12})")
     private val filenameFormatter = DateTimeFormatter.ofPattern("yyyyMMddHHmmss", Locale.US)
     private val exifFormatter = DateTimeFormatter.ofPattern("yyyy:MM:dd HH:mm:ss", Locale.US)
+    private val gpsFilenameFormatter = DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss", Locale.US)
     private val favoritePrefs = context.getSharedPreferences("ajo_album_favorites", Context.MODE_PRIVATE)
     private val timeIndexPrefs = context.getSharedPreferences("ajo_album_time_index", Context.MODE_PRIVATE)
     private val placePrefs = context.getSharedPreferences("ajo_album_place_cache", Context.MODE_PRIVATE)
@@ -979,6 +995,191 @@ class AlbumRepository(private val context: Context) {
             MediaStore.createWriteRequest(resolver, listOf(item.uri))
         } else {
             null
+        }
+    }
+
+    fun createMetadataWriteRequest(items: List<MediaItem>): PendingIntent? {
+        if (items.isEmpty()) return null
+        return if (Build.VERSION.SDK_INT >= 30) {
+            MediaStore.createWriteRequest(
+                resolver,
+                items.map { it.uri }.distinct().take(2000)
+            )
+        } else {
+            null
+        }
+    }
+
+    fun buildGpsBatchPreviews(items: List<MediaItem>): List<GpsBatchPreview> {
+        val usedNames = mutableSetOf<String>()
+
+        return items.map { item ->
+            if (item.kind != MediaKind.IMAGE) {
+                return@map GpsBatchPreview(
+                    item = item,
+                    suggestion = null,
+                    proposedName = null,
+                    skipReason = "不是照片"
+                )
+            }
+
+            val suggestion = readGpsTimeSuggestion(item)
+                ?: return@map GpsBatchPreview(
+                    item = item,
+                    suggestion = null,
+                    proposedName = null,
+                    skipReason = "缺少完整 GPS 日期、時間或座標"
+                )
+
+            val extension = item.name
+                .substringAfterLast('.', "")
+                .takeIf { it.isNotBlank() }
+                ?.let { "." + it }
+                ?: ""
+
+            val base = suggestion.localTime.format(gpsFilenameFormatter)
+            var candidate = base + extension
+            var sequence = 1
+            while (
+                usedNames.contains(candidate.lowercase(Locale.ROOT)) ||
+                mediaNameExists(item, candidate)
+            ) {
+                candidate = base + "_" + sequence.toString().padStart(2, '0') + extension
+                sequence += 1
+            }
+            usedNames.add(candidate.lowercase(Locale.ROOT))
+
+            GpsBatchPreview(
+                item = item,
+                suggestion = suggestion,
+                proposedName = candidate,
+                skipReason = null
+            )
+        }
+    }
+
+    fun applyGpsBatch(
+        previews: List<GpsBatchPreview>,
+        changeTime: Boolean,
+        changeFilename: Boolean
+    ): GpsBatchResult {
+        var succeeded = 0
+        var skipped = 0
+        var failed = 0
+        val details = mutableListOf<String>()
+
+        previews.forEach { preview ->
+            val suggestion = preview.suggestion
+            val newName = preview.proposedName
+
+            if (suggestion == null) {
+                skipped += 1
+                details.add(preview.item.name + "：略過（" + (preview.skipReason ?: "沒有 GPS 時間") + "）")
+                return@forEach
+            }
+
+            if (changeFilename && newName.isNullOrBlank()) {
+                skipped += 1
+                details.add(preview.item.name + "：略過（無法產生新檔名）")
+                return@forEach
+            }
+
+            if (changeTime) {
+                val timeResult = applyGpsTimeSuggestion(preview.item, suggestion)
+                if (!timeResult.success) {
+                    failed += 1
+                    details.add(preview.item.name + "：時間修正失敗（" + timeResult.message + "）")
+                    return@forEach
+                }
+            }
+
+            if (changeFilename) {
+                val renameResult = renameMediaItem(preview.item, newName!!)
+                if (!renameResult.success) {
+                    failed += 1
+                    details.add(preview.item.name + "：檔名修改失敗（" + renameResult.message + "）")
+                    return@forEach
+                }
+            }
+
+            succeeded += 1
+            val action = when {
+                changeTime && changeFilename -> "時間＋檔名完成"
+                changeTime -> "時間完成"
+                else -> "檔名完成"
+            }
+            details.add(preview.item.name + "：" + action)
+        }
+
+        appendOrganizerHistory(
+            "GPS 批次整理：成功 " + succeeded +
+                "、略過 " + skipped +
+                "、失敗 " + failed
+        )
+
+        return GpsBatchResult(
+            total = previews.size,
+            succeeded = succeeded,
+            skipped = skipped,
+            failed = failed,
+            details = details
+        )
+    }
+
+    private fun mediaNameExists(item: MediaItem, candidate: String): Boolean {
+        val baseUri = if (Build.VERSION.SDK_INT >= 29) {
+            MediaStore.Images.Media.getContentUri(MediaStore.VOLUME_EXTERNAL)
+        } else {
+            MediaStore.Images.Media.EXTERNAL_CONTENT_URI
+        }
+
+        return try {
+            resolver.query(
+                baseUri,
+                arrayOf(MediaStore.Images.Media._ID),
+                MediaStore.Images.Media.DISPLAY_NAME + "=? AND " +
+                    MediaStore.Images.Media._ID + "<>?",
+                arrayOf(candidate, item.id.toString()),
+                null
+            )?.use { it.moveToFirst() } == true
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    private fun renameMediaItem(item: MediaItem, newName: String): TimeFixResult {
+        if (newName == item.name) {
+            return TimeFixResult(true, "檔名原本就相同。")
+        }
+
+        return try {
+            val values = ContentValues().apply {
+                put(MediaStore.MediaColumns.DISPLAY_NAME, newName)
+            }
+            val changed = resolver.update(item.uri, values, null, null) > 0
+            if (!changed) {
+                TimeFixResult(false, "系統沒有接受檔名修改。")
+            } else {
+                val verified = resolver.query(
+                    item.uri,
+                    arrayOf(MediaStore.MediaColumns.DISPLAY_NAME),
+                    null,
+                    null,
+                    null
+                )?.use { cursor ->
+                    if (cursor.moveToFirst()) cursor.getString(0) else null
+                }
+                if (verified == newName) {
+                    appendOrganizerHistory("重新命名「" + item.name + "」→「" + newName + "」")
+                    TimeFixResult(true, "檔名已修改。")
+                } else {
+                    TimeFixResult(false, "檔名修改後驗證失敗。")
+                }
+            }
+        } catch (security: SecurityException) {
+            TimeFixResult(false, "系統尚未授權修改這張照片。")
+        } catch (e: Exception) {
+            TimeFixResult(false, "修改檔名失敗：" + (e.message ?: "未知錯誤"))
         }
     }
 
