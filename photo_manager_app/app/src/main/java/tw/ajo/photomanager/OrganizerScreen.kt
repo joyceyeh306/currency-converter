@@ -64,6 +64,7 @@ fun PhotoOrganizerScreen(
     selectedItems: List<MediaItem>,
     repository: AlbumRepository,
     onBack: () -> Unit,
+    onOpenAlbumOrganize: (Set<String>) -> Unit,
     onSearchKeyword: (String) -> Unit,
     onKeywordsChanged: () -> Unit
 ) {
@@ -75,11 +76,11 @@ fun PhotoOrganizerScreen(
     var keywordDialog by remember { mutableStateOf(false) }
     var simpleDialog by remember { mutableStateOf<OrganizerDialogKind?>(null) }
 
-    fun openKeywords() {
-        haptic.performHapticFeedback(
-            androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove
-        )
-        keywordDialog = true
+    val selectedKeywordCounts = remember(selectedKeys, localVersion) {
+        repository.allKeywordCounts(selectedKeys)
+    }
+    val allKeywordCounts = remember(localVersion) {
+        repository.allKeywordCounts()
     }
 
     Scaffold(
@@ -94,7 +95,7 @@ fun PhotoOrganizerScreen(
                             fontWeight = FontWeight.SemiBold
                         )
                         Text(
-                            if (selectedItems.isEmpty()) "管理關鍵字與整理紀錄"
+                            if (selectedItems.isEmpty()) "關鍵字可直接搜尋照片"
                             else "已選 ${selectedItems.size} 項",
                             fontSize = 11.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -117,123 +118,131 @@ fun PhotoOrganizerScreen(
             contentPadding = androidx.compose.foundation.layout.PaddingValues(
                 start = 14.dp,
                 end = 14.dp,
-                top = 10.dp,
+                top = 8.dp,
                 bottom = 30.dp
             ),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
+            verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            if (selectedItems.isEmpty()) {
-                item {
-                    Text(
-                        "管理",
-                        modifier = Modifier.padding(start = 4.dp, bottom = 2.dp),
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Medium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+            item {
+                KeywordHeroCard(
+                    selectedCount = selectedItems.size,
+                    selectedKeywordCounts = selectedKeywordCounts,
+                    allKeywordCounts = allKeywordCounts,
+                    onOpen = {
+                        haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                        keywordDialog = true
+                    },
+                    onSearch = { word ->
+                        haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                        onSearchKeyword(word)
+                    }
+                )
+            }
+
+            item {
+                Text(
+                    "整理",
+                    modifier = Modifier.padding(start = 4.dp, top = 2.dp),
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
+            item {
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    OrganizerToolCard(
+                        modifier = Modifier.weight(1f),
+                        icon = Icons.Default.AccessTime,
+                        title = "拍攝時間",
+                        subtitle = "查看時間與來源",
+                        enabled = selectedItems.isNotEmpty(),
+                        onClick = { simpleDialog = OrganizerDialogKind.TIME }
+                    )
+                    OrganizerToolCard(
+                        modifier = Modifier.weight(1f),
+                        icon = Icons.Default.LocationOn,
+                        title = "GPS 位置",
+                        subtitle = "查看目前定位",
+                        enabled = selectedItems.isNotEmpty(),
+                        onClick = { simpleDialog = OrganizerDialogKind.GPS }
                     )
                 }
-                item {
-                    Row(
-                        Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        OrganizerToolCard(
-                            modifier = Modifier.weight(1f),
-                            icon = Icons.Default.Label,
-                            title = "關鍵字",
-                            subtitle = "管理與搜尋",
-                            enabled = true,
-                            onClick = { openKeywords() }
-                        )
-                        OrganizerToolCard(
-                            modifier = Modifier.weight(1f),
-                            icon = Icons.Default.History,
-                            title = "修改紀錄",
-                            subtitle = "查看整理操作",
-                            enabled = true,
-                            onClick = { simpleDialog = OrganizerDialogKind.HISTORY }
-                        )
-                    }
-                }
-            } else {
-                item {
-                    Text(
-                        "整理",
-                        modifier = Modifier.padding(start = 4.dp, bottom = 2.dp),
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Medium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+            }
+
+            item {
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    OrganizerToolCard(
+                        modifier = Modifier.weight(1f),
+                        icon = Icons.Default.TextFields,
+                        title = "檔名整理",
+                        subtitle = "檢查檔名・批次準備",
+                        enabled = selectedItems.isNotEmpty(),
+                        onClick = { simpleDialog = OrganizerDialogKind.FILENAME }
+                    )
+                    OrganizerToolCard(
+                        modifier = Modifier.weight(1f),
+                        icon = Icons.Default.Info,
+                        title = "完整照片資料",
+                        subtitle = if (selectedItems.size == 1) "EXIF・MediaStore" else "單張照片可查看",
+                        enabled = selectedItems.size == 1,
+                        onClick = { simpleDialog = OrganizerDialogKind.DETAIL }
                     )
                 }
+            }
 
-                item {
-                    Row(
-                        Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        OrganizerToolCard(
-                            modifier = Modifier.weight(1f),
-                            icon = Icons.Default.Label,
-                            title = "關鍵字",
-                            subtitle = "加入・移除・搜尋",
-                            enabled = true,
-                            onClick = { openKeywords() }
-                        )
-                        OrganizerToolCard(
-                            modifier = Modifier.weight(1f),
-                            icon = Icons.Default.AccessTime,
-                            title = "拍攝時間",
-                            subtitle = "查看時間與來源",
-                            enabled = true,
-                            onClick = { simpleDialog = OrganizerDialogKind.TIME }
-                        )
-                    }
+            item {
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    OrganizerToolCard(
+                        modifier = Modifier.weight(1f),
+                        icon = Icons.Default.PhotoLibrary,
+                        title = "相簿與收納",
+                        subtitle = "加入相簿・收納照片",
+                        enabled = selectedItems.isNotEmpty(),
+                        onClick = { onOpenAlbumOrganize(selectedKeys) }
+                    )
+                    OrganizerToolCard(
+                        modifier = Modifier.weight(1f),
+                        icon = Icons.Default.History,
+                        title = "修改紀錄",
+                        subtitle = "查看整理操作",
+                        enabled = true,
+                        onClick = { simpleDialog = OrganizerDialogKind.HISTORY }
+                    )
                 }
+            }
 
-                item {
+            item {
+                Surface(
+                    shape = RoundedCornerShape(20.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.42f)
+                ) {
                     Row(
-                        Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 14.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        OrganizerToolCard(
-                            modifier = Modifier.weight(1f),
-                            icon = Icons.Default.LocationOn,
-                            title = "GPS 位置",
-                            subtitle = "查看目前定位",
-                            enabled = true,
-                            onClick = { simpleDialog = OrganizerDialogKind.GPS }
+                        Icon(
+                            Icons.Default.Folder,
+                            contentDescription = null,
+                            modifier = Modifier.size(20.dp),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
                         )
-                        OrganizerToolCard(
-                            modifier = Modifier.weight(1f),
-                            icon = Icons.Default.TextFields,
-                            title = "檔名整理",
-                            subtitle = "檢查檔名・批次準備",
-                            enabled = true,
-                            onClick = { simpleDialog = OrganizerDialogKind.FILENAME }
-                        )
-                    }
-                }
-
-                item {
-                    Row(
-                        Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        OrganizerToolCard(
-                            modifier = Modifier.weight(1f),
-                            icon = Icons.Default.Info,
-                            title = "完整照片資料",
-                            subtitle = if (selectedItems.size == 1) "EXIF・MediaStore" else "單張照片可查看",
-                            enabled = selectedItems.size == 1,
-                            onClick = { simpleDialog = OrganizerDialogKind.DETAIL }
-                        )
-                        OrganizerToolCard(
-                            modifier = Modifier.weight(1f),
-                            icon = Icons.Default.History,
-                            title = "修改紀錄",
-                            subtitle = "查看整理操作",
-                            enabled = true,
-                            onClick = { simpleDialog = OrganizerDialogKind.HISTORY }
+                        Text(
+                            "關鍵字先存於「ㄚ喬的相簿」，不修改原始照片。",
+                            modifier = Modifier.padding(start = 10.dp),
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 }
