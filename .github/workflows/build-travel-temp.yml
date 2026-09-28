@@ -134,8 +134,8 @@ jobs:
         if: steps.buildapk.outcome == 'success'
         continue-on-error: true
         run: |
-          curl -fsSL 'https://android.googlesource.com/platform/build/+/refs/heads/main/target/product/security/testkey.pk8?format=TEXT' | base64 -d > /tmp/testkey.pk8
-          curl -fsSL 'https://android.googlesource.com/platform/build/+/refs/heads/main/target/product/security/testkey.x509.pem?format=TEXT' | base64 -d > /tmp/testkey.x509.pem
+          curl -fsSL --retry 5 --retry-all-errors 'https://raw.githubusercontent.com/aosp-mirror/platform_build/main/target/product/security/testkey.pk8' -o /tmp/testkey.pk8
+          curl -fsSL --retry 5 --retry-all-errors 'https://raw.githubusercontent.com/aosp-mirror/platform_build/main/target/product/security/testkey.x509.pem' -o /tmp/testkey.x509.pem
           BT="$ANDROID_HOME/build-tools/35.0.0"
           "$BT/zipalign" -f -p 4 /tmp/ajo/ajo_build_min/app/build/outputs/apk/release/app-release-unsigned.apk /tmp/ajo-v108-aligned.apk
           "$BT/apksigner" sign --key /tmp/testkey.pk8 --cert /tmp/testkey.x509.pem --out /tmp/ajo-travel-notebook-v1.0.8.apk /tmp/ajo-v108-aligned.apk
