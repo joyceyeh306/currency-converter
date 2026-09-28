@@ -536,8 +536,9 @@ private fun CollectionCard(
                     Text(
                         card.title,
                         fontSize = 12.sp,
+                        lineHeight = 13.sp,
                         fontWeight = FontWeight.SemiBold,
-                        maxLines = 1
+                        maxLines = 2
                     )
                     Text(
                         if (card.isMap) "地點瀏覽" else card.count.toString() + " 項",
