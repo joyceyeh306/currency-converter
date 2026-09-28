@@ -925,7 +925,7 @@ class AlbumRepository(private val context: Context) {
 
             resolver.openInputStream(exifUri)?.use { stream ->
                 val exif = ExifInterface(stream)
-                val gpsMillis = exif.gpsDateTime
+                val gpsMillis = exif.gpsDateTime ?: return null
                 if (gpsMillis <= 0L) return null
 
                 val ll = FloatArray(2)
