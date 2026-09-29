@@ -1,4 +1,4 @@
-build=skipped
-sign=skipped
+build=success
+sign=success
 source=a172d7a80c00b31d845a628bd445f7d35ee1b846
 version=1.0.9
