@@ -14,13 +14,14 @@
   --fs:1;
 }
 *{box-sizing:border-box}
-html,body{margin:0;background:var(--bg);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Noto Sans TC","PingFang TC","Microsoft JhengHei",sans-serif;font-size:calc(16px * var(--fs));width:100%;max-width:100%;overflow-x:hidden}
+html,body{margin:0;background:var(--bg);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Noto Sans TC","PingFang TC","Microsoft JhengHei",sans-serif;font-size:calc(16px * var(--fs));width:100%;max-width:100%;overflow-x:clip;overscroll-behavior-x:none}
 button,input,textarea,select{font:inherit}
 h1,h2,h3,h4,h5,h6,strong,b{font-weight:400}
 .time-input{letter-spacing:.08em;font-variant-numeric:tabular-nums}
 button{cursor:pointer}
+body{touch-action:pan-y}
 a{color:inherit}
-#app{width:100%;max-width:620px;margin:auto;min-height:100vh;background:#fff;box-shadow:0 0 24px rgba(0,0,0,.06);padding-bottom:64px;overflow-x:hidden}#screen,.content{width:100%;max-width:100%;min-width:0;overflow-x:hidden}
+#app{width:100%;max-width:620px;margin:auto;min-height:100vh;background:#fff;box-shadow:0 0 24px rgba(0,0,0,.06);padding-bottom:64px;overflow-x:clip}#screen,.content{width:100%;max-width:100%;min-width:0;overflow-x:clip}
 .topbar{position:relative;z-index:20;background:var(--yellow);min-height:48px;padding:6px 12px;border-bottom:1px solid #e3be00;display:flex;align-items:center;gap:7px}.topbar.day-sticky{position:sticky;top:0;z-index:35}
 .topbar h1{font-size:1.08rem;margin:0;flex:1;line-height:1.15;font-weight:400;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .topbar .back,.iconbtn{border:0;background:rgba(255,255,255,.66);width:38px;height:38px;min-width:38px;border-radius:11px;font-weight:400;color:#111;font-size:1.25rem}
