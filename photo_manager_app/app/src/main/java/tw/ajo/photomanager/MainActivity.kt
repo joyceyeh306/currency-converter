@@ -463,7 +463,7 @@ private fun AlbumApp(repository: AlbumRepository, resumeVersion: Int) {
                         "目前版本：${BuildConfig.VERSION_NAME}\n" +
                         "版本代碼：${BuildConfig.VERSION_CODE}\n\n" +
                         "穩定母版：${BuildConfig.STABLE_BASELINE}\n\n" +
-                        "本次更新：修正批次關鍵字完成後退出選取\n" +
+                        "本次更新：所有輸入框移除框內提示字\n" +
                         "製作日期：2026-09-29"
                 )
             },
@@ -1402,9 +1402,6 @@ private fun SearchTopBar(
                 .fillMaxWidth()
                 .statusBarsPadding()
                 .padding(horizontal = 12.dp, vertical = 8.dp),
-            placeholder = {
-                Text("搜尋日期、檔名、關鍵字；地點與照片文字後續加入")
-            },
             leadingIcon = {
                 Icon(Icons.Default.Search, contentDescription = null)
             },
