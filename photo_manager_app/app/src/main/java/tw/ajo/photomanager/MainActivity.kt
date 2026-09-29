@@ -50,6 +50,7 @@ import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DeleteOutline
@@ -238,6 +239,7 @@ private fun AlbumApp(repository: AlbumRepository, resumeVersion: Int) {
     var mapFocus by remember { mutableStateOf<Pair<Double, Double>?>(null) }
     var mapNearbyRadiusMeters by remember { mutableStateOf<Double?>(null) }
     var mapBackScreen by remember { mutableStateOf(HomeScreen.COLLECTIONS) }
+    var mapClusterGridOpen by remember { mutableStateOf(false) }
     var viewerOpenedFromMap by remember { mutableStateOf(false) }
     var albumDialogKeys by remember { mutableStateOf<Set<String>?>(null) }
     var organizerOpen by remember { mutableStateOf(false) }
@@ -463,7 +465,7 @@ private fun AlbumApp(repository: AlbumRepository, resumeVersion: Int) {
                         "目前版本：${BuildConfig.VERSION_NAME}\n" +
                         "版本代碼：${BuildConfig.VERSION_CODE}\n\n" +
                         "穩定母版：${BuildConfig.STABLE_BASELINE}\n\n" +
-                        "本次更新：所有輸入框移除框內提示字\n" +
+                        "本次更新：照片地圖群聚直接開啟全螢幕照片網格\n" +
                         "製作日期：2026-09-29"
                 )
             },
@@ -851,6 +853,7 @@ private fun AlbumApp(repository: AlbumRepository, resumeVersion: Int) {
                 homeScreen = HomeScreen.GALLERY
             },
             onOpenCollection = { id, title, keys ->
+                mapClusterGridOpen = false
                 activeCollectionId = id
                 activeCollectionTitle = title
                 activeCollectionKeys = keys
@@ -862,6 +865,7 @@ private fun AlbumApp(repository: AlbumRepository, resumeVersion: Int) {
                 homeScreen = HomeScreen.GALLERY
             },
             onOpenMap = {
+                mapClusterGridOpen = false
                 activeCollectionId = null
                 activeCollectionTitle = null
                 activeCollectionKeys = null
@@ -886,12 +890,27 @@ private fun AlbumApp(repository: AlbumRepository, resumeVersion: Int) {
                 homeScreen = mapBackScreen
             },
             onOpenMedia = { item ->
+                mapClusterGridOpen = false
                 activeCollectionId = null
                 activeCollectionTitle = null
                 activeCollectionKeys = null
                 viewerOpenedFromMap = true
                 viewerStartKey = item.key
                 viewerKey = item.key
+            },
+            onOpenCluster = { items ->
+                val keys = items.map { it.key }.toSet()
+                mapClusterGridOpen = true
+                activeCollectionId = "map:cluster"
+                activeCollectionTitle = "地圖照片"
+                activeCollectionKeys = keys
+                mediaFilter = MediaFilter.ALL
+                selectionMode = false
+                selected = emptySet()
+                searchOpen = false
+                searchText = ""
+                viewerOpenedFromMap = false
+                homeScreen = HomeScreen.GALLERY
             }
         )
         return
@@ -906,6 +925,13 @@ private fun AlbumApp(repository: AlbumRepository, resumeVersion: Int) {
             }
             searchOpen -> {
                 closeSearchKeepPosition()
+            }
+            mapClusterGridOpen -> {
+                mapClusterGridOpen = false
+                activeCollectionId = null
+                activeCollectionTitle = null
+                activeCollectionKeys = null
+                homeScreen = HomeScreen.MAP
             }
             previousGroupMode != null -> {
                 groupMode = previousGroupMode!!
@@ -964,36 +990,56 @@ private fun AlbumApp(repository: AlbumRepository, resumeVersion: Int) {
 
                 else -> CenterAlignedTopAppBar(
                     title = {
-                        TextButton(
-                            onClick = {
-                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                homeScreen = HomeScreen.COLLECTIONS
-                            }
-                        ) {
+                        if (mapClusterGridOpen) {
                             Text(
-                                activeCollectionTitle ?: "圖庫",
+                                "地圖照片",
                                 fontSize = 23.sp,
                                 fontWeight = FontWeight.SemiBold
                             )
-                            Text(
-                                "⌄",
-                                fontSize = 16.sp,
-                                modifier = Modifier.padding(start = 4.dp, bottom = 4.dp)
-                            )
+                        } else {
+                            TextButton(
+                                onClick = {
+                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                    homeScreen = HomeScreen.COLLECTIONS
+                                }
+                            ) {
+                                Text(
+                                    activeCollectionTitle ?: "圖庫",
+                                    fontSize = 23.sp,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                                Text(
+                                    "⌄",
+                                    fontSize = 16.sp,
+                                    modifier = Modifier.padding(start = 4.dp, bottom = 4.dp)
+                                )
+                            }
                         }
                     },
                     navigationIcon = {
-                        Box {
+                        if (mapClusterGridOpen) {
                             IconButton(onClick = {
                                 haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                menuOpen = true
+                                mapClusterGridOpen = false
+                                activeCollectionId = null
+                                activeCollectionTitle = null
+                                activeCollectionKeys = null
+                                homeScreen = HomeScreen.MAP
                             }) {
-                                Icon(Icons.Default.MoreVert, contentDescription = "更多")
+                                Icon(Icons.Default.ArrowBack, contentDescription = "返回照片地圖")
                             }
-                            DropdownMenu(
-                                expanded = menuOpen,
-                                onDismissRequest = { menuOpen = false }
-                            ) {
+                        } else {
+                            Box {
+                                IconButton(onClick = {
+                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                    menuOpen = true
+                                }) {
+                                    Icon(Icons.Default.MoreVert, contentDescription = "更多")
+                                }
+                                DropdownMenu(
+                                    expanded = menuOpen,
+                                    onDismissRequest = { menuOpen = false }
+                                ) {
                                 DropdownMenuItem(
                                     text = {
                                         Text(
@@ -1088,6 +1134,7 @@ private fun AlbumApp(repository: AlbumRepository, resumeVersion: Int) {
                                     },
                                     onClick = {
                                         menuOpen = false
+                                        mapClusterGridOpen = false
                                         activeCollectionId = null
                                         activeCollectionTitle = null
                                         activeCollectionKeys = null
@@ -1128,6 +1175,7 @@ private fun AlbumApp(repository: AlbumRepository, resumeVersion: Int) {
                                         organizerOpen = true
                                     }
                                 )
+                                }
                             }
                         }
                     },
