@@ -672,7 +672,10 @@ private fun FilenameRenameDialog(
     }
 
     LaunchedEffect(rawRequests) {
-        result = null
+        if (result != null) {
+            previewLoading = false
+            return@LaunchedEffect
+        }
         notice = null
         if (rawRequests.isEmpty()) {
             previews = emptyList()
