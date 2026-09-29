@@ -123,6 +123,36 @@ jobs:
           PY
           node --check /tmp/travel-index-v108.js
 
+      - name: Package v1.0.8 complete source master
+        run: |
+          cat > /tmp/ajo/ajo_build_min/SOURCE_MASTER_README.txt <<'EOF'
+          自助旅行筆記 v1.0.8 完整原始母檔
+          ==================================
+          版本：1.0.8
+          Android package：tw.ajo.travelnotebook
+
+          這份 ZIP 是經過 v1.0.1～v1.0.8 所有修正後的「完整展開原始碼」，
+          可直接當作下一個對話／下一版開發的唯一母版。
+          不需要重新套用 travel_build 的歷史 patch 檔。
+
+          新對話建議說法：
+          「請以我上傳的『自助旅行筆記 v1.0.8 完整原始母檔』作為唯一母版，
+          不要從舊 APK 或更早版本重建。先完整讀取原始碼後，再依我的新需求修改。」
+
+          v1.0.8 主要狀態：
+          - 底部：旅程｜備選｜備忘｜字卡｜匯率
+          - 設定移至首頁右上角
+          - 新增備選地點（可導航、加入行程、移到備選、附件）
+          - 字卡移除無作用的剪貼簿按鈕
+          - 原生 alert 已改為 App 內中文提示
+          - 花費區新增「完成」
+          - 保留 v1.0.7 縮小後的桌面圖示
+          - v1.0.6 的提醒、內建 PDF/圖片附件檢視、交通／票券等功能均保留
+          EOF
+          cd /tmp/ajo
+          zip -qr /tmp/ajo-travel-notebook-v1.0.8-source.zip ajo_build_min
+          test -s /tmp/ajo-travel-notebook-v1.0.8-source.zip
+
       - name: Build unsigned release APK
         id: buildapk
         continue-on-error: true
