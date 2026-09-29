@@ -1002,33 +1002,35 @@ private fun FilenameRenameDialog(
                             )
                         }
 
-                        item {
-                            TextButton(
-                                enabled = canRename,
-                                onClick = { confirmOpen = true },
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Text(
-                                    if (processing) "處理中…"
-                                    else "重新命名 $changedCount 項"
-                                )
-                            }
-                        }
                     }
                 }
             }
         },
         confirmButton = {
-            TextButton(
-                enabled = !processing,
-                onClick = onDismiss
-            ) { Text("完成") }
+            if (result != null) {
+                TextButton(
+                    enabled = !processing,
+                    onClick = onDismiss
+                ) { Text("完成") }
+            } else {
+                TextButton(
+                    enabled = canRename,
+                    onClick = { confirmOpen = true }
+                ) {
+                    Text(
+                        if (processing) "處理中…"
+                        else "重新命名 $changedCount 項"
+                    )
+                }
+            }
         },
         dismissButton = {
-            TextButton(
-                enabled = !processing,
-                onClick = onDismiss
-            ) { Text("取消") }
+            if (result == null) {
+                TextButton(
+                    enabled = !processing,
+                    onClick = onDismiss
+                ) { Text("取消") }
+            }
         }
     )
 
