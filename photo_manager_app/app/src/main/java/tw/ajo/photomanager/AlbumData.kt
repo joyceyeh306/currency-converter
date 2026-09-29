@@ -3,6 +3,7 @@ package tw.ajo.photomanager
 import android.Manifest
 import android.app.PendingIntent
 import android.content.ContentUris
+import android.content.ContentValues
 import android.content.Context
 import android.content.pm.PackageManager
 import android.database.Cursor
@@ -89,6 +90,20 @@ data class DetailInfo(
     val lon: Double?,
     val altitude: Double?,
     val rows: List<ExifRow>
+)
+
+data class FilenameRenamePreview(
+    val item: MediaItem,
+    val newName: String,
+    val error: String?,
+    val changed: Boolean
+)
+
+data class FilenameRenameResult(
+    val total: Int,
+    val succeeded: Int,
+    val failed: Int,
+    val details: List<String>
 )
 
 class AlbumRepository(private val context: Context) {
@@ -912,6 +927,238 @@ class AlbumRepository(private val context: Context) {
             }
         }
         return null
+    }
+
+    fun createFilenameWriteRequest(items: List<MediaItem>): PendingIntent? {
+        if (items.isEmpty()) return null
+        return if (Build.VERSION.SDK_INT >= 30) {
+            MediaStore.createWriteRequest(
+                resolver,
+                items.map { it.uri }.distinct().take(2000)
+            )
+        } else {
+            null
+        }
+    }
+
+    fun previewFilenameRenames(
+        requests: List<Pair<MediaItem, String>>
+    ): List<FilenameRenamePreview> {
+        val locationCache = mutableMapOf<String, String?>()
+        val targetKeys = mutableMapOf<String, Int>()
+
+        val initial = requests.map { (item, rawName) ->
+            val newName = rawName.trim()
+            val error = validateFilename(item, newName)
+            val location = locationCache.getOrPut(item.key) { relativePathFor(item) }
+                ?: item.folderHint
+            val duplicateKey = location.lowercase(Locale.ROOT) + "|" +
+                newName.lowercase(Locale.ROOT)
+            if (error == null) {
+                targetKeys[duplicateKey] = (targetKeys[duplicateKey] ?: 0) + 1
+            }
+            FilenameRenamePreview(
+                item = item,
+                newName = newName,
+                error = error,
+                changed = newName != item.name
+            )
+        }
+
+        return initial.map { preview ->
+            if (preview.error != null || !preview.changed) {
+                preview
+            } else {
+                val location = locationCache[preview.item.key] ?: preview.item.folderHint
+                val duplicateKey = location.lowercase(Locale.ROOT) + "|" +
+                    preview.newName.lowercase(Locale.ROOT)
+                val internalDuplicate = (targetKeys[duplicateKey] ?: 0) > 1
+                val existingConflict = if (!internalDuplicate) {
+                    mediaNameExists(
+                        item = preview.item,
+                        candidate = preview.newName,
+                        relativePath = locationCache[preview.item.key]
+                    )
+                } else {
+                    false
+                }
+                when {
+                    internalDuplicate -> preview.copy(error = "批次中有重複的新檔名")
+                    existingConflict -> preview.copy(error = "同一資料夾已有相同檔名")
+                    else -> preview
+                }
+            }
+        }
+    }
+
+    fun applyFilenameRenames(
+        previews: List<FilenameRenamePreview>
+    ): FilenameRenameResult {
+        val runnable = previews.filter {
+            it.error == null && it.changed
+        }
+        if (runnable.isEmpty()) {
+            return FilenameRenameResult(
+                total = previews.size,
+                succeeded = 0,
+                failed = previews.count { it.error != null },
+                details = listOf("沒有需要修改的檔名。")
+            )
+        }
+
+        var succeeded = 0
+        var failed = 0
+        val details = mutableListOf<String>()
+
+        runnable.forEach { preview ->
+            val item = preview.item
+            val newName = preview.newName
+            try {
+                val values = ContentValues().apply {
+                    put(MediaStore.MediaColumns.DISPLAY_NAME, newName)
+                }
+                val changedRows = resolver.update(item.uri, values, null, null)
+                if (changedRows <= 0) {
+                    failed += 1
+                    details.add(item.name + "：修改失敗（系統沒有接受修改）")
+                    return@forEach
+                }
+
+                val verified = resolver.query(
+                    item.uri,
+                    arrayOf(MediaStore.MediaColumns.DISPLAY_NAME),
+                    null,
+                    null,
+                    null
+                )?.use { cursor ->
+                    if (cursor.moveToFirst()) cursor.getString(0) else null
+                }
+
+                if (verified == newName) {
+                    succeeded += 1
+                    details.add(item.name + " → " + newName)
+                } else {
+                    failed += 1
+                    details.add(item.name + "：修改後驗證失敗")
+                }
+            } catch (security: SecurityException) {
+                failed += 1
+                details.add(item.name + "：系統尚未授權修改")
+            } catch (e: Exception) {
+                failed += 1
+                details.add(item.name + "：修改失敗（" + (e.message ?: "未知錯誤") + "）")
+            }
+        }
+
+        if (succeeded > 0) {
+            appendOrganizerHistory(
+                "重新命名 " + succeeded + " 項" +
+                    if (failed > 0) "（另有 " + failed + " 項失敗）" else ""
+            )
+        }
+
+        return FilenameRenameResult(
+            total = previews.size,
+            succeeded = succeeded,
+            failed = failed,
+            details = details
+        )
+    }
+
+    private fun validateFilename(item: MediaItem, newName: String): String? {
+        if (newName.isBlank()) return "檔名不能空白"
+        if (newName == "." || newName == "..") return "這個檔名不能使用"
+        if (newName.startsWith(".")) return "檔名不能以「.」開頭"
+        if (newName.endsWith(".") || newName.endsWith(" ")) {
+            return "檔名不能以句點或空白結尾"
+        }
+        if (newName.any { it.code < 32 }) return "檔名含有控制字元"
+        if (newName.any { it in charArrayOf('/', '\\', ':', '*', '?', '"', '<', '>', '|') }) {
+            return "檔名含有不能使用的字元"
+        }
+        if (newName.toByteArray(Charsets.UTF_8).size > 240) {
+            return "檔名太長"
+        }
+
+        val originalExtension = extensionOf(item.name)
+        val newExtension = extensionOf(newName)
+        if (!originalExtension.equals(newExtension, ignoreCase = true)) {
+            return if (originalExtension.isBlank()) {
+                "原檔沒有副檔名，不能新增副檔名"
+            } else {
+                "副檔名必須保留為 .$originalExtension"
+            }
+        }
+
+        val base = baseNameOf(newName)
+        if (base.isBlank()) return "主檔名不能空白"
+        return null
+    }
+
+    private fun extensionOf(name: String): String {
+        val dot = name.lastIndexOf('.')
+        return if (dot > 0 && dot < name.lastIndex) name.substring(dot + 1) else ""
+    }
+
+    private fun baseNameOf(name: String): String {
+        val dot = name.lastIndexOf('.')
+        return if (dot > 0 && dot < name.length) name.substring(0, dot) else name
+    }
+
+    private fun relativePathFor(item: MediaItem): String? {
+        if (Build.VERSION.SDK_INT < 29) return null
+        return try {
+            resolver.query(
+                item.uri,
+                arrayOf(MediaStore.MediaColumns.RELATIVE_PATH),
+                null,
+                null,
+                null
+            )?.use { cursor ->
+                if (cursor.moveToFirst()) cursor.getString(0) else null
+            }
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    private fun mediaNameExists(
+        item: MediaItem,
+        candidate: String,
+        relativePath: String?
+    ): Boolean {
+        return try {
+            val filesUri = if (Build.VERSION.SDK_INT >= 29) {
+                MediaStore.Files.getContentUri(MediaStore.VOLUME_EXTERNAL)
+            } else {
+                MediaStore.Files.getContentUri("external")
+            }
+
+            val selection: String
+            val args: Array<String>
+            if (Build.VERSION.SDK_INT >= 29 && !relativePath.isNullOrBlank()) {
+                selection =
+                    MediaStore.MediaColumns.DISPLAY_NAME + " = ? COLLATE NOCASE AND " +
+                    MediaStore.MediaColumns.RELATIVE_PATH + " = ? AND " +
+                    MediaStore.Files.FileColumns._ID + " <> ?"
+                args = arrayOf(candidate, relativePath, item.id.toString())
+            } else {
+                selection =
+                    MediaStore.MediaColumns.DISPLAY_NAME + " = ? COLLATE NOCASE AND " +
+                    MediaStore.Files.FileColumns._ID + " <> ?"
+                args = arrayOf(candidate, item.id.toString())
+            }
+
+            resolver.query(
+                filesUri,
+                arrayOf(MediaStore.Files.FileColumns._ID),
+                selection,
+                args,
+                null
+            )?.use { it.moveToFirst() } == true
+        } catch (_: Exception) {
+            false
+        }
     }
 
     private fun queryImages(): List<MediaItem> {
