@@ -417,7 +417,6 @@ private fun KeywordEditorDialog(
                         value = input,
                         onValueChange = { input = it },
                         modifier = Modifier.fillMaxWidth(),
-                        placeholder = { Text("輸入關鍵字，例如：水草、釜山") },
                         singleLine = true,
                         shape = RoundedCornerShape(18.dp),
                         trailingIcon = {
