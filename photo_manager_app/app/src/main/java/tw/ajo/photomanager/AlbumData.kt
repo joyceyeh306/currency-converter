@@ -1039,7 +1039,10 @@ class AlbumRepository(private val context: Context) {
                     details.add(item.name + " → " + newName)
                 } else {
                     failed += 1
-                    details.add(item.name + "：修改後驗證失敗")
+                    val actualText = verified?.takeIf { it.isNotBlank() }
+                        ?.let { "（系統實際檔名：" + it + "）" }
+                        .orEmpty()
+                    details.add(item.name + "：修改後驗證失敗" + actualText)
                 }
             } catch (security: SecurityException) {
                 failed += 1
@@ -1073,7 +1076,7 @@ class AlbumRepository(private val context: Context) {
             return "檔名不能以句點或空白結尾"
         }
         if (newName.any { it.code < 32 }) return "檔名含有控制字元"
-        if (newName.any { it in charArrayOf('/', '\\', '*', '?', '"', '<', '>', '|') }) {
+        if (newName.any { it in charArrayOf('/', '\\', ':', '*', '?', '"', '<', '>', '|') }) {
             return "檔名含有不能使用的字元"
         }
         if (newName.toByteArray(Charsets.UTF_8).size > 240) {
