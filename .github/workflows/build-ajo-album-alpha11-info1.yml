@@ -24,10 +24,10 @@ jobs:
       - uses: gradle/actions/setup-gradle@v6
         with:
           gradle-version: '8.9'
-      - name: Verify exact stable1 ancestry and protected files
+      - name: Verify accepted slim7 ancestry and protected files
         run: |
-          git merge-base --is-ancestor 8dd319049a5170e61a706a30b60575337a044cea HEAD
-          git diff --exit-code 8dd319049a5170e61a706a30b60575337a044cea -- photo_manager_app/app/src/main/java/tw/ajo/photomanager/MapScreens.kt photo_manager_app/app/src/main/java/tw/ajo/photomanager/ViewerScreen.kt photo_manager_app/app/src/main/assets photo_manager_app/app/src/main/AndroidManifest.xml
+          git merge-base --is-ancestor fc7a6e48e0ba2536e8b7ffbe003a970b6c370c45 HEAD
+          git diff --exit-code fc7a6e48e0ba2536e8b7ffbe003a970b6c370c45 -- photo_manager_app/app/src/main/java/tw/ajo/photomanager/CollectionScreen.kt photo_manager_app/app/src/main/java/tw/ajo/photomanager/MapScreens.kt photo_manager_app/app/src/main/java/tw/ajo/photomanager/ViewerScreen.kt photo_manager_app/app/src/main/assets photo_manager_app/app/src/main/AndroidManifest.xml
       - name: Install SDK and restore icon
         run: |
           SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
