@@ -465,7 +465,7 @@ private fun AlbumApp(repository: AlbumRepository, resumeVersion: Int) {
                         "目前版本：${BuildConfig.VERSION_NAME}\n" +
                         "版本代碼：${BuildConfig.VERSION_CODE}\n\n" +
                         "穩定母版：${BuildConfig.STABLE_BASELINE}\n\n" +
-                        "本次更新：照片地圖群聚直接開啟全螢幕照片網格\n" +
+                        "本次更新：新增單張與批次檔名修改\n" +
                         "製作日期：2026-09-29"
                 )
             },
@@ -757,6 +757,13 @@ private fun AlbumApp(repository: AlbumRepository, resumeVersion: Int) {
                 organizerKeys = emptySet()
                 selectionMode = false
                 selected = emptySet()
+            },
+            onFilesRenamed = {
+                albumVersion += 1
+                scope.launch {
+                    delay(200)
+                    reload()
+                }
             }
         )
         return
