@@ -1073,7 +1073,7 @@ class AlbumRepository(private val context: Context) {
             return "檔名不能以句點或空白結尾"
         }
         if (newName.any { it.code < 32 }) return "檔名含有控制字元"
-        if (newName.any { it in charArrayOf('/', '\\', ':', '*', '?', '"', '<', '>', '|') }) {
+        if (newName.any { it in charArrayOf('/', '\\', '*', '?', '"', '<', '>', '|') }) {
             return "檔名含有不能使用的字元"
         }
         if (newName.toByteArray(Charsets.UTF_8).size > 240) {
