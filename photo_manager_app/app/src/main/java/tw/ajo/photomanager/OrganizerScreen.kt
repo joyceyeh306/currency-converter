@@ -4,6 +4,10 @@
 
 package tw.ajo.photomanager
 
+import android.app.Activity
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.IntentSenderRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -36,6 +40,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -47,6 +52,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -56,6 +62,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.time.format.DateTimeFormatter
 
@@ -67,7 +75,8 @@ fun PhotoOrganizerScreen(
     onOpenAlbumOrganize: (Set<String>) -> Unit,
     onSearchKeyword: (String) -> Unit,
     onKeywordsChanged: () -> Unit,
-    onKeywordEditingFinished: () -> Unit
+    onKeywordEditingFinished: () -> Unit,
+    onFilesRenamed: () -> Unit
 ) {
     BackHandler { onBack() }
 
@@ -75,6 +84,7 @@ fun PhotoOrganizerScreen(
     val selectedKeys = remember(selectedItems) { selectedItems.map { it.key }.toSet() }
     var localVersion by remember { mutableIntStateOf(0) }
     var keywordDialog by remember { mutableStateOf(false) }
+    var filenameDialog by remember { mutableStateOf(false) }
     var simpleDialog by remember { mutableStateOf<OrganizerDialogKind?>(null) }
 
     val selectedKeywordCounts = remember(selectedKeys, localVersion) {
@@ -194,9 +204,9 @@ fun PhotoOrganizerScreen(
                         modifier = Modifier.weight(1f),
                         icon = Icons.Default.TextFields,
                         title = "檔名整理",
-                        subtitle = "檢查檔名・批次準備",
+                        subtitle = "單張・批次重新命名",
                         enabled = selectedItems.isNotEmpty(),
-                        onClick = { simpleDialog = OrganizerDialogKind.FILENAME }
+                        onClick = { filenameDialog = true }
                     )
                     OrganizerToolCard(
                         modifier = Modifier.weight(1f),
@@ -256,6 +266,15 @@ fun PhotoOrganizerScreen(
                 keywordDialog = false
                 if (changed) onKeywordEditingFinished()
             }
+        )
+    }
+
+    if (filenameDialog) {
+        FilenameRenameDialog(
+            selectedItems = selectedItems,
+            repository = repository,
+            onDismiss = { filenameDialog = false },
+            onRenamed = onFilesRenamed
         )
     }
 
@@ -540,6 +559,511 @@ private fun KeywordEditorDialog(
             TextButton(onClick = { onFinished(changed) }) { Text("完成") }
         }
     )
+}
+
+
+private enum class FilenameBatchMode(
+    val label: String,
+    val description: String
+) {
+    PREFIX_SEQUENCE(
+        "前綴＋流水號",
+        "依拍攝時間排序，使用自訂前綴與三位數流水號"
+    ),
+    CAPTURE_TIME(
+        "依拍攝日期時間",
+        "例如 20260929_123456.JPG；同一秒多張會自動加序號"
+    ),
+    KEEP_ORIGINAL(
+        "原檔名＋前後綴",
+        "保留原本主檔名，只在前方或後方加文字"
+    )
+}
+
+@Composable
+private fun FilenameRenameDialog(
+    selectedItems: List<MediaItem>,
+    repository: AlbumRepository,
+    onDismiss: () -> Unit,
+    onRenamed: () -> Unit
+) {
+    val scope = rememberCoroutineScope()
+    val orderedItems = remember(selectedItems) {
+        selectedItems.sortedWith(
+            compareBy<MediaItem> { it.wallTime }.thenBy { it.name.lowercase() }
+        )
+    }
+    val singleItem = orderedItems.singleOrNull()
+    var singleBase by remember(singleItem?.key, singleItem?.name) {
+        mutableStateOf(singleItem?.let { filenameBase(it.name) }.orEmpty())
+    }
+    var mode by remember { mutableStateOf(FilenameBatchMode.PREFIX_SEQUENCE) }
+    var prefix by remember { mutableStateOf("") }
+    var suffix by remember { mutableStateOf("") }
+    var startNumber by remember { mutableStateOf("1") }
+    var previews by remember { mutableStateOf<List<FilenameRenamePreview>>(emptyList()) }
+    var previewLoading by remember { mutableStateOf(false) }
+    var processing by remember { mutableStateOf(false) }
+    var confirmOpen by remember { mutableStateOf(false) }
+    var pendingApply by remember { mutableStateOf<List<FilenameRenamePreview>>(emptyList()) }
+    var result by remember { mutableStateOf<FilenameRenameResult?>(null) }
+    var notice by remember { mutableStateOf<String?>(null) }
+
+    val inputError = when {
+        orderedItems.size > 2000 -> "一次最多重新命名 2000 項"
+        singleItem != null && singleBase.isBlank() -> "主檔名不能空白"
+        singleItem == null && mode == FilenameBatchMode.PREFIX_SEQUENCE &&
+            prefix.isBlank() -> "請輸入前綴"
+        singleItem == null && mode == FilenameBatchMode.PREFIX_SEQUENCE &&
+            (startNumber.toIntOrNull() == null || (startNumber.toIntOrNull() ?: -1) < 0) ->
+            "起始編號必須是 0 以上的整數"
+        singleItem == null && mode == FilenameBatchMode.KEEP_ORIGINAL &&
+            prefix.isBlank() && suffix.isBlank() -> "請輸入前綴或後綴"
+        else -> null
+    }
+
+    val rawRequests = remember(
+        orderedItems,
+        singleBase,
+        mode,
+        prefix,
+        suffix,
+        startNumber,
+        inputError
+    ) {
+        if (inputError != null) {
+            emptyList()
+        } else if (singleItem != null) {
+            listOf(singleItem to (singleBase + filenameExtensionWithDot(singleItem.name)))
+        } else {
+            when (mode) {
+                FilenameBatchMode.PREFIX_SEQUENCE -> {
+                    val start = startNumber.toIntOrNull() ?: 1
+                    orderedItems.mapIndexed { index, item ->
+                        val base = prefix + (start + index).toString().padStart(3, '0')
+                        item to (base + filenameExtensionWithDot(item.name))
+                    }
+                }
+                FilenameBatchMode.CAPTURE_TIME -> {
+                    val formatter = DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss")
+                    val occurrences = mutableMapOf<String, Int>()
+                    orderedItems.map { item ->
+                        val stem = item.wallTime.format(formatter)
+                        val ext = filenameExtensionWithDot(item.name)
+                        val key = stem.lowercase() + "|" + ext.lowercase()
+                        val occurrence = occurrences[key] ?: 0
+                        occurrences[key] = occurrence + 1
+                        val base = if (occurrence == 0) {
+                            stem
+                        } else {
+                            stem + "_" + occurrence.toString().padStart(2, '0')
+                        }
+                        item to (base + ext)
+                    }
+                }
+                FilenameBatchMode.KEEP_ORIGINAL -> {
+                    orderedItems.map { item ->
+                        val base = prefix + filenameBase(item.name) + suffix
+                        item to (base + filenameExtensionWithDot(item.name))
+                    }
+                }
+            }
+        }
+    }
+
+    LaunchedEffect(rawRequests) {
+        result = null
+        notice = null
+        if (rawRequests.isEmpty()) {
+            previews = emptyList()
+            previewLoading = false
+        } else {
+            previewLoading = true
+            delay(180)
+            previews = withContext(Dispatchers.IO) {
+                repository.previewFilenameRenames(rawRequests)
+            }
+            previewLoading = false
+        }
+    }
+
+    fun applyRenames(list: List<FilenameRenamePreview>) {
+        processing = true
+        notice = null
+        scope.launch {
+            val applied = withContext(Dispatchers.IO) {
+                repository.applyFilenameRenames(list)
+            }
+            result = applied
+            processing = false
+            pendingApply = emptyList()
+            if (applied.succeeded > 0) {
+                onRenamed()
+            }
+        }
+    }
+
+    val writeLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartIntentSenderForResult()
+    ) { activityResult ->
+        val list = pendingApply
+        if (activityResult.resultCode == Activity.RESULT_OK && list.isNotEmpty()) {
+            applyRenames(list)
+        } else {
+            pendingApply = emptyList()
+            notice = "已取消，檔名沒有修改。"
+        }
+    }
+
+    fun requestApply() {
+        val changed = previews.filter { it.error == null && it.changed }
+        if (changed.isEmpty()) return
+        val request = repository.createFilenameWriteRequest(changed.map { it.item })
+        if (request == null) {
+            applyRenames(changed)
+        } else {
+            pendingApply = changed
+            writeLauncher.launch(
+                IntentSenderRequest.Builder(request.intentSender).build()
+            )
+        }
+    }
+
+    val errorCount = previews.count { it.error != null }
+    val changedCount = previews.count { it.error == null && it.changed }
+    val canRename =
+        inputError == null &&
+        !previewLoading &&
+        !processing &&
+        previews.isNotEmpty() &&
+        errorCount == 0 &&
+        changedCount > 0 &&
+        result == null
+
+    AlertDialog(
+        onDismissRequest = {
+            if (!processing) onDismiss()
+        },
+        title = {
+            Column {
+                Text(if (singleItem != null) "修改檔名" else "批次修改檔名")
+                Text(
+                    if (singleItem != null) "副檔名固定保留"
+                    else "已選 ${orderedItems.size} 項・修改前先預覽",
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        },
+        text = {
+            LazyColumn(
+                modifier = Modifier.heightIn(max = 590.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                result?.let { renameResult ->
+                    item {
+                        Surface(
+                            shape = RoundedCornerShape(16.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                        ) {
+                            Column(
+                                Modifier.padding(13.dp),
+                                verticalArrangement = Arrangement.spacedBy(5.dp)
+                            ) {
+                                Text("重新命名完成", fontWeight = FontWeight.SemiBold)
+                                Text(
+                                    "成功 ${renameResult.succeeded}　失敗 ${renameResult.failed}",
+                                    fontSize = 12.sp
+                                )
+                                renameResult.details.take(20).forEach { line ->
+                                    Text(
+                                        line,
+                                        fontSize = 10.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                                if (renameResult.details.size > 20) {
+                                    Text(
+                                        "其餘 ${renameResult.details.size - 20} 筆未顯示",
+                                        fontSize = 10.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if (result == null) {
+                    if (singleItem != null) {
+                        item {
+                            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Text(
+                                    singleItem.name,
+                                    fontSize = 11.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                OutlinedTextField(
+                                    value = singleBase,
+                                    onValueChange = { singleBase = it },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    singleLine = true,
+                                    label = { Text("主檔名") }
+                                )
+                                val ext = filenameExtensionWithDot(singleItem.name)
+                                if (ext.isNotEmpty()) {
+                                    Text(
+                                        "副檔名固定保留：$ext",
+                                        fontSize = 11.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                        }
+                    } else {
+                        item {
+                            Text(
+                                "命名方式",
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+
+                        items(FilenameBatchMode.entries, key = { it.name }) { option ->
+                            Surface(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { mode = option },
+                                shape = RoundedCornerShape(15.dp),
+                                color = MaterialTheme.colorScheme.surfaceVariant.copy(
+                                    alpha = if (mode == option) 0.55f else 0.28f
+                                )
+                            ) {
+                                Row(
+                                    Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    RadioButton(
+                                        selected = mode == option,
+                                        onClick = { mode = option }
+                                    )
+                                    Column(Modifier.padding(start = 3.dp)) {
+                                        Text(
+                                            option.label,
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.Medium
+                                        )
+                                        Text(
+                                            option.description,
+                                            fontSize = 10.sp,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        when (mode) {
+                            FilenameBatchMode.PREFIX_SEQUENCE -> {
+                                item {
+                                    OutlinedTextField(
+                                        value = prefix,
+                                        onValueChange = { prefix = it },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        singleLine = true,
+                                        label = { Text("前綴") }
+                                    )
+                                }
+                                item {
+                                    OutlinedTextField(
+                                        value = startNumber,
+                                        onValueChange = { value ->
+                                            if (value.all { it.isDigit() }) startNumber = value
+                                        },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        singleLine = true,
+                                        label = { Text("起始編號") }
+                                    )
+                                }
+                            }
+                            FilenameBatchMode.CAPTURE_TIME -> Unit
+                            FilenameBatchMode.KEEP_ORIGINAL -> {
+                                item {
+                                    OutlinedTextField(
+                                        value = prefix,
+                                        onValueChange = { prefix = it },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        singleLine = true,
+                                        label = { Text("前綴") }
+                                    )
+                                }
+                                item {
+                                    OutlinedTextField(
+                                        value = suffix,
+                                        onValueChange = { suffix = it },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        singleLine = true,
+                                        label = { Text("後綴") }
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    inputError?.let { message ->
+                        item {
+                            Text(
+                                message,
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.error
+                            )
+                        }
+                    }
+
+                    notice?.let { message ->
+                        item {
+                            Text(
+                                message,
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+
+                    if (inputError == null) {
+                        item {
+                            Text(
+                                when {
+                                    previewLoading -> "正在檢查檔名…"
+                                    errorCount > 0 -> "預覽・有 $errorCount 項需要修正"
+                                    changedCount == 0 -> "預覽・檔名沒有變更"
+                                    else -> "預覽・將修改 $changedCount 項"
+                                },
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+
+                        items(previews.take(80), key = { it.item.key }) { preview ->
+                            Surface(
+                                shape = RoundedCornerShape(13.dp),
+                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+                            ) {
+                                Column(
+                                    Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                                ) {
+                                    Text(
+                                        preview.item.name,
+                                        fontSize = 10.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    Text(
+                                        "→ " + preview.newName,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Medium
+                                    )
+                                    preview.error?.let { error ->
+                                        Text(
+                                            error,
+                                            fontSize = 10.sp,
+                                            color = MaterialTheme.colorScheme.error
+                                        )
+                                    }
+                                    if (!preview.changed && preview.error == null) {
+                                        Text(
+                                            "檔名相同，不會修改",
+                                            fontSize = 9.sp,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        if (previews.size > 80) {
+                            item {
+                                Text(
+                                    "先顯示前 80 項預覽；執行時會處理全部 ${previews.size} 項。",
+                                    fontSize = 10.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+
+                        item {
+                            Text(
+                                "副檔名一律保留。系統會檢查重名、非法字元與過長檔名。重新命名只修改檔案名稱，不重新編碼或重存影像像素。",
+                                fontSize = 10.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+
+                        item {
+                            TextButton(
+                                enabled = canRename,
+                                onClick = { confirmOpen = true },
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text(
+                                    if (processing) "處理中…"
+                                    else "重新命名 $changedCount 項"
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                enabled = !processing,
+                onClick = onDismiss
+            ) { Text("完成") }
+        }
+    )
+
+    if (confirmOpen) {
+        AlertDialog(
+            onDismissRequest = { confirmOpen = false },
+            title = { Text("確認重新命名") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                    Text("將修改 $changedCount 項檔名。")
+                    Text(
+                        "只會重新命名檔案，不會重新編碼、壓縮或改變照片畫質。",
+                        fontSize = 12.sp
+                    )
+                    Text(
+                        "副檔名保持原樣。",
+                        fontSize = 11.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        confirmOpen = false
+                        requestApply()
+                    }
+                ) { Text("開始修改") }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmOpen = false }) { Text("取消") }
+            }
+        )
+    }
+}
+
+private fun filenameBase(name: String): String {
+    val dot = name.lastIndexOf('.')
+    return if (dot > 0 && dot < name.length) name.substring(0, dot) else name
+}
+
+private fun filenameExtensionWithDot(name: String): String {
+    val dot = name.lastIndexOf('.')
+    return if (dot > 0 && dot < name.lastIndex) name.substring(dot) else ""
 }
 
 private enum class OrganizerDialogKind { TIME, GPS, FILENAME, DETAIL, HISTORY }
