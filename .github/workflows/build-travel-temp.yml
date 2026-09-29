@@ -187,6 +187,9 @@ jobs:
           if [ -f /tmp/ajo-travel-notebook-v1.0.8.apk ]; then
             cp /tmp/ajo-travel-notebook-v1.0.8.apk travel_output/ajo-travel-notebook-v1.0.8.apk
           fi
+          if [ -f /tmp/ajo-travel-notebook-v1.0.8-source.zip ]; then
+            cp /tmp/ajo-travel-notebook-v1.0.8-source.zip travel_output/ajo-travel-notebook-v1.0.8-source.zip
+          fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -- travel_output
