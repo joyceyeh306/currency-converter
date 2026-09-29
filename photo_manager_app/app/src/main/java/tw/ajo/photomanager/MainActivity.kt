@@ -465,7 +465,7 @@ private fun AlbumApp(repository: AlbumRepository, resumeVersion: Int) {
                         "目前版本：${BuildConfig.VERSION_NAME}\n" +
                         "版本代碼：${BuildConfig.VERSION_CODE}\n\n" +
                         "穩定母版：${BuildConfig.STABLE_BASELINE}\n\n" +
-                        "本次更新：修正日期時間檔名冒號造成的驗證失敗\n" +
+                        "本次更新：日期時間檔名改為 yyyy-MM-dd HH_mm_ss\n" +
                         "製作日期：2026-09-29"
                 )
             },
