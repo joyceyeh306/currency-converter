@@ -106,6 +106,21 @@ data class FilenameRenameResult(
     val details: List<String>
 )
 
+data class PhotoTimePreview(
+    val item: MediaItem,
+    val currentTime: LocalDateTime,
+    val newTime: LocalDateTime,
+    val error: String?,
+    val changed: Boolean
+)
+
+data class PhotoTimeResult(
+    val total: Int,
+    val succeeded: Int,
+    val failed: Int,
+    val details: List<String>
+)
+
 class AlbumRepository(private val context: Context) {
     private val resolver = context.contentResolver
     private val filename14 = Pattern.compile("((?:19|20)\\d{12})")
@@ -938,6 +953,158 @@ class AlbumRepository(private val context: Context) {
             )
         } else {
             null
+        }
+    }
+
+    fun createPhotoTimeWriteRequest(items: List<MediaItem>): PendingIntent? {
+        if (items.isEmpty()) return null
+        return if (Build.VERSION.SDK_INT >= 30) {
+            MediaStore.createWriteRequest(
+                resolver,
+                items.map { it.uri }.distinct().take(2000)
+            )
+        } else {
+            null
+        }
+    }
+
+    fun previewPhotoTimes(
+        requests: List<Pair<MediaItem, LocalDateTime>>
+    ): List<PhotoTimePreview> {
+        return requests.map { (item, target) ->
+            val error = when {
+                item.kind != MediaKind.IMAGE -> "影片暫不支援修改拍攝時間"
+                !supportsExifTimeWrite(item) -> "這個圖片格式暫不支援安全寫入拍攝時間"
+                else -> null
+            }
+            PhotoTimePreview(
+                item = item,
+                currentTime = item.wallTime,
+                newTime = target,
+                error = error,
+                changed = item.wallTime != target
+            )
+        }
+    }
+
+    fun applyPhotoTimes(
+        previews: List<PhotoTimePreview>
+    ): PhotoTimeResult {
+        val runnable = previews.filter { it.error == null && it.changed }
+        if (runnable.isEmpty()) {
+            return PhotoTimeResult(
+                total = previews.size,
+                succeeded = 0,
+                failed = previews.count { it.error != null },
+                details = listOf("沒有需要修改的拍攝時間。")
+            )
+        }
+
+        var succeeded = 0
+        var failed = 0
+        val details = mutableListOf<String>()
+        val displayFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss", Locale.US)
+
+        runnable.forEach { preview ->
+            val item = preview.item
+            val target = preview.newTime
+            try {
+                resolver.openFileDescriptor(item.uri, "rw")?.use { pfd ->
+                    val exif = ExifInterface(pfd.fileDescriptor)
+                    val value = target.format(exifFormatter)
+                    exif.setAttribute(ExifInterface.TAG_DATETIME_ORIGINAL, value)
+                    exif.setAttribute(ExifInterface.TAG_DATETIME_DIGITIZED, value)
+                    exif.setAttribute(ExifInterface.TAG_DATETIME, value)
+                    exif.saveAttributes()
+                } ?: throw IllegalStateException("無法開啟照片")
+
+                val verified = readOriginalTime(item.uri)
+                if (verified != target) {
+                    failed += 1
+                    val actual = verified?.format(displayFormatter) ?: "讀不到"
+                    details.add(
+                        item.name + "：修改後驗證失敗（實際：" + actual + "）"
+                    )
+                    return@forEach
+                }
+
+                try {
+                    val dateTaken = target
+                        .atZone(ZoneId.systemDefault())
+                        .toInstant()
+                        .toEpochMilli()
+                    resolver.update(
+                        item.uri,
+                        ContentValues().apply {
+                            put(MediaStore.MediaColumns.DATE_TAKEN, dateTaken)
+                        },
+                        null,
+                        null
+                    )
+                } catch (_: Exception) {
+                    // EXIF 已成功；MediaStore 索引可在重新掃描時更新。
+                }
+
+                val modified = currentModifiedMillis(item)
+                if (modified > 0L) {
+                    saveIndex(item.key, modified, target)
+                } else {
+                    timeIndexPrefs.edit().remove(cacheKey(item.key)).apply()
+                }
+
+                succeeded += 1
+                details.add(
+                    item.name + "：" +
+                        preview.currentTime.format(displayFormatter) +
+                        " → " + target.format(displayFormatter)
+                )
+            } catch (security: SecurityException) {
+                failed += 1
+                details.add(item.name + "：系統尚未授權修改")
+            } catch (e: Exception) {
+                failed += 1
+                details.add(
+                    item.name + "：修改失敗（" + (e.message ?: "未知錯誤") + "）"
+                )
+            }
+        }
+
+        if (succeeded > 0) {
+            appendOrganizerHistory(
+                "修改拍攝時間 " + succeeded + " 項" +
+                    if (failed > 0) "（另有 " + failed + " 項失敗）" else ""
+            )
+        }
+
+        return PhotoTimeResult(
+            total = previews.size,
+            succeeded = succeeded,
+            failed = failed,
+            details = details
+        )
+    }
+
+    private fun supportsExifTimeWrite(item: MediaItem): Boolean {
+        val mime = item.mime.lowercase(Locale.ROOT)
+        return mime == "image/jpeg" ||
+            mime == "image/jpg" ||
+            mime == "image/png" ||
+            mime == "image/webp"
+    }
+
+    private fun currentModifiedMillis(item: MediaItem): Long {
+        return try {
+            resolver.query(
+                item.uri,
+                arrayOf(MediaStore.MediaColumns.DATE_MODIFIED),
+                null,
+                null,
+                null
+            )?.use { cursor ->
+                if (cursor.moveToFirst()) cursor.longOrZero(0) * 1000L else 0L
+            } ?: 0L
+        } catch (_: Exception) {
+            0L
         }
     }
 
