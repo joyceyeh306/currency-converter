@@ -65,6 +65,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.time.Duration
 import java.time.format.DateTimeFormatter
 
 @Composable
@@ -76,7 +77,8 @@ fun PhotoOrganizerScreen(
     onSearchKeyword: (String) -> Unit,
     onKeywordsChanged: () -> Unit,
     onKeywordEditingFinished: () -> Unit,
-    onFilesRenamed: () -> Unit
+    onFilesRenamed: () -> Unit,
+    onPhotoTimesChanged: () -> Unit
 ) {
     BackHandler { onBack() }
 
@@ -85,6 +87,7 @@ fun PhotoOrganizerScreen(
     var localVersion by remember { mutableIntStateOf(0) }
     var keywordDialog by remember { mutableStateOf(false) }
     var filenameDialog by remember { mutableStateOf(false) }
+    var timeDialog by remember { mutableStateOf(false) }
     var simpleDialog by remember { mutableStateOf<OrganizerDialogKind?>(null) }
 
     val selectedKeywordCounts = remember(selectedKeys, localVersion) {
@@ -180,9 +183,9 @@ fun PhotoOrganizerScreen(
                         modifier = Modifier.weight(1f),
                         icon = Icons.Default.AccessTime,
                         title = "拍攝時間",
-                        subtitle = "查看時間與來源",
+                        subtitle = "查看・批次修改時間",
                         enabled = selectedItems.isNotEmpty(),
-                        onClick = { simpleDialog = OrganizerDialogKind.TIME }
+                        onClick = { timeDialog = true }
                     )
                     OrganizerToolCard(
                         modifier = Modifier.weight(1f),
@@ -275,6 +278,15 @@ fun PhotoOrganizerScreen(
             repository = repository,
             onDismiss = { filenameDialog = false },
             onRenamed = onFilesRenamed
+        )
+    }
+
+    if (timeDialog) {
+        PhotoTimeEditDialog(
+            selectedItems = selectedItems,
+            repository = repository,
+            onDismiss = { timeDialog = false },
+            onChanged = onPhotoTimesChanged
         )
     }
 
@@ -561,6 +573,453 @@ private fun KeywordEditorDialog(
     )
 }
 
+
+
+private enum class PhotoTimeBatchMode(
+    val label: String,
+    val description: String
+) {
+    SHIFT_ALL(
+        "整批平移・保留時間間隔",
+        "指定第一張的正確時間，其餘照片跟著平移相同差值"
+    ),
+    SAME_TIME(
+        "全部設成同一時間",
+        "所有可修改的照片都使用同一個拍攝時間"
+    )
+}
+
+@Composable
+private fun PhotoTimeEditDialog(
+    selectedItems: List<MediaItem>,
+    repository: AlbumRepository,
+    onDismiss: () -> Unit,
+    onChanged: () -> Unit
+) {
+    val scope = rememberCoroutineScope()
+    val formatter = remember {
+        DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
+    }
+    val orderedItems = remember(selectedItems) {
+        selectedItems.sortedWith(
+            compareBy<MediaItem> { it.wallTime }.thenBy { it.name.lowercase() }
+        )
+    }
+    val first = orderedItems.firstOrNull()
+    var mode by remember { mutableStateOf(PhotoTimeBatchMode.SHIFT_ALL) }
+    var targetText by remember(first?.key, first?.wallTime) {
+        mutableStateOf(first?.wallTime?.format(formatter).orEmpty())
+    }
+    var processing by remember { mutableStateOf(false) }
+    var confirmOpen by remember { mutableStateOf(false) }
+    var pendingApply by remember { mutableStateOf<List<PhotoTimePreview>>(emptyList()) }
+    var result by remember { mutableStateOf<PhotoTimeResult?>(null) }
+    var notice by remember { mutableStateOf<String?>(null) }
+
+    val parsedTarget = remember(targetText) {
+        try {
+            java.time.LocalDateTime.parse(targetText.trim(), formatter)
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    val requests = remember(orderedItems, parsedTarget, mode) {
+        if (first == null || parsedTarget == null) {
+            emptyList()
+        } else {
+            when (mode) {
+                PhotoTimeBatchMode.SHIFT_ALL -> {
+                    val delta = Duration.between(first.wallTime, parsedTarget)
+                    orderedItems.map { item ->
+                        item to item.wallTime.plus(delta)
+                    }
+                }
+                PhotoTimeBatchMode.SAME_TIME -> {
+                    orderedItems.map { item -> item to parsedTarget }
+                }
+            }
+        }
+    }
+
+    val previews = remember(requests) {
+        repository.previewPhotoTimes(requests)
+    }
+    val skippedCount = previews.count { it.error != null }
+    val changedCount = previews.count { it.error == null && it.changed }
+    val unchangedCount = previews.count { it.error == null && !it.changed }
+    val canApply =
+        parsedTarget != null &&
+        changedCount > 0 &&
+        !processing &&
+        result == null
+
+    fun applyChanges(list: List<PhotoTimePreview>) {
+        processing = true
+        notice = null
+        scope.launch {
+            val applied = withContext(Dispatchers.IO) {
+                repository.applyPhotoTimes(list)
+            }
+            result = applied
+            processing = false
+            pendingApply = emptyList()
+            if (applied.succeeded > 0) {
+                onChanged()
+            }
+        }
+    }
+
+    val writeLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartIntentSenderForResult()
+    ) { activityResult ->
+        val list = pendingApply
+        if (activityResult.resultCode == Activity.RESULT_OK && list.isNotEmpty()) {
+            applyChanges(list)
+        } else {
+            pendingApply = emptyList()
+            notice = "已取消，拍攝時間沒有修改。"
+        }
+    }
+
+    fun requestApply() {
+        val changed = previews.filter { it.error == null && it.changed }
+        if (changed.isEmpty()) return
+        val request = repository.createPhotoTimeWriteRequest(changed.map { it.item })
+        if (request == null) {
+            applyChanges(changed)
+        } else {
+            pendingApply = changed
+            writeLauncher.launch(
+                IntentSenderRequest.Builder(request.intentSender).build()
+            )
+        }
+    }
+
+    AlertDialog(
+        onDismissRequest = {
+            if (!processing) onDismiss()
+        },
+        title = {
+            Column {
+                Text(
+                    if (orderedItems.size == 1) "修改拍攝時間"
+                    else "批次修改拍攝時間"
+                )
+                Text(
+                    "已選 ${orderedItems.size} 項・修改前先預覽",
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        },
+        text = {
+            LazyColumn(
+                modifier = Modifier.heightIn(max = 590.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                result?.let { timeResult ->
+                    item {
+                        Surface(
+                            shape = RoundedCornerShape(16.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                        ) {
+                            Column(
+                                Modifier.padding(13.dp),
+                                verticalArrangement = Arrangement.spacedBy(5.dp)
+                            ) {
+                                Text("拍攝時間修改完成", fontWeight = FontWeight.SemiBold)
+                                Text(
+                                    "成功 ${timeResult.succeeded}　失敗 ${timeResult.failed}",
+                                    fontSize = 12.sp
+                                )
+                                timeResult.details.take(20).forEach { line ->
+                                    Text(
+                                        line,
+                                        fontSize = 10.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                                if (timeResult.details.size > 20) {
+                                    Text(
+                                        "其餘 ${timeResult.details.size - 20} 筆未顯示",
+                                        fontSize = 10.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if (result == null) {
+                    if (orderedItems.size > 1) {
+                        item {
+                            Text(
+                                "修改方式",
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+                        items(PhotoTimeBatchMode.entries, key = { it.name }) { option ->
+                            Surface(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { mode = option },
+                                shape = RoundedCornerShape(15.dp),
+                                color = MaterialTheme.colorScheme.surfaceVariant.copy(
+                                    alpha = if (mode == option) 0.55f else 0.28f
+                                )
+                            ) {
+                                Row(
+                                    Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    RadioButton(
+                                        selected = mode == option,
+                                        onClick = { mode = option }
+                                    )
+                                    Column(Modifier.padding(start = 3.dp)) {
+                                        Text(
+                                            option.label,
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.Medium
+                                        )
+                                        Text(
+                                            option.description,
+                                            fontSize = 10.sp,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    item {
+                        OutlinedTextField(
+                            value = targetText,
+                            onValueChange = { targetText = it },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true,
+                            label = {
+                                Text(
+                                    if (orderedItems.size == 1 ||
+                                        mode == PhotoTimeBatchMode.SAME_TIME
+                                    ) "新的拍攝時間"
+                                    else "第一張的新拍攝時間"
+                                )
+                            }
+                        )
+                    }
+
+                    item {
+                        Text(
+                            "格式：yyyy-MM-dd HH:mm:ss",
+                            fontSize = 10.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+
+                    if (parsedTarget == null) {
+                        item {
+                            Text(
+                                "日期時間格式不正確",
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.error
+                            )
+                        }
+                    } else {
+                        item {
+                            Surface(
+                                shape = RoundedCornerShape(15.dp),
+                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.38f)
+                            ) {
+                                Column(
+                                    Modifier.padding(12.dp),
+                                    verticalArrangement = Arrangement.spacedBy(3.dp)
+                                ) {
+                                    Text(
+                                        "可修改 $changedCount 張",
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                    if (skippedCount > 0) {
+                                        Text(
+                                            "略過 $skippedCount 項：影片或暫不支援的圖片格式",
+                                            fontSize = 10.sp,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                    if (unchangedCount > 0) {
+                                        Text(
+                                            "$unchangedCount 項時間原本就相同",
+                                            fontSize = 10.sp,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        item {
+                            Text(
+                                "預覽",
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+
+                        items(previews.take(60), key = { it.item.key }) { preview ->
+                            Surface(
+                                shape = RoundedCornerShape(13.dp),
+                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+                            ) {
+                                Column(
+                                    Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                                ) {
+                                    Text(
+                                        preview.item.name,
+                                        fontSize = 10.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    if (preview.error != null) {
+                                        Text(
+                                            "略過：" + preview.error,
+                                            fontSize = 10.sp,
+                                            color = MaterialTheme.colorScheme.error
+                                        )
+                                    } else {
+                                        Text(
+                                            preview.currentTime.format(formatter) +
+                                                " → " + preview.newTime.format(formatter),
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Medium
+                                        )
+                                        if (!preview.changed) {
+                                            Text(
+                                                "時間相同，不會修改",
+                                                fontSize = 9.sp,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        if (previews.size > 60) {
+                            item {
+                                Text(
+                                    "先顯示前 60 項預覽；執行時會處理全部 ${previews.size} 項。",
+                                    fontSize = 10.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+
+                        item {
+                            Text(
+                                "會寫入 EXIF 原始拍攝時間、數位化時間與影像時間，並同步 Android 拍攝時間索引。只修改 metadata，不重新編碼照片像素。",
+                                fontSize = 10.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+
+                    notice?.let { message ->
+                        item {
+                            Text(
+                                message,
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            if (result != null) {
+                TextButton(
+                    enabled = !processing,
+                    onClick = onDismiss
+                ) { Text("完成") }
+            } else {
+                TextButton(
+                    enabled = canApply,
+                    onClick = { confirmOpen = true }
+                ) {
+                    Text(
+                        if (processing) "處理中…"
+                        else "修改 $changedCount 張"
+                    )
+                }
+            }
+        },
+        dismissButton = {
+            if (result == null) {
+                TextButton(
+                    enabled = !processing,
+                    onClick = onDismiss
+                ) { Text("取消") }
+            }
+        }
+    )
+
+    if (confirmOpen) {
+        AlertDialog(
+            onDismissRequest = { confirmOpen = false },
+            title = { Text("確認修改拍攝時間") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                    Text("將修改 $changedCount 張照片的拍攝時間。")
+                    if (mode == PhotoTimeBatchMode.SHIFT_ALL && first != null && parsedTarget != null) {
+                        val delta = Duration.between(first.wallTime, parsedTarget)
+                        Text(
+                            "整批差值：" + formatDurationDelta(delta),
+                            fontSize = 12.sp
+                        )
+                    }
+                    Text(
+                        "只修改照片 metadata，不重新編碼、壓縮或改變影像畫質。",
+                        fontSize = 12.sp
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        confirmOpen = false
+                        requestApply()
+                    }
+                ) { Text("開始修改") }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmOpen = false }) { Text("取消") }
+            }
+        )
+    }
+}
+
+private fun formatDurationDelta(delta: Duration): String {
+    val seconds = delta.seconds
+    val sign = if (seconds >= 0) "+" else "-"
+    var remaining = kotlin.math.abs(seconds)
+    val days = remaining / 86400
+    remaining %= 86400
+    val hours = remaining / 3600
+    remaining %= 3600
+    val minutes = remaining / 60
+    val secs = remaining % 60
+
+    val parts = mutableListOf<String>()
+    if (days > 0) parts.add("${days}天")
+    if (hours > 0) parts.add("${hours}小時")
+    if (minutes > 0) parts.add("${minutes}分")
+    if (secs > 0 || parts.isEmpty()) parts.add("${secs}秒")
+    return sign + parts.joinToString(" ")
+}
 
 private enum class FilenameBatchMode(
     val label: String,
