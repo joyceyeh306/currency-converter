@@ -27,7 +27,7 @@ jobs:
       - name: Verify exact stable1 ancestry and protected files
         run: |
           git merge-base --is-ancestor 8dd319049a5170e61a706a30b60575337a044cea HEAD
-          git diff --exit-code 8dd319049a5170e61a706a30b60575337a044cea -- photo_manager_app/app/src/main/java/tw/ajo/photomanager/AlbumData.kt photo_manager_app/app/src/main/java/tw/ajo/photomanager/ViewerScreen.kt photo_manager_app/app/src/main/assets photo_manager_app/app/src/main/AndroidManifest.xml
+          git diff --exit-code 8dd319049a5170e61a706a30b60575337a044cea -- photo_manager_app/app/src/main/java/tw/ajo/photomanager/MapScreens.kt photo_manager_app/app/src/main/java/tw/ajo/photomanager/ViewerScreen.kt photo_manager_app/app/src/main/assets photo_manager_app/app/src/main/AndroidManifest.xml
       - name: Install SDK and restore icon
         run: |
           SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
