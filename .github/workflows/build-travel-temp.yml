@@ -178,20 +178,39 @@ jobs:
           PY
           node --check /tmp/travel-index-v111.js
 
-      - name: Package v1.0.11 complete source master
+      - name: Apply v1.0.12 sticky day bar and expense width fix
+        run: |
+          python3 -m py_compile travel_build/apply-v112.py
+          python3 travel_build/apply-v112.py
+          grep -q "versionName '1.0.12'" /tmp/ajo/ajo_build_min/app/build.gradle
+          grep -q '.topbar.day-sticky{position:sticky' /tmp/ajo/ajo_build_min/app/src/main/assets/index.html
+          grep -q "daySticky=route.tab==='trips'&&route.dayId" /tmp/ajo/ajo_build_min/app/src/main/assets/index.html
+          grep -q 'grid-template-columns:minmax(0,1fr) 116px' /tmp/ajo/ajo_build_min/app/src/main/assets/index.html
+          grep -q 'grid-template-columns:minmax(0,1fr) 106px' /tmp/ajo/ajo_build_min/app/src/main/assets/index.html
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          s=Path('/tmp/ajo/ajo_build_min/app/src/main/assets/index.html').read_text()
+          m=re.search(r'<script>(.*)</script>',s,re.S)
+          if not m: raise SystemExit('inline script not found')
+          Path('/tmp/travel-index-v112.js').write_text(m.group(1))
+          PY
+          node --check /tmp/travel-index-v112.js
+
+      - name: Package v1.0.12 complete source master
         run: |
           cat > /tmp/ajo/ajo_build_min/SOURCE_MASTER_README.txt <<'EOF'
-          自助旅行筆記 v1.0.11 完整原始母檔
+          自助旅行筆記 v1.0.12 完整原始母檔
           ==================================
-          版本：1.0.11
+          版本：1.0.12
           Android package：tw.ajo.travelnotebook
 
-          這份 ZIP 是經過 v1.0.1～v1.0.11 所有修正後的「完整展開原始碼」，
+          這份 ZIP 是經過 v1.0.1～v1.0.12 所有修正後的「完整展開原始碼」，
           可直接當作下一個對話／下一版開發的唯一母版。
           不需要重新套用 travel_build 的歷史 patch 檔。
 
           新對話建議說法：
-          「請以我上傳的『自助旅行筆記 v1.0.11 完整原始母檔』作為唯一母版，
+          「請以我上傳的『自助旅行筆記 v1.0.12 完整原始母檔』作為唯一母版，
           不要從舊 APK 或更早版本重建。先完整讀取原始碼後，再依我的新需求修改。」
 
           v1.0.8 主要狀態：
@@ -204,13 +223,14 @@ jobs:
           - 新增／編輯花費改用獨立視窗，刪除只在編輯畫面出現
           - 行程時間改為 24 小時制滾輪式時間選擇器
           - v1.0.10：時間滾輪改為直接內嵌在新增／編輯行程表單，不再開第二層底部視窗
-          - v1.0.11：禁止整頁左右滑動；每日頁頂端不再 sticky 遮住行程；花費長備註固定在左欄最多兩行，不再壓到右側金額
+          - v1.0.11：禁止整頁左右滑動；花費長備註固定在左欄最多兩行，不再壓到右側金額
+          - v1.0.12：只有每日頁最上方黃色日期列固定；提醒／備忘／附件會正常捲走；花費備註仍維持兩行但可用寬度加大
           - 保留 v1.0.7 縮小後的桌面圖示
           - v1.0.6 的提醒、內建 PDF/圖片附件檢視、交通／票券等功能均保留
           EOF
           cd /tmp/ajo
-          zip -qr /tmp/ajo-travel-notebook-v1.0.11-source.zip ajo_build_min
-          test -s /tmp/ajo-travel-notebook-v1.0.11-source.zip
+          zip -qr /tmp/ajo-travel-notebook-v1.0.12-source.zip ajo_build_min
+          test -s /tmp/ajo-travel-notebook-v1.0.12-source.zip
 
       - name: Build unsigned release APK
         id: buildapk
@@ -226,15 +246,15 @@ jobs:
           curl -fsSL --retry 5 --retry-all-errors 'https://raw.githubusercontent.com/aosp-mirror/platform_build/main/target/product/security/testkey.pk8' -o /tmp/testkey.pk8
           curl -fsSL --retry 5 --retry-all-errors 'https://raw.githubusercontent.com/aosp-mirror/platform_build/main/target/product/security/testkey.x509.pem' -o /tmp/testkey.x509.pem
           BT="$ANDROID_HOME/build-tools/35.0.0"
-          "$BT/zipalign" -f -p 4 /tmp/ajo/ajo_build_min/app/build/outputs/apk/release/app-release-unsigned.apk /tmp/ajo-v111-aligned.apk
-          "$BT/apksigner" sign --key /tmp/testkey.pk8 --cert /tmp/testkey.x509.pem --out /tmp/ajo-travel-notebook-v1.0.11.apk /tmp/ajo-v111-aligned.apk
-          "$BT/apksigner" verify --verbose --print-certs /tmp/ajo-travel-notebook-v1.0.11.apk | tee /tmp/apk-signature.txt
+          "$BT/zipalign" -f -p 4 /tmp/ajo/ajo_build_min/app/build/outputs/apk/release/app-release-unsigned.apk /tmp/ajo-v112-aligned.apk
+          "$BT/apksigner" sign --key /tmp/testkey.pk8 --cert /tmp/testkey.x509.pem --out /tmp/ajo-travel-notebook-v1.0.12.apk /tmp/ajo-v112-aligned.apk
+          "$BT/apksigner" verify --verbose --print-certs /tmp/ajo-travel-notebook-v1.0.12.apk | tee /tmp/apk-signature.txt
 
       - name: Publish result to travel branch
         if: always()
         run: |
           mkdir -p travel_output
-          printf 'build=%s\nsign=%s\nsource=%s\nversion=1.0.11\n' '${{ steps.buildapk.outcome }}' '${{ steps.signapk.outcome }}' '${{ github.sha }}' > travel_output/status.txt
+          printf 'build=%s\nsign=%s\nsource=%s\nversion=1.0.12\n' '${{ steps.buildapk.outcome }}' '${{ steps.signapk.outcome }}' '${{ github.sha }}' > travel_output/status.txt
           if [ -f /tmp/ajo-build.log ]; then tail -n 250 /tmp/ajo-build.log > travel_output/build-log.txt; fi
           if [ -f /tmp/apk-signature.txt ]; then cat /tmp/apk-signature.txt > travel_output/signature.txt; fi
           if [ -f /tmp/ajo/ajo_build_min/app/src/main/assets/index.html ]; then
@@ -243,16 +263,16 @@ jobs:
           if [ -f /tmp/ajo/ajo_build_min/app/src/main/java/tw/ajo/travelnotebook/MainActivity.java ]; then
             cp /tmp/ajo/ajo_build_min/app/src/main/java/tw/ajo/travelnotebook/MainActivity.java travel_output/current-MainActivity.java
           fi
-          if [ -f /tmp/ajo-travel-notebook-v1.0.11.apk ]; then
-            cp /tmp/ajo-travel-notebook-v1.0.11.apk travel_output/ajo-travel-notebook-v1.0.11.apk
+          if [ -f /tmp/ajo-travel-notebook-v1.0.12.apk ]; then
+            cp /tmp/ajo-travel-notebook-v1.0.12.apk travel_output/ajo-travel-notebook-v1.0.12.apk
           fi
-          if [ -f /tmp/ajo-travel-notebook-v1.0.11-source.zip ]; then
-            cp /tmp/ajo-travel-notebook-v1.0.11-source.zip travel_output/ajo-travel-notebook-v1.0.11-source.zip
+          if [ -f /tmp/ajo-travel-notebook-v1.0.12-source.zip ]; then
+            cp /tmp/ajo-travel-notebook-v1.0.12-source.zip travel_output/ajo-travel-notebook-v1.0.12-source.zip
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -- travel_output
-          git commit -m "Travel notebook v1.0.11 stable-signed build" || exit 0
+          git commit -m "Travel notebook v1.0.12 stable-signed build" || exit 0
           git push origin HEAD:travel-notebook-build
 
       - name: Fail if build or signing failed
