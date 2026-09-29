@@ -84,7 +84,8 @@ fun AlbumMapScreen(
     focus: Pair<Double, Double>?,
     nearbyRadiusMeters: Double?,
     onBack: () -> Unit,
-    onOpenMedia: (MediaItem) -> Unit
+    onOpenMedia: (MediaItem) -> Unit,
+    onOpenCluster: (List<MediaItem>) -> Unit
 ) {
     val context = LocalContext.current
     BackHandler { onBack() }
@@ -258,12 +259,9 @@ fun AlbumMapScreen(
                             } else {
                                 cluster.items.size.toString() + " 項"
                             }
-                            setOnMarkerClickListener { _, mapRef ->
-                                if (cluster.items.size > 8 && mapRef.zoomLevelDouble < 14.5) {
-                                    mapRef.controller.animateTo(position)
-                                    mapRef.controller.setZoom(
-                                        (mapRef.zoomLevelDouble + 2.0).coerceAtMost(18.0)
-                                    )
+                            setOnMarkerClickListener { _, _ ->
+                                if (cluster.items.size > 1) {
+                                    onOpenCluster(cluster.items.map { it.item })
                                 } else {
                                     selected = cluster.items
                                 }
