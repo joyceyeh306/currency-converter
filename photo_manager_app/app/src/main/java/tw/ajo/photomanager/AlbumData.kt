@@ -1031,7 +1031,7 @@ class AlbumRepository(private val context: Context) {
                             item = item,
                             currentTime = item.wallTime,
                             newTime = item.wallTime,
-                            error = "無 GPS 時間－略過",
+                            error = "無 GPS 時間",
                             changed = false
                         )
                     } else if (gps.lat == null || gps.lon == null) {
@@ -1039,7 +1039,7 @@ class AlbumRepository(private val context: Context) {
                             item = item,
                             currentTime = item.wallTime,
                             newTime = item.wallTime,
-                            error = "無 GPS 座標－略過",
+                            error = "無 GPS 座標",
                             changed = false
                         )
                     } else {
@@ -1063,7 +1063,7 @@ class AlbumRepository(private val context: Context) {
                                 item = item,
                                 currentTime = item.wallTime,
                                 newTime = item.wallTime,
-                                error = "無法取得拍攝地時區－略過",
+                                error = "無法取得拍攝地時區",
                                 changed = false
                             )
                         } else {
@@ -1081,7 +1081,7 @@ class AlbumRepository(private val context: Context) {
                                     item = item,
                                     currentTime = item.wallTime,
                                     newTime = item.wallTime,
-                                    error = "拍攝地時區無法換算－略過",
+                                    error = "拍攝地時區無法換算",
                                     changed = false
                                 )
                             } else {
