@@ -10,6 +10,7 @@ import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -20,9 +21,12 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
@@ -36,7 +40,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -48,6 +54,9 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.osmdroid.config.Configuration
 import org.osmdroid.events.MapEventsReceiver
+import org.osmdroid.events.MapListener
+import org.osmdroid.events.ScrollEvent
+import org.osmdroid.events.ZoomEvent
 import org.osmdroid.tileprovider.tilesource.TileSourceFactory
 import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.MapView
@@ -332,7 +341,7 @@ fun GpsEditDialog(
                                 )
 
                                 Text(
-                                    "拖曳圖釘或點地圖即可微調。",
+                                    "拖曳底下的地圖，中央圖釘固定不動；用 ＋／－ 縮放。",
                                     fontSize = 10.sp,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     modifier = Modifier.padding(horizontal = 4.dp)
@@ -689,14 +698,21 @@ private fun GpsTargetMap(
 ) {
     val context = LocalContext.current
     val initial = initialTarget ?: target
+    val currentOnTargetChange by rememberUpdatedState(onTargetChange)
 
     val mapView = remember(initial?.first, initial?.second) {
         Configuration.getInstance().userAgentValue = context.packageName
         MapView(context).apply {
             setTileSource(TileSourceFactory.MAPNIK)
-            setMultiTouchControls(true)
+
+            // GPS 微調以「固定中央圖釘、移動地圖」為主。
+            // 關閉雙指縮放，避免 OSMDroid 以手勢中心縮放而讓選定位置飄移。
+            setMultiTouchControls(false)
+            setBuiltInZoomControls(true)
+
             minZoomLevel = 2.5
             maxZoomLevel = 20.0
+
             if (initial != null) {
                 controller.setZoom(17.0)
                 controller.setCenter(GeoPoint(initial.first, initial.second))
@@ -704,6 +720,29 @@ private fun GpsTargetMap(
                 controller.setZoom(2.5)
                 controller.setCenter(GeoPoint(20.0, 0.0))
             }
+
+            addMapListener(
+                object : MapListener {
+                    override fun onScroll(event: ScrollEvent?): Boolean {
+                        val center = mapCenter
+                        currentOnTargetChange(
+                            center.latitude,
+                            center.longitude
+                        )
+                        return false
+                    }
+
+                    override fun onZoom(event: ZoomEvent?): Boolean {
+                        // ＋／－ 縮放以目前地圖中心為準；選定位置不跳到手勢焦點。
+                        val center = mapCenter
+                        currentOnTargetChange(
+                            center.latitude,
+                            center.longitude
+                        )
+                        return false
+                    }
+                }
+            )
         }
     }
 
@@ -715,66 +754,53 @@ private fun GpsTargetMap(
         }
     }
 
-    AndroidView(
-        factory = { mapView },
-        update = { map ->
-            map.overlays.clear()
-
-            map.overlays.add(
-                MapEventsOverlay(
-                    object : MapEventsReceiver {
-                        override fun singleTapConfirmedHelper(p: GeoPoint?): Boolean {
-                            if (p != null) {
-                                onTargetChange(p.latitude, p.longitude)
-                                return true
-                            }
-                            return false
-                        }
-
-                        override fun longPressHelper(p: GeoPoint?): Boolean {
-                            if (p != null) {
-                                onTargetChange(p.latitude, p.longitude)
-                                return true
-                            }
-                            return false
-                        }
-                    }
-                )
-            )
-
-            if (target != null) {
-                val marker = Marker(map).apply {
-                    position = GeoPoint(target.first, target.second)
-                    setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
-                    isDraggable = true
-                    setOnMarkerDragListener(
-                        object : Marker.OnMarkerDragListener {
-                            override fun onMarkerDrag(marker: Marker?) {
-                            }
-
-                            override fun onMarkerDragEnd(marker: Marker?) {
-                                marker?.position?.let { point ->
-                                    onTargetChange(
-                                        point.latitude,
-                                        point.longitude
-                                    )
-                                }
-                            }
-
-                            override fun onMarkerDragStart(marker: Marker?) {
-                            }
-                        }
-                    )
-                }
-                map.overlays.add(marker)
-            }
-
-            map.invalidate()
-        },
+    Box(
         modifier = Modifier
             .fillMaxWidth()
             .height(190.dp)
-    )
+    ) {
+        AndroidView(
+            factory = { mapView },
+            update = { map ->
+                map.overlays.clear()
+
+                map.overlays.add(
+                    MapEventsOverlay(
+                        object : MapEventsReceiver {
+                            override fun singleTapConfirmedHelper(p: GeoPoint?): Boolean {
+                                if (p != null) {
+                                    map.controller.animateTo(p)
+                                    return true
+                                }
+                                return false
+                            }
+
+                            override fun longPressHelper(p: GeoPoint?): Boolean {
+                                if (p != null) {
+                                    map.controller.animateTo(p)
+                                    return true
+                                }
+                                return false
+                            }
+                        }
+                    )
+                )
+
+                map.invalidate()
+            },
+            modifier = Modifier.fillMaxWidth().height(190.dp)
+        )
+
+        // 圖釘固定在畫面中心，不跟地圖一起移動。
+        Icon(
+            imageVector = Icons.Default.LocationOn,
+            contentDescription = "目前選定位置",
+            modifier = Modifier
+                .align(Alignment.Center)
+                .padding(bottom = 20.dp),
+            tint = MaterialTheme.colorScheme.primary
+        )
+    }
 }
 
 private fun parseCoordinatePair(raw: String): Pair<Double, Double>? {
