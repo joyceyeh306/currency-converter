@@ -88,6 +88,7 @@ fun PhotoOrganizerScreen(
     var keywordDialog by remember { mutableStateOf(false) }
     var filenameDialog by remember { mutableStateOf(false) }
     var timeDialog by remember { mutableStateOf(false) }
+    var gpsDialog by remember { mutableStateOf(false) }
     var simpleDialog by remember { mutableStateOf<OrganizerDialogKind?>(null) }
 
     val selectedKeywordCounts = remember(selectedKeys, localVersion) {
@@ -191,9 +192,9 @@ fun PhotoOrganizerScreen(
                         modifier = Modifier.weight(1f),
                         icon = Icons.Default.LocationOn,
                         title = "GPS 位置",
-                        subtitle = "查看目前定位",
+                        subtitle = "查看・微調・批次修改",
                         enabled = selectedItems.isNotEmpty(),
-                        onClick = { simpleDialog = OrganizerDialogKind.GPS }
+                        onClick = { gpsDialog = true }
                     )
                 }
             }
@@ -286,6 +287,15 @@ fun PhotoOrganizerScreen(
             selectedItems = selectedItems,
             repository = repository,
             onDismiss = { timeDialog = false },
+            onChanged = onPhotoTimesChanged
+        )
+    }
+
+    if (gpsDialog) {
+        GpsEditDialog(
+            selectedItems = selectedItems,
+            repository = repository,
+            onDismiss = { gpsDialog = false },
             onChanged = onPhotoTimesChanged
         )
     }
