@@ -26,6 +26,7 @@ import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.CheckBox;
 import android.widget.EditText;
+import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
@@ -97,6 +98,8 @@ public class MainActivity extends Activity {
     private TextView statusText;
     private TextView settingsCountText;
     private LinearLayout cardsContainer;
+    private LinearLayout numericKeypad;
+    private ScrollView homeScroll;
     private SharedPreferences prefs;
     private Bitmap flagsSprite;
 
@@ -319,6 +322,7 @@ public class MainActivity extends Activity {
 
         settings.setOnClickListener(v -> {
             captureCurrentInput();
+            hideNumericKeypad();
             buildSettingsUi();
         });
 
@@ -390,6 +394,9 @@ public class MainActivity extends Activity {
         amountInput.setGravity(Gravity.CENTER_VERTICAL);
         amountInput.setPadding(dp(10), 0, dp(8), 0);
         amountInput.setBackground(roundStroke(Color.WHITE, LINE, 12));
+        amountInput.setShowSoftInputOnFocus(false);
+        amountInput.setSelectAllOnFocus(true);
+        amountInput.setOnClickListener(v -> showNumericKeypad());
         amountInput.setOnFocusChangeListener((v, hasFocus) -> {
             v.setBackground(
                     roundStroke(
@@ -398,6 +405,7 @@ public class MainActivity extends Activity {
                             12
                     )
             );
+            if (hasFocus) showNumericKeypad();
         });
 
         amountBox.addView(
@@ -540,24 +548,40 @@ public class MainActivity extends Activity {
         clear.setOnClickListener(v -> {
             amountInput.setText("");
             amountInput.requestFocus();
-
-            InputMethodManager imm =
-                    (InputMethodManager) getSystemService(
-                            Context.INPUT_METHOD_SERVICE
-                    );
-
-            if (imm != null) {
-                imm.showSoftInput(
-                        amountInput,
-                        InputMethodManager.SHOW_IMPLICIT
-                );
-            }
+            showNumericKeypad();
         });
 
         refresh.setOnClickListener(v -> updateRates(refresh));
 
-        setContentView(scroll);
+        homeScroll = scroll;
+
+        FrameLayout screen = new FrameLayout(this);
+        screen.setBackgroundColor(BG);
+        screen.addView(
+                scroll,
+                new FrameLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.MATCH_PARENT
+                )
+        );
+
+        numericKeypad = buildNumericKeypad();
+        FrameLayout.LayoutParams keypadLp = new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                Gravity.BOTTOM
+        );
+        keypadLp.setMargins(dp(8), 0, dp(8), dp(8));
+        screen.addView(numericKeypad, keypadLp);
+
+        setContentView(screen);
         renderResults();
+
+        amountInput.post(() -> {
+            amountInput.requestFocus();
+            amountInput.selectAll();
+            showNumericKeypad();
+        });
     }
 
     private void buildSettingsUi() {
@@ -1259,6 +1283,177 @@ public class MainActivity extends Activity {
         }).start();
     }
 
+    private LinearLayout buildNumericKeypad() {
+        LinearLayout panel = new LinearLayout(this);
+        panel.setOrientation(LinearLayout.VERTICAL);
+        panel.setPadding(dp(10), dp(7), dp(10), dp(10));
+        panel.setBackground(roundStroke(Color.WHITE, GOLD_LINE, 18));
+        panel.setElevation(dp(10));
+
+        LinearLayout header = new LinearLayout(this);
+        header.setOrientation(LinearLayout.HORIZONTAL);
+        header.setGravity(Gravity.CENTER_VERTICAL);
+
+        TextView headerTitle = new TextView(this);
+        headerTitle.setText("輸入金額");
+        headerTitle.setTextSize(12.5f);
+        headerTitle.setTextColor(MUTED);
+        headerTitle.setTypeface(Typeface.DEFAULT_BOLD);
+        header.addView(
+                headerTitle,
+                new LinearLayout.LayoutParams(
+                        0,
+                        dp(30),
+                        1f
+                )
+        );
+
+        TextView done = new TextView(this);
+        done.setText("完成");
+        done.setTextSize(13f);
+        done.setTextColor(GOLD_DARK);
+        done.setTypeface(Typeface.DEFAULT_BOLD);
+        done.setGravity(Gravity.CENTER);
+        done.setPadding(dp(12), 0, dp(4), 0);
+        header.addView(
+                done,
+                new LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.WRAP_CONTENT,
+                        dp(30)
+                )
+        );
+        done.setOnClickListener(v -> hideNumericKeypad());
+
+        panel.addView(
+                header,
+                new LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        dp(30)
+                )
+        );
+
+        String[][] keys = {
+                {"1", "2", "3"},
+                {"4", "5", "6"},
+                {"7", "8", "9"},
+                {".", "0", "⌫"}
+        };
+
+        for (int rowIndex = 0; rowIndex < keys.length; rowIndex++) {
+            LinearLayout row = new LinearLayout(this);
+            row.setOrientation(LinearLayout.HORIZONTAL);
+
+            for (int col = 0; col < 3; col++) {
+                final String keyText = keys[rowIndex][col];
+
+                TextView key = new TextView(this);
+                key.setText(keyText);
+                key.setTextSize(keyText.equals("⌫") ? 18f : 20f);
+                key.setTextColor(TEXT);
+                key.setGravity(Gravity.CENTER);
+                key.setTypeface(Typeface.DEFAULT_BOLD);
+                key.setBackground(
+                        roundStroke(
+                                Color.rgb(250, 249, 246),
+                                Color.rgb(232, 225, 204),
+                                10
+                        )
+                );
+
+                LinearLayout.LayoutParams keyLp =
+                        new LinearLayout.LayoutParams(
+                                0,
+                                dp(48),
+                                1f
+                        );
+
+                if (col > 0) keyLp.setMargins(dp(7), 0, 0, 0);
+                row.addView(key, keyLp);
+
+                key.setOnClickListener(v -> handleNumericKey(keyText));
+            }
+
+            LinearLayout.LayoutParams rowLp =
+                    new LinearLayout.LayoutParams(
+                            ViewGroup.LayoutParams.MATCH_PARENT,
+                            dp(48)
+                    );
+
+            if (rowIndex > 0) rowLp.setMargins(0, dp(7), 0, 0);
+            panel.addView(row, rowLp);
+        }
+
+        panel.setVisibility(View.VISIBLE);
+        return panel;
+    }
+
+    private void showNumericKeypad() {
+        if (numericKeypad != null) {
+            numericKeypad.setVisibility(View.VISIBLE);
+        }
+
+        if (homeScroll != null) {
+            homeScroll.setPadding(0, 0, 0, dp(240));
+            homeScroll.setClipToPadding(false);
+        }
+    }
+
+    private void hideNumericKeypad() {
+        if (numericKeypad != null) {
+            numericKeypad.setVisibility(View.GONE);
+        }
+
+        if (homeScroll != null) {
+            homeScroll.setPadding(0, 0, 0, 0);
+        }
+
+        if (amountInput != null) {
+            amountInput.clearFocus();
+        }
+    }
+
+    private void handleNumericKey(String key) {
+        if (amountInput == null) return;
+
+        Editable editable = amountInput.getText();
+        int start = amountInput.getSelectionStart();
+        int end = amountInput.getSelectionEnd();
+
+        if (start < 0) start = editable.length();
+        if (end < 0) end = start;
+
+        int left = Math.min(start, end);
+        int right = Math.max(start, end);
+
+        if ("⌫".equals(key)) {
+            if (left != right) {
+                editable.delete(left, right);
+                amountInput.setSelection(left);
+            } else if (left > 0) {
+                editable.delete(left - 1, left);
+                amountInput.setSelection(left - 1);
+            }
+            return;
+        }
+
+        String before = editable.subSequence(0, left).toString();
+        String after = editable.subSequence(right, editable.length()).toString();
+        String candidate = before + key + after;
+
+        if (".".equals(key)) {
+            if (candidate.indexOf('.') != candidate.lastIndexOf('.')) return;
+
+            if (candidate.equals(".")) {
+                editable.replace(left, right, "0.");
+                amountInput.setSelection(left + 2);
+                return;
+            }
+        }
+
+        editable.replace(left, right, key);
+        amountInput.setSelection(left + key.length());
+    }
+
     private String shortUpdate(String update) {
         if (update == null) return "";
 
@@ -1421,6 +1616,9 @@ public class MainActivity extends Activity {
     public void onBackPressed() {
         if (showingSettings) {
             buildHomeUi();
+        } else if (numericKeypad != null &&
+                numericKeypad.getVisibility() == View.VISIBLE) {
+            hideNumericKeypad();
         } else {
             super.onBackPressed();
         }
