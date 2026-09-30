@@ -586,6 +586,10 @@ private enum class PhotoTimeBatchMode(
     SAME_TIME(
         "全部設成同一時間",
         "所有可修改的照片都使用同一個拍攝時間"
+    ),
+    GPS_TIME(
+        "由 GPS 時間讀入",
+        "直接讀取照片 EXIF 裡的 GPS 日期與時間，不做時區換算"
     )
 }
 
@@ -606,7 +610,12 @@ private fun PhotoTimeEditDialog(
         )
     }
     val first = orderedItems.firstOrNull()
-    var mode by remember { mutableStateOf(PhotoTimeBatchMode.SHIFT_ALL) }
+    var mode by remember(orderedItems.size) {
+        mutableStateOf(
+            if (orderedItems.size > 1) PhotoTimeBatchMode.SHIFT_ALL
+            else PhotoTimeBatchMode.SAME_TIME
+        )
+    }
     var targetText by remember(first?.key, first?.wallTime) {
         mutableStateOf(first?.wallTime?.format(formatter).orEmpty())
     }
@@ -615,6 +624,8 @@ private fun PhotoTimeEditDialog(
     var pendingApply by remember { mutableStateOf<List<PhotoTimePreview>>(emptyList()) }
     var result by remember { mutableStateOf<PhotoTimeResult?>(null) }
     var notice by remember { mutableStateOf<String?>(null) }
+    var gpsPreviews by remember { mutableStateOf<List<PhotoTimePreview>>(emptyList()) }
+    var gpsLoading by remember { mutableStateOf(false) }
 
     val parsedTarget = remember(targetText) {
         try {
@@ -625,7 +636,11 @@ private fun PhotoTimeEditDialog(
     }
 
     val requests = remember(orderedItems, parsedTarget, mode) {
-        if (first == null || parsedTarget == null) {
+        if (
+            mode == PhotoTimeBatchMode.GPS_TIME ||
+            first == null ||
+            parsedTarget == null
+        ) {
             emptyList()
         } else {
             when (mode) {
@@ -638,21 +653,51 @@ private fun PhotoTimeEditDialog(
                 PhotoTimeBatchMode.SAME_TIME -> {
                     orderedItems.map { item -> item to parsedTarget }
                 }
+                PhotoTimeBatchMode.GPS_TIME -> emptyList()
             }
         }
     }
 
-    val previews = remember(requests) {
+    val standardPreviews = remember(requests) {
         repository.previewPhotoTimes(requests)
     }
+
+    LaunchedEffect(mode, orderedItems) {
+        if (mode == PhotoTimeBatchMode.GPS_TIME) {
+            gpsLoading = true
+            gpsPreviews = withContext(Dispatchers.IO) {
+                repository.previewGpsPhotoTimes(orderedItems)
+            }
+            gpsLoading = false
+        } else {
+            gpsPreviews = emptyList()
+            gpsLoading = false
+        }
+    }
+
+    val previews =
+        if (mode == PhotoTimeBatchMode.GPS_TIME) gpsPreviews else standardPreviews
     val skippedCount = previews.count { it.error != null }
     val changedCount = previews.count { it.error == null && it.changed }
     val unchangedCount = previews.count { it.error == null && !it.changed }
+    val inputReady =
+        if (mode == PhotoTimeBatchMode.GPS_TIME) !gpsLoading
+        else parsedTarget != null
     val canApply =
-        parsedTarget != null &&
+        inputReady &&
         changedCount > 0 &&
         !processing &&
         result == null
+    val availableTimeModes = remember(orderedItems.size) {
+        if (orderedItems.size > 1) {
+            PhotoTimeBatchMode.entries
+        } else {
+            listOf(
+                PhotoTimeBatchMode.SAME_TIME,
+                PhotoTimeBatchMode.GPS_TIME
+            )
+        }
+    }
 
     fun applyChanges(list: List<PhotoTimePreview>) {
         processing = true
@@ -753,80 +798,94 @@ private fun PhotoTimeEditDialog(
                 }
 
                 if (result == null) {
-                    if (orderedItems.size > 1) {
-                        item {
-                            Text(
-                                "修改方式",
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.SemiBold
+                    item {
+                        Text(
+                            "修改方式",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                    items(availableTimeModes, key = { it.name }) { option ->
+                        Surface(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { mode = option },
+                            shape = RoundedCornerShape(15.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(
+                                alpha = if (mode == option) 0.55f else 0.28f
                             )
-                        }
-                        items(PhotoTimeBatchMode.entries, key = { it.name }) { option ->
-                            Surface(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clickable { mode = option },
-                                shape = RoundedCornerShape(15.dp),
-                                color = MaterialTheme.colorScheme.surfaceVariant.copy(
-                                    alpha = if (mode == option) 0.55f else 0.28f
-                                )
+                        ) {
+                            Row(
+                                Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Row(
-                                    Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    RadioButton(
-                                        selected = mode == option,
-                                        onClick = { mode = option }
+                                RadioButton(
+                                    selected = mode == option,
+                                    onClick = { mode = option }
+                                )
+                                Column(Modifier.padding(start = 3.dp)) {
+                                    Text(
+                                        option.label,
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Medium
                                     )
-                                    Column(Modifier.padding(start = 3.dp)) {
-                                        Text(
-                                            option.label,
-                                            fontSize = 13.sp,
-                                            fontWeight = FontWeight.Medium
-                                        )
-                                        Text(
-                                            option.description,
-                                            fontSize = 10.sp,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                    }
+                                    Text(
+                                        option.description,
+                                        fontSize = 10.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
                                 }
                             }
                         }
                     }
 
-                    item {
-                        OutlinedTextField(
-                            value = targetText,
-                            onValueChange = { targetText = it },
-                            modifier = Modifier.fillMaxWidth(),
-                            singleLine = true,
-                            label = {
-                                Text(
-                                    if (orderedItems.size == 1 ||
-                                        mode == PhotoTimeBatchMode.SAME_TIME
-                                    ) "新的拍攝時間"
-                                    else "第一張的新拍攝時間"
-                                )
-                            }
-                        )
-                    }
+                    if (mode != PhotoTimeBatchMode.GPS_TIME) {
+                        item {
+                            OutlinedTextField(
+                                value = targetText,
+                                onValueChange = { targetText = it },
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true,
+                                label = {
+                                    Text(
+                                        if (orderedItems.size == 1 ||
+                                            mode == PhotoTimeBatchMode.SAME_TIME
+                                        ) "新的拍攝時間"
+                                        else "第一張的新拍攝時間"
+                                    )
+                                }
+                            )
+                        }
 
-                    item {
-                        Text(
-                            "格式：yyyy-MM-dd HH:mm:ss",
-                            fontSize = 10.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-
-                    if (parsedTarget == null) {
                         item {
                             Text(
-                                "日期時間格式不正確",
+                                "格式：yyyy-MM-dd HH:mm:ss",
+                                fontSize = 10.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    } else {
+                        item {
+                            Text(
+                                "GPS 日期與時間會直接依照片內的 EXIF 原值讀入（UTC），不做所在地時區換算。",
+                                fontSize = 10.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+
+                    if (!inputReady) {
+                        item {
+                            Text(
+                                if (mode == PhotoTimeBatchMode.GPS_TIME)
+                                    "正在讀取 GPS 時間…"
+                                else
+                                    "日期時間格式不正確",
                                 fontSize = 11.sp,
-                                color = MaterialTheme.colorScheme.error
+                                color = if (mode == PhotoTimeBatchMode.GPS_TIME)
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                else
+                                    MaterialTheme.colorScheme.error
                             )
                         }
                     } else {
@@ -845,7 +904,10 @@ private fun PhotoTimeEditDialog(
                                     )
                                     if (skippedCount > 0) {
                                         Text(
-                                            "略過 $skippedCount 項：暫不支援的圖片／影片格式",
+                                            if (mode == PhotoTimeBatchMode.GPS_TIME)
+                                                "略過 $skippedCount 項：沒有 GPS 日期時間或不是照片"
+                                            else
+                                                "略過 $skippedCount 項：暫不支援的圖片／影片格式",
                                             fontSize = 10.sp,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant
                                         )
@@ -920,7 +982,10 @@ private fun PhotoTimeEditDialog(
 
                         item {
                             Text(
-                                "照片會寫入 EXIF 拍攝時間；MP4／MOV 影片會修改容器建立時間並同步 Android 拍攝時間索引。影音內容不重新編碼。",
+                                if (mode == PhotoTimeBatchMode.GPS_TIME)
+                                    "只讀取照片既有 GPS 日期與 GPS 時間，直接寫入 EXIF 拍攝時間；不做時區換算，也不加入任何時區資料庫。"
+                                else
+                                    "照片會寫入 EXIF 拍攝時間；MP4／MOV 影片會修改容器建立時間並同步 Android 拍攝時間索引。影音內容不重新編碼。",
                                 fontSize = 10.sp,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -978,6 +1043,12 @@ private fun PhotoTimeEditDialog(
                         val delta = Duration.between(first.wallTime, parsedTarget)
                         Text(
                             "整批差值：" + formatDurationDelta(delta),
+                            fontSize = 12.sp
+                        )
+                    }
+                    if (mode == PhotoTimeBatchMode.GPS_TIME) {
+                        Text(
+                            "GPS 時間會使用照片內的 UTC 原值，不做時區換算。",
                             fontSize = 12.sp
                         )
                     }
