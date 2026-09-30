@@ -131,6 +131,7 @@ class AlbumRepository(private val context: Context) {
     private val filename14 = Pattern.compile("((?:19|20)\\d{12})")
     private val filenameFormatter = DateTimeFormatter.ofPattern("yyyyMMddHHmmss", Locale.US)
     private val exifFormatter = DateTimeFormatter.ofPattern("yyyy:MM:dd HH:mm:ss", Locale.US)
+    private val MP4_EPOCH_OFFSET_SECONDS = 2_082_844_800L
     private val favoritePrefs = context.getSharedPreferences("ajo_album_favorites", Context.MODE_PRIVATE)
     private val timeIndexPrefs = context.getSharedPreferences("ajo_album_time_index", Context.MODE_PRIVATE)
     private val placePrefs = context.getSharedPreferences("ajo_album_place_cache", Context.MODE_PRIVATE)
