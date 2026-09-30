@@ -17,20 +17,14 @@ import androidx.core.content.ContextCompat
 import androidx.exifinterface.media.ExifInterface
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import org.mp4parser.IsoFile
-import org.mp4parser.boxes.iso14496.part12.MediaBox
-import org.mp4parser.boxes.iso14496.part12.MediaHeaderBox
-import org.mp4parser.boxes.iso14496.part12.MovieHeaderBox
-import org.mp4parser.boxes.iso14496.part12.TrackBox
-import org.mp4parser.boxes.iso14496.part12.TrackHeaderBox
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
+import java.io.RandomAccessFile
 import java.time.Instant
 import java.time.LocalDateTime
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
-import java.util.Date
 import java.util.Locale
 import java.util.regex.Pattern
 
@@ -1121,57 +1115,29 @@ class AlbumRepository(private val context: Context) {
         target: LocalDateTime
     ) {
         val safeKey = item.key.replace(Regex("[^A-Za-z0-9_.-]"), "_")
-        val inputFile = File(context.cacheDir, "video_time_" + safeKey + "_input")
-        val outputFile = File(context.cacheDir, "video_time_" + safeKey + "_output")
+        val originalFile = File(context.cacheDir, "video_time_" + safeKey + "_original")
+        val editedFile = File(context.cacheDir, "video_time_" + safeKey + "_edited")
 
-        inputFile.delete()
-        outputFile.delete()
+        originalFile.delete()
+        editedFile.delete()
 
         try {
             resolver.openInputStream(item.uri)?.use { input ->
-                FileOutputStream(inputFile).use { output ->
+                FileOutputStream(originalFile).use { output ->
                     input.copyTo(output, 1024 * 1024)
                 }
             } ?: throw IllegalStateException("無法讀取影片")
 
-            val targetDate = Date.from(
-                target.atZone(ZoneId.systemDefault()).toInstant()
-            )
+            originalFile.copyTo(editedFile, overwrite = true)
 
-            IsoFile(inputFile).use { iso ->
-                val movie = iso.movieBox
-                    ?: throw IllegalStateException("找不到影片容器時間資料")
-
-                val movieHeaders = movie.getBoxes(MovieHeaderBox::class.java)
-                if (movieHeaders.isEmpty()) {
-                    throw IllegalStateException("找不到影片建立時間欄位")
-                }
-                movieHeaders.forEach { box ->
-                    box.creationTime = targetDate
-                    box.modificationTime = targetDate
-                }
-
-                movie.getBoxes(TrackBox::class.java).forEach { track ->
-                    track.getBoxes(TrackHeaderBox::class.java).forEach { box ->
-                        box.creationTime = targetDate
-                        box.modificationTime = targetDate
-                    }
-                    track.getBoxes(MediaBox::class.java).forEach { media ->
-                        media.getBoxes(MediaHeaderBox::class.java).forEach { box ->
-                            box.creationTime = targetDate
-                            box.modificationTime = targetDate
-                        }
-                    }
-                }
-
-                FileOutputStream(outputFile).channel.use { channel ->
-                    iso.getBox(channel)
-                }
+            val patched = patchMp4ContainerTimes(editedFile, target)
+            if (patched <= 0) {
+                throw IllegalStateException("找不到可修改的影片時間欄位")
             }
 
-            val outputVerified = readVideoCreationTime(outputFile)
-            if (outputVerified != target) {
-                val actual = outputVerified?.format(
+            val verified = readMp4CreationTime(editedFile)
+            if (verified != target) {
+                val actual = verified?.format(
                     DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss", Locale.US)
                 ) ?: "讀不到"
                 throw IllegalStateException(
@@ -1179,49 +1145,147 @@ class AlbumRepository(private val context: Context) {
                 )
             }
 
-            writeFileBackToUri(outputFile, item.uri)
-
-            val destinationVerified = readVideoCreationTime(item.uri)
-            if (destinationVerified != target) {
+            try {
+                writeFileBackToUri(editedFile, item.uri)
+            } catch (writeError: Exception) {
                 try {
-                    writeFileBackToUri(inputFile, item.uri)
+                    writeFileBackToUri(originalFile, item.uri)
                 } catch (_: Exception) {
                 }
-                val actual = destinationVerified?.format(
-                    DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss", Locale.US)
-                ) ?: "讀不到"
-                throw IllegalStateException(
-                    "寫回後驗證失敗，已嘗試還原原影片（實際：" + actual + "）"
-                )
+                throw writeError
             }
         } finally {
-            inputFile.delete()
-            outputFile.delete()
+            originalFile.delete()
+            editedFile.delete()
         }
     }
 
-    private fun writeFileBackToUri(file: File, uri: Uri) {
-        val pfd = resolver.openFileDescriptor(uri, "rw")
-            ?: throw IllegalStateException("無法開啟影片寫入")
-        ParcelFileDescriptor.AutoCloseOutputStream(pfd).use { output ->
-            FileInputStream(file).use { input ->
-                output.channel.truncate(0)
-                input.copyTo(output, 1024 * 1024)
-                output.flush()
+    private fun patchMp4ContainerTimes(
+        file: File,
+        target: LocalDateTime
+    ): Int {
+        val mp4Seconds = target
+            .atZone(ZoneId.systemDefault())
+            .toEpochSecond() + MP4_EPOCH_OFFSET_SECONDS
+
+        RandomAccessFile(file, "rw").use { raf ->
+            val patched = patchMp4Boxes(
+                raf = raf,
+                start = 0L,
+                end = raf.length(),
+                mp4Seconds = mp4Seconds
+            )
+            if (patched <= 0) {
+                throw IllegalStateException("找不到 MP4／MOV 建立時間欄位")
             }
+            return patched
         }
     }
 
-    private fun readVideoCreationTime(file: File): LocalDateTime? {
+    private fun patchMp4Boxes(
+        raf: RandomAccessFile,
+        start: Long,
+        end: Long,
+        mp4Seconds: Long
+    ): Int {
+        var position = start
+        var patched = 0
+
+        while (position + 8L <= end) {
+            raf.seek(position)
+            val size32 = readUnsignedInt(raf)
+            val typeBytes = ByteArray(4)
+            raf.readFully(typeBytes)
+            val type = String(typeBytes, Charsets.ISO_8859_1)
+
+            var headerSize = 8L
+            val boxSize = when (size32) {
+                0L -> end - position
+                1L -> {
+                    if (position + 16L > end) break
+                    headerSize = 16L
+                    raf.readLong()
+                }
+                else -> size32
+            }
+
+            if (boxSize < headerSize || boxSize <= 0L) break
+            val boxEnd = position + boxSize
+            if (boxEnd < position || boxEnd > end) break
+
+            val contentStart = position + headerSize
+
+            when (type) {
+                "mvhd", "tkhd", "mdhd" -> {
+                    if (writeMp4FullBoxTimes(
+                            raf = raf,
+                            contentStart = contentStart,
+                            boxEnd = boxEnd,
+                            mp4Seconds = mp4Seconds
+                        )
+                    ) {
+                        patched += 1
+                    }
+                }
+                "moov", "trak", "mdia" -> {
+                    patched += patchMp4Boxes(
+                        raf = raf,
+                        start = contentStart,
+                        end = boxEnd,
+                        mp4Seconds = mp4Seconds
+                    )
+                }
+            }
+
+            position = boxEnd
+        }
+
+        return patched
+    }
+
+    private fun writeMp4FullBoxTimes(
+        raf: RandomAccessFile,
+        contentStart: Long,
+        boxEnd: Long,
+        mp4Seconds: Long
+    ): Boolean {
+        if (contentStart + 12L > boxEnd) return false
+
+        raf.seek(contentStart)
+        val version = raf.readUnsignedByte()
+        raf.skipBytes(3)
+
+        return when (version) {
+            0 -> {
+                if (mp4Seconds !in 0L..0xFFFF_FFFFL) {
+                    throw IllegalStateException("指定時間超出這支影片可表示的範圍")
+                }
+                if (contentStart + 12L > boxEnd) return false
+                raf.writeInt(mp4Seconds.toInt())
+                raf.writeInt(mp4Seconds.toInt())
+                true
+            }
+            1 -> {
+                if (contentStart + 20L > boxEnd) return false
+                raf.writeLong(mp4Seconds)
+                raf.writeLong(mp4Seconds)
+                true
+            }
+            else -> false
+        }
+    }
+
+    private fun readMp4CreationTime(file: File): LocalDateTime? {
         return try {
-            IsoFile(file).use { iso ->
-                val date = iso.movieBox
-                    ?.getBoxes(MovieHeaderBox::class.java)
-                    ?.firstOrNull()
-                    ?.creationTime
-                    ?: return null
+            RandomAccessFile(file, "r").use { raf ->
+                val seconds = findMp4CreationSeconds(
+                    raf = raf,
+                    start = 0L,
+                    end = raf.length()
+                ) ?: return null
+                val unixSeconds = seconds - MP4_EPOCH_OFFSET_SECONDS
                 LocalDateTime.ofInstant(
-                    date.toInstant(),
+                    Instant.ofEpochSecond(unixSeconds),
                     ZoneId.systemDefault()
                 )
             }
@@ -1230,25 +1294,79 @@ class AlbumRepository(private val context: Context) {
         }
     }
 
-    private fun readVideoCreationTime(uri: Uri): LocalDateTime? {
-        return try {
-            val pfd = resolver.openFileDescriptor(uri, "r") ?: return null
-            pfd.use {
-                val channel = FileInputStream(it.fileDescriptor).channel
-                IsoFile(channel).use { iso ->
-                    val date = iso.movieBox
-                        ?.getBoxes(MovieHeaderBox::class.java)
-                        ?.firstOrNull()
-                        ?.creationTime
-                        ?: return null
-                    LocalDateTime.ofInstant(
-                        date.toInstant(),
-                        ZoneId.systemDefault()
-                    )
+    private fun findMp4CreationSeconds(
+        raf: RandomAccessFile,
+        start: Long,
+        end: Long
+    ): Long? {
+        var position = start
+
+        while (position + 8L <= end) {
+            raf.seek(position)
+            val size32 = readUnsignedInt(raf)
+            val typeBytes = ByteArray(4)
+            raf.readFully(typeBytes)
+            val type = String(typeBytes, Charsets.ISO_8859_1)
+
+            var headerSize = 8L
+            val boxSize = when (size32) {
+                0L -> end - position
+                1L -> {
+                    if (position + 16L > end) return null
+                    headerSize = 16L
+                    raf.readLong()
+                }
+                else -> size32
+            }
+
+            if (boxSize < headerSize || boxSize <= 0L) return null
+            val boxEnd = position + boxSize
+            if (boxEnd < position || boxEnd > end) return null
+            val contentStart = position + headerSize
+
+            if (type == "mvhd") {
+                if (contentStart + 12L > boxEnd) return null
+                raf.seek(contentStart)
+                val version = raf.readUnsignedByte()
+                raf.skipBytes(3)
+                return when (version) {
+                    0 -> readUnsignedInt(raf)
+                    1 -> if (contentStart + 20L <= boxEnd) raf.readLong() else null
+                    else -> null
                 }
             }
-        } catch (_: Exception) {
-            null
+
+            if (type == "moov") {
+                val nested = findMp4CreationSeconds(
+                    raf = raf,
+                    start = contentStart,
+                    end = boxEnd
+                )
+                if (nested != null) return nested
+            }
+
+            position = boxEnd
+        }
+
+        return null
+    }
+
+    private fun readUnsignedInt(raf: RandomAccessFile): Long {
+        return raf.readInt().toLong() and 0xFFFF_FFFFL
+    }
+
+    private fun writeFileBackToUri(file: File, uri: Uri) {
+        val pfd = resolver.openFileDescriptor(uri, "rw")
+            ?: throw IllegalStateException("無法開啟影片寫入")
+        ParcelFileDescriptor.AutoCloseOutputStream(pfd).use { output ->
+            FileInputStream(file).use { input ->
+                output.channel.truncate(0)
+                val written = input.copyTo(output, 1024 * 1024)
+                output.flush()
+                if (written != file.length()) {
+                    throw IllegalStateException("影片寫回不完整")
+                }
+            }
         }
     }
 
