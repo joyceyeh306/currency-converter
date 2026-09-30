@@ -1006,21 +1006,21 @@ class AlbumRepository(private val context: Context) {
     ): List<PhotoTimePreview> {
         return items.map { item ->
             when {
-                item.kind != MediaKind.IMAGE -> {
-                    PhotoTimePreview(
-                        item = item,
-                        currentTime = item.wallTime,
-                        newTime = item.wallTime,
-                        error = "檔名時間只適用於照片",
-                        changed = false
-                    )
-                }
-                !supportsExifTimeWrite(item) -> {
+                item.kind == MediaKind.IMAGE && !supportsExifTimeWrite(item) -> {
                     PhotoTimePreview(
                         item = item,
                         currentTime = item.wallTime,
                         newTime = item.wallTime,
                         error = "這個圖片格式暫不支援安全寫入拍攝時間",
+                        changed = false
+                    )
+                }
+                item.kind == MediaKind.VIDEO && !supportsVideoTimeWrite(item) -> {
+                    PhotoTimePreview(
+                        item = item,
+                        currentTime = item.wallTime,
+                        newTime = item.wallTime,
+                        error = "目前影片只支援 MP4／MOV",
                         changed = false
                     )
                 }
