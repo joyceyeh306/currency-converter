@@ -133,6 +133,9 @@ class AlbumRepository(private val context: Context) {
     private val resolver = context.contentResolver
     private val filename14 = Pattern.compile("((?:19|20)\\d{12})")
     private val filenameFormatter = DateTimeFormatter.ofPattern("yyyyMMddHHmmss", Locale.US)
+    private val strictFilenameDateTime = Regex(
+        """(?<!\\d)((?:19|20)\\d{2})[-_.]?(0[1-9]|1[0-2])[-_.]?(0[1-9]|[12]\\d|3[01])(?:[T _.-]?)([01]\\d|2[0-3])[-_.:]?([0-5]\\d)[-_.:]?([0-5]\\d)(?!\\d)"""
+    )
     private val exifFormatter = DateTimeFormatter.ofPattern("yyyy:MM:dd HH:mm:ss", Locale.US)
     private val MP4_EPOCH_OFFSET_SECONDS = 2_082_844_800L
     private val favoritePrefs = context.getSharedPreferences("ajo_album_favorites", Context.MODE_PRIVATE)
@@ -995,6 +998,53 @@ class AlbumRepository(private val context: Context) {
                 error = error,
                 changed = item.wallTime != target
             )
+        }
+    }
+
+    fun previewFilenamePhotoTimes(
+        items: List<MediaItem>
+    ): List<PhotoTimePreview> {
+        return items.map { item ->
+            when {
+                item.kind != MediaKind.IMAGE -> {
+                    PhotoTimePreview(
+                        item = item,
+                        currentTime = item.wallTime,
+                        newTime = item.wallTime,
+                        error = "檔名時間只適用於照片",
+                        changed = false
+                    )
+                }
+                !supportsExifTimeWrite(item) -> {
+                    PhotoTimePreview(
+                        item = item,
+                        currentTime = item.wallTime,
+                        newTime = item.wallTime,
+                        error = "這個圖片格式暫不支援安全寫入拍攝時間",
+                        changed = false
+                    )
+                }
+                else -> {
+                    val filenameTime = parseFilenameTimeStrict(item.name)
+                    if (filenameTime == null) {
+                        PhotoTimePreview(
+                            item = item,
+                            currentTime = item.wallTime,
+                            newTime = item.wallTime,
+                            error = "無完整檔名時間",
+                            changed = false
+                        )
+                    } else {
+                        PhotoTimePreview(
+                            item = item,
+                            currentTime = item.wallTime,
+                            newTime = filenameTime,
+                            error = null,
+                            changed = item.wallTime != filenameTime
+                        )
+                    }
+                }
+            }
         }
     }
 
@@ -1998,6 +2048,24 @@ class AlbumRepository(private val context: Context) {
     private fun saveIndex(key: String, modified: Long, time: LocalDateTime?) {
         val value = modified.toString() + "|" + (time?.toString() ?: "NONE")
         timeIndexPrefs.edit().putString(cacheKey(key), value).apply()
+    }
+
+    private fun parseFilenameTimeStrict(name: String): LocalDateTime? {
+        val baseName = name.substringBeforeLast('.')
+        val match = strictFilenameDateTime.find(baseName) ?: return null
+
+        return try {
+            LocalDateTime.of(
+                match.groupValues[1].toInt(),
+                match.groupValues[2].toInt(),
+                match.groupValues[3].toInt(),
+                match.groupValues[4].toInt(),
+                match.groupValues[5].toInt(),
+                match.groupValues[6].toInt()
+            )
+        } catch (_: Exception) {
+            null
+        }
     }
 
     private fun parseFilenameTime(name: String): LocalDateTime? {
