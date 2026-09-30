@@ -129,6 +129,24 @@ data class PhotoTimeResult(
     val details: List<String>
 )
 
+data class GpsEditPreview(
+    val item: MediaItem,
+    val currentLat: Double?,
+    val currentLon: Double?,
+    val newLat: Double?,
+    val newLon: Double?,
+    val remove: Boolean,
+    val error: String?,
+    val changed: Boolean
+)
+
+data class GpsEditResult(
+    val total: Int,
+    val succeeded: Int,
+    val failed: Int,
+    val details: List<String>
+)
+
 class AlbumRepository(private val context: Context) {
     private val resolver = context.contentResolver
     private val filename14 = Pattern.compile("((?:19|20)\\d{12})")
@@ -977,6 +995,196 @@ class AlbumRepository(private val context: Context) {
             )
         } else {
             null
+        }
+    }
+
+    fun createGpsWriteRequest(items: List<MediaItem>): PendingIntent? {
+        if (items.isEmpty()) return null
+        return if (Build.VERSION.SDK_INT >= 30) {
+            MediaStore.createWriteRequest(
+                resolver,
+                items.map { it.uri }.distinct().take(2000)
+            )
+        } else {
+            null
+        }
+    }
+
+    fun previewGpsEdits(
+        items: List<MediaItem>,
+        currentLocations: Map<String, Pair<Double, Double>?>,
+        target: Pair<Double, Double>?,
+        remove: Boolean
+    ): List<GpsEditPreview> {
+        return items.map { item ->
+            val current = currentLocations[item.key]
+            val error = when {
+                item.kind != MediaKind.IMAGE ->
+                    "目前 GPS 位置修改只支援照片"
+                !supportsExifTimeWrite(item) ->
+                    "這個圖片格式暫不支援安全寫入 GPS"
+                !remove && target == null ->
+                    "尚未指定新位置"
+                else -> null
+            }
+
+            val newLat = if (remove) null else target?.first
+            val newLon = if (remove) null else target?.second
+            val changed = if (error != null) {
+                false
+            } else if (remove) {
+                current != null
+            } else {
+                val lat = newLat!!
+                val lon = newLon!!
+                current == null ||
+                    kotlin.math.abs(current.first - lat) > 0.0000005 ||
+                    kotlin.math.abs(current.second - lon) > 0.0000005
+            }
+
+            GpsEditPreview(
+                item = item,
+                currentLat = current?.first,
+                currentLon = current?.second,
+                newLat = newLat,
+                newLon = newLon,
+                remove = remove,
+                error = error,
+                changed = changed
+            )
+        }
+    }
+
+    fun applyGpsEdits(
+        previews: List<GpsEditPreview>
+    ): GpsEditResult {
+        val runnable = previews.filter { it.error == null && it.changed }
+        if (runnable.isEmpty()) {
+            return GpsEditResult(
+                total = previews.size,
+                succeeded = 0,
+                failed = previews.count { it.error != null },
+                details = listOf("沒有需要修改的 GPS 位置。")
+            )
+        }
+
+        var succeeded = 0
+        var failed = 0
+        val details = mutableListOf<String>()
+
+        runnable.forEach { preview ->
+            val item = preview.item
+            try {
+                writeImageGps(
+                    item = item,
+                    lat = preview.newLat,
+                    lon = preview.newLon,
+                    remove = preview.remove
+                )
+
+                gpsPrefs.edit()
+                    .remove("gps_${item.key}")
+                    .remove("map_index_signature")
+                    .apply()
+
+                succeeded += 1
+                val before = if (
+                    preview.currentLat != null && preview.currentLon != null
+                ) {
+                    String.format(
+                        Locale.US,
+                        "%.6f, %.6f",
+                        preview.currentLat,
+                        preview.currentLon
+                    )
+                } else {
+                    "無位置"
+                }
+                val after = if (preview.remove) {
+                    "已移除"
+                } else {
+                    String.format(
+                        Locale.US,
+                        "%.6f, %.6f",
+                        preview.newLat,
+                        preview.newLon
+                    )
+                }
+                details.add(item.name + "：" + before + " → " + after)
+            } catch (security: SecurityException) {
+                failed += 1
+                details.add(item.name + "：系統尚未授權修改")
+            } catch (e: Exception) {
+                failed += 1
+                details.add(
+                    item.name + "：修改失敗（" + (e.message ?: "未知錯誤") + "）"
+                )
+            }
+        }
+
+        if (succeeded > 0) {
+            appendOrganizerHistory(
+                "修改 GPS 位置 " + succeeded + " 項" +
+                    if (failed > 0) "（另有 " + failed + " 項失敗）" else ""
+            )
+        }
+
+        return GpsEditResult(
+            total = previews.size,
+            succeeded = succeeded,
+            failed = failed,
+            details = details
+        )
+    }
+
+    private fun writeImageGps(
+        item: MediaItem,
+        lat: Double?,
+        lon: Double?,
+        remove: Boolean
+    ) {
+        resolver.openFileDescriptor(item.uri, "rw")?.use { pfd ->
+            val exif = ExifInterface(pfd.fileDescriptor)
+            if (remove) {
+                exif.setAttribute(ExifInterface.TAG_GPS_LATITUDE, null)
+                exif.setAttribute(ExifInterface.TAG_GPS_LATITUDE_REF, null)
+                exif.setAttribute(ExifInterface.TAG_GPS_LONGITUDE, null)
+                exif.setAttribute(ExifInterface.TAG_GPS_LONGITUDE_REF, null)
+                exif.setAttribute(ExifInterface.TAG_GPS_ALTITUDE, null)
+                exif.setAttribute(ExifInterface.TAG_GPS_ALTITUDE_REF, null)
+            } else {
+                require(lat != null && lon != null) { "沒有指定 GPS 座標" }
+                require(lat in -90.0..90.0 && lon in -180.0..180.0) {
+                    "GPS 座標超出範圍"
+                }
+                exif.setLatLong(lat, lon)
+            }
+            exif.saveAttributes()
+        } ?: throw IllegalStateException("無法開啟照片")
+
+        val verified = readDetail(item)
+        if (remove) {
+            if (verified.lat != null || verified.lon != null) {
+                throw IllegalStateException("移除後驗證失敗")
+            }
+        } else {
+            val actualLat = verified.lat
+            val actualLon = verified.lon
+            if (
+                actualLat == null || actualLon == null ||
+                kotlin.math.abs(actualLat - lat!!) > 0.00001 ||
+                kotlin.math.abs(actualLon - lon!!) > 0.00001
+            ) {
+                throw IllegalStateException(
+                    "修改後驗證失敗（實際：" +
+                        if (actualLat != null && actualLon != null) {
+                            String.format(Locale.US, "%.6f, %.6f", actualLat, actualLon)
+                        } else {
+                            "讀不到"
+                        } +
+                        "）"
+                )
+            }
         }
     }
 
