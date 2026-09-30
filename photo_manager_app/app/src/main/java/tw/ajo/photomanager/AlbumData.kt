@@ -995,6 +995,84 @@ class AlbumRepository(private val context: Context) {
         }
     }
 
+    fun previewGpsPhotoTimes(
+        items: List<MediaItem>
+    ): List<PhotoTimePreview> {
+        return items.map { item ->
+            when {
+                item.kind != MediaKind.IMAGE -> {
+                    PhotoTimePreview(
+                        item = item,
+                        currentTime = item.wallTime,
+                        newTime = item.wallTime,
+                        error = "GPS 時間只適用於照片",
+                        changed = false
+                    )
+                }
+                !supportsExifTimeWrite(item) -> {
+                    PhotoTimePreview(
+                        item = item,
+                        currentTime = item.wallTime,
+                        newTime = item.wallTime,
+                        error = "這個圖片格式暫不支援安全寫入拍攝時間",
+                        changed = false
+                    )
+                }
+                else -> {
+                    val gpsTime = readGpsRawTime(item)
+                    if (gpsTime == null) {
+                        PhotoTimePreview(
+                            item = item,
+                            currentTime = item.wallTime,
+                            newTime = item.wallTime,
+                            error = "照片沒有可讀取的 GPS 日期時間",
+                            changed = false
+                        )
+                    } else {
+                        PhotoTimePreview(
+                            item = item,
+                            currentTime = item.wallTime,
+                            newTime = gpsTime,
+                            error = null,
+                            changed = item.wallTime != gpsTime
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    private fun readGpsRawTime(item: MediaItem): LocalDateTime? {
+        return try {
+            val exifUri = if (
+                Build.VERSION.SDK_INT >= 29 &&
+                ContextCompat.checkSelfPermission(
+                    context,
+                    Manifest.permission.ACCESS_MEDIA_LOCATION
+                ) == PackageManager.PERMISSION_GRANTED
+            ) {
+                MediaStore.setRequireOriginal(item.uri)
+            } else {
+                item.uri
+            }
+
+            resolver.openInputStream(exifUri)?.use { stream ->
+                val exif = ExifInterface(stream)
+                val gpsMillis = exif.gpsDateTime
+                if (gpsMillis <= 0L) {
+                    null
+                } else {
+                    LocalDateTime.ofInstant(
+                        Instant.ofEpochMilli(gpsMillis),
+                        java.time.ZoneOffset.UTC
+                    )
+                }
+            }
+        } catch (_: Exception) {
+            null
+        }
+    }
+
     fun applyPhotoTimes(
         previews: List<PhotoTimePreview>
     ): PhotoTimeResult {
