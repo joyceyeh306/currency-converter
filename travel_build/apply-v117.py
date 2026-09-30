@@ -101,7 +101,7 @@ old="""    private void launchReceiptGallery() {
         }
 
         // Last fallback only.
-        Intent doc = new Intent(Intent.ACTION_OPEN_DOCULMENT);
+        Intent doc = new Intent(Intent.ACTION_OPEN_DOCUMENT);
         doc.addCategory(Intent.CATEGORY_OPENABLE);
         doc.setType("image/*");
         doc.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
@@ -123,11 +123,11 @@ new="""    private void launchReceiptGallery() {
 if old not in m: raise SystemExit('v1.0.17 patch failed: gallery launch')
 m=m.replace(old,new,1)
 
-marker="""        @javascriptInterface public void retryReceiptOcr() {
+marker="""        @JavascriptInterface public void retryReceiptOcr() {
             runOnUiThread(() -> { if (pendingReceiptUri != null) processReceiptUri(pendingReceiptUri); else sendReceiptError("找不到剛才的收據照片，請重新拍照。"); });
         }
 """
-insert="""        @javascriptInterface public void scanReceiptUri(String uriText) {
+insert="""        @JavascriptInterface public void scanReceiptUri(String uriText) {
             runOnUiThread(() -> {
                 try { pendingReceiptUri=Uri.parse(uriText); pendingReceiptFromCamera=false; processReceiptUri(pendingReceiptUri); }
                 catch(Exception e){ sendReceiptError("這張收據照片無法讀取，請略過或換一張收據。"); }
