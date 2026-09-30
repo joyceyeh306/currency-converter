@@ -590,6 +590,10 @@ private enum class PhotoTimeBatchMode(
     GPS_TIME(
         "由 GPS 時間讀入",
         "照片以 GPS UTC 時間＋座標，自動換算成拍攝地當地時間；影片沒有 GPS 時間時會略過"
+    ),
+    FILENAME_TIME(
+        "由相片檔名讀入",
+        "從檔名完整的年月日＋時分秒讀入拍攝時間；影片與不完整檔名會略過"
     )
 }
 
@@ -626,6 +630,9 @@ private fun PhotoTimeEditDialog(
     var notice by remember { mutableStateOf<String?>(null) }
     var gpsPreviews by remember { mutableStateOf<List<PhotoTimePreview>>(emptyList()) }
     var gpsLoading by remember { mutableStateOf(false) }
+    val filenamePreviews = remember(orderedItems) {
+        repository.previewFilenamePhotoTimes(orderedItems)
+    }
 
     val parsedTarget = remember(targetText) {
         try {
@@ -638,6 +645,7 @@ private fun PhotoTimeEditDialog(
     val requests = remember(orderedItems, parsedTarget, mode) {
         if (
             mode == PhotoTimeBatchMode.GPS_TIME ||
+            mode == PhotoTimeBatchMode.FILENAME_TIME ||
             first == null ||
             parsedTarget == null
         ) {
@@ -654,6 +662,7 @@ private fun PhotoTimeEditDialog(
                     orderedItems.map { item -> item to parsedTarget }
                 }
                 PhotoTimeBatchMode.GPS_TIME -> emptyList()
+                PhotoTimeBatchMode.FILENAME_TIME -> emptyList()
             }
         }
     }
@@ -675,14 +684,19 @@ private fun PhotoTimeEditDialog(
         }
     }
 
-    val previews =
-        if (mode == PhotoTimeBatchMode.GPS_TIME) gpsPreviews else standardPreviews
+    val previews = when (mode) {
+        PhotoTimeBatchMode.GPS_TIME -> gpsPreviews
+        PhotoTimeBatchMode.FILENAME_TIME -> filenamePreviews
+        else -> standardPreviews
+    }
     val skippedCount = previews.count { it.error != null }
     val changedCount = previews.count { it.error == null && it.changed }
     val unchangedCount = previews.count { it.error == null && !it.changed }
-    val inputReady =
-        if (mode == PhotoTimeBatchMode.GPS_TIME) !gpsLoading
-        else parsedTarget != null
+    val inputReady = when (mode) {
+        PhotoTimeBatchMode.GPS_TIME -> !gpsLoading
+        PhotoTimeBatchMode.FILENAME_TIME -> true
+        else -> parsedTarget != null
+    }
     val canApply =
         inputReady &&
         changedCount > 0 &&
@@ -694,7 +708,8 @@ private fun PhotoTimeEditDialog(
         } else {
             listOf(
                 PhotoTimeBatchMode.SAME_TIME,
-                PhotoTimeBatchMode.GPS_TIME
+                PhotoTimeBatchMode.GPS_TIME,
+                PhotoTimeBatchMode.FILENAME_TIME
             )
         }
     }
@@ -839,7 +854,10 @@ private fun PhotoTimeEditDialog(
                         }
                     }
 
-                    if (mode != PhotoTimeBatchMode.GPS_TIME) {
+                    if (
+                        mode != PhotoTimeBatchMode.GPS_TIME &&
+                        mode != PhotoTimeBatchMode.FILENAME_TIME
+                    ) {
                         item {
                             OutlinedTextField(
                                 value = targetText,
@@ -864,10 +882,18 @@ private fun PhotoTimeEditDialog(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
-                    } else {
+                    } else if (mode == PhotoTimeBatchMode.GPS_TIME) {
                         item {
                             Text(
                                 "照片只讀取真正的 GPS UTC 時間與 GPS 座標；影片若沒有獨立 GPS 時間就直接略過，不使用 DATE_TAKEN 推算。",
+                                fontSize = 10.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    } else {
+                        item {
+                            Text(
+                                "只讀取檔名中完整的年月日＋時分秒，例如 IMG20260930140123、IMG_20260930_140123、2026-09-30_14-01-23；日期不完整、不合法或影片會直接略過。",
                                 fontSize = 10.sp,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -877,12 +903,16 @@ private fun PhotoTimeEditDialog(
                     if (!inputReady) {
                         item {
                             Text(
-                                if (mode == PhotoTimeBatchMode.GPS_TIME)
-                                    "正在讀取 GPS 時間…"
-                                else
-                                    "日期時間格式不正確",
+                                when (mode) {
+                                    PhotoTimeBatchMode.GPS_TIME -> "正在讀取 GPS 時間…"
+                                    PhotoTimeBatchMode.FILENAME_TIME -> "正在讀取檔名時間…"
+                                    else -> "日期時間格式不正確"
+                                },
                                 fontSize = 11.sp,
-                                color = if (mode == PhotoTimeBatchMode.GPS_TIME)
+                                color = if (
+                                    mode == PhotoTimeBatchMode.GPS_TIME ||
+                                    mode == PhotoTimeBatchMode.FILENAME_TIME
+                                )
                                     MaterialTheme.colorScheme.onSurfaceVariant
                                 else
                                     MaterialTheme.colorScheme.error
@@ -904,10 +934,14 @@ private fun PhotoTimeEditDialog(
                                     )
                                     if (skippedCount > 0) {
                                         Text(
-                                            if (mode == PhotoTimeBatchMode.GPS_TIME)
-                                                "略過 $skippedCount 項：無 UTC 時間、無座標或無法取得時區"
-                                            else
-                                                "略過 $skippedCount 項：暫不支援的圖片／影片格式",
+                                            when (mode) {
+                                                PhotoTimeBatchMode.GPS_TIME ->
+                                                    "略過 $skippedCount 項：無 UTC 時間、無座標或無法取得時區"
+                                                PhotoTimeBatchMode.FILENAME_TIME ->
+                                                    "略過 $skippedCount 項：影片、無完整檔名時間或不支援的圖片格式"
+                                                else ->
+                                                    "略過 $skippedCount 項：暫不支援的圖片／影片格式"
+                                            },
                                             fontSize = 10.sp,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant
                                         )
@@ -982,10 +1016,14 @@ private fun PhotoTimeEditDialog(
 
                         item {
                             Text(
-                                if (mode == PhotoTimeBatchMode.GPS_TIME)
-                                    "GPS 模式只使用真正的 GPS 時間。照片會依 GPS 座標把 GPS UTC 換算成當地時間並寫入 EXIF 拍攝時間；影片沒有獨立 GPS 時間時直接略過，不使用 DATE_TAKEN 或一般影片建立時間推算。"
-                                else
-                                    "照片會寫入 EXIF 拍攝時間；MP4／MOV 影片會修改容器建立時間並同步 Android 拍攝時間索引。影音內容不重新編碼。",
+                                when (mode) {
+                                    PhotoTimeBatchMode.GPS_TIME ->
+                                        "GPS 模式只使用真正的 GPS 時間。照片會依 GPS 座標把 GPS UTC 換算成當地時間並寫入 EXIF 拍攝時間；影片沒有獨立 GPS 時間時直接略過，不使用 DATE_TAKEN 或一般影片建立時間推算。"
+                                    PhotoTimeBatchMode.FILENAME_TIME ->
+                                        "檔名模式只處理照片，必須從檔名完整讀到年月日＋時分秒才會寫入 EXIF 拍攝時間；不完整或不合法的檔名不會猜測。"
+                                    else ->
+                                        "照片會寫入 EXIF 拍攝時間；MP4／MOV 影片會修改容器建立時間並同步 Android 拍攝時間索引。影音內容不重新編碼。"
+                                },
                                 fontSize = 10.sp,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
