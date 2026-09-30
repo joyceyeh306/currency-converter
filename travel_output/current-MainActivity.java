@@ -10,6 +10,8 @@ import android.content.SharedPreferences;
 import android.content.Intent;
 import android.graphics.Color;
 import android.net.Uri;
+import android.provider.MediaStore;
+import android.content.ContentValues;
 import android.os.Bundle;
 import android.os.Build;
 import android.util.Base64;
@@ -32,16 +34,27 @@ import java.util.Locale;
 import java.util.HashSet;
 import java.util.Set;
 import org.json.JSONObject;
+import com.google.mlkit.vision.common.InputImage;
+import com.google.mlkit.vision.text.TextRecognition;
+import com.google.mlkit.vision.text.TextRecognizer;
+import com.google.mlkit.vision.text.latin.TextRecognizerOptions;
+import com.google.mlkit.vision.text.korean.KoreanTextRecognizerOptions;
 
 public class MainActivity extends Activity {
     private static final int REQ_FILE_CHOOSER = 5001;
     private static final int REQ_SAVE_FILE = 5002;
+    private static final int REQ_RECEIPT_CAMERA = 5101;
+    private static final int REQ_RECEIPT_GALLERY = 5102;
     private WebView webView;
     private ValueCallback<Uri[]> fileCallback;
     private byte[] pendingSaveBytes;
     private String pendingSaveMime = "application/octet-stream";
     private String pendingSaveName = "file.bin";
     private boolean pageReady = false;
+    private Uri pendingReceiptUri;
+    private boolean pendingReceiptFromCamera = false;
+    private TextRecognizer receiptKoreanRecognizer;
+    private TextRecognizer receiptLatinRecognizer;
 
     @Override protected void onCreate(Bundle state) {
         super.onCreate(state);
@@ -65,6 +78,8 @@ public class MainActivity extends Activity {
         s.setDisplayZoomControls(false);
         s.setTextZoom(100);
         webView.addJavascriptInterface(new AndroidBridge(), "Android");
+        receiptKoreanRecognizer = TextRecognition.getClient(new KoreanTextRecognizerOptions.Builder().build());
+        receiptLatinRecognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS);
 
         webView.setWebViewClient(new WebViewClient() {
             @Override public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest req) {
@@ -118,6 +133,20 @@ public class MainActivity extends Activity {
             fileCallback.onReceiveValue(result); fileCallback = null;
             return;
         }
+        if (requestCode == REQ_RECEIPT_CAMERA) {
+            if (resultCode == RESULT_OK && pendingReceiptUri != null) processReceiptUri(pendingReceiptUri);
+            else discardPendingReceipt();
+            return;
+        }
+        if (requestCode == REQ_RECEIPT_GALLERY) {
+            if (resultCode == RESULT_OK && data != null && data.getData() != null) {
+                pendingReceiptUri = data.getData();
+                pendingReceiptFromCamera = false;
+                try { getContentResolver().takePersistableUriPermission(pendingReceiptUri, data.getFlags() & (Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION)); } catch (Exception ignored) {}
+                processReceiptUri(pendingReceiptUri);
+            } else { pendingReceiptUri = null; pendingReceiptFromCamera = false; }
+            return;
+        }
         if (requestCode == REQ_SAVE_FILE) {
             if (resultCode == RESULT_OK && data != null && data.getData() != null && pendingSaveBytes != null) {
                 try (OutputStream os = getContentResolver().openOutputStream(data.getData())) {
@@ -126,6 +155,53 @@ public class MainActivity extends Activity {
             }
             pendingSaveBytes = null;
         }
+    }
+
+    private void launchReceiptGallery() {
+        discardPendingReceipt();
+        Intent i=new Intent(Intent.ACTION_OPEN_DOCUMENT); i.addCategory(Intent.CATEGORY_OPENABLE); i.setType("image/*");
+        i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
+        startActivityForResult(Intent.createChooser(i,"選擇收據照片"),REQ_RECEIPT_GALLERY);
+    }
+
+    private void launchReceiptCamera() {
+        discardPendingReceipt();
+        if (Build.VERSION.SDK_INT < 29) { Toast.makeText(this,"這台裝置請先使用「從相簿選」",Toast.LENGTH_SHORT).show(); return; }
+        try {
+            ContentValues v=new ContentValues(); v.put(MediaStore.Images.Media.DISPLAY_NAME,"AjoReceipt_"+System.currentTimeMillis()+".jpg"); v.put(MediaStore.Images.Media.MIME_TYPE,"image/jpeg"); v.put(MediaStore.Images.Media.RELATIVE_PATH,"Pictures/自助旅行筆記/收據");
+            pendingReceiptUri=getContentResolver().insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI,v); pendingReceiptFromCamera=true;
+            if (pendingReceiptUri==null) throw new IllegalStateException("cannot create uri");
+            Intent i=new Intent(MediaStore.ACTION_IMAGE_CAPTURE); i.putExtra(MediaStore.EXTRA_OUTPUT,pendingReceiptUri); i.addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION|Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            if (i.resolveActivity(getPackageManager())==null) { discardPendingReceipt(); Toast.makeText(this,"找不到可用的相機 App",Toast.LENGTH_SHORT).show(); return; }
+            startActivityForResult(i,REQ_RECEIPT_CAMERA);
+        } catch(Exception e) { discardPendingReceipt(); Toast.makeText(this,"無法啟動相機",Toast.LENGTH_SHORT).show(); }
+    }
+
+    private void processReceiptUri(Uri uri) {
+        try {
+            InputImage image=InputImage.fromFilePath(this,uri);
+            receiptKoreanRecognizer.process(image).addOnSuccessListener(korean -> {
+                String kt=korean.getText();
+                receiptLatinRecognizer.process(image).addOnSuccessListener(latin -> sendReceiptResult((kt==null?"":kt)+"\n"+latin.getText(),uri)).addOnFailureListener(err -> sendReceiptResult(kt==null?"":kt,uri));
+            }).addOnFailureListener(kerr -> receiptLatinRecognizer.process(image).addOnSuccessListener(latin -> sendReceiptResult(latin.getText(),uri)).addOnFailureListener(lerr -> sendReceiptError("文字辨識模型尚未準備完成，請保持網路連線後再試一次。")));
+        } catch(Exception e) { sendReceiptError("這張照片無法讀取，請重新拍照或換一張照片。"); }
+    }
+
+    private void sendReceiptResult(String text, Uri uri) {
+        runOnUiThread(() -> {
+            if (!pageReady) return;
+            try { JSONObject o=new JSONObject(); o.put("text",text==null?"":text); o.put("uri",uri==null?"":uri.toString()); o.put("source",pendingReceiptFromCamera?"camera":"gallery"); webView.evaluateJavascript("receiptOcrResult("+JSONObject.quote(o.toString())+")",null); }
+            catch(Exception e) { sendReceiptError("收據辨識結果無法處理。"); }
+        });
+    }
+
+    private void sendReceiptError(String message) {
+        runOnUiThread(() -> { if (pageReady) webView.evaluateJavascript("receiptOcrError("+JSONObject.quote(message)+")",null); else Toast.makeText(MainActivity.this,message,Toast.LENGTH_LONG).show(); });
+    }
+
+    private void discardPendingReceipt() {
+        if (pendingReceiptUri!=null && pendingReceiptFromCamera) { try { getContentResolver().delete(pendingReceiptUri,null,null); } catch(Exception ignored) {} }
+        pendingReceiptUri=null; pendingReceiptFromCamera=false;
     }
 
     private byte[] decodeDataUrl(String dataUrl) {
@@ -140,6 +216,28 @@ public class MainActivity extends Activity {
     }
 
     public class AndroidBridge {
+        @JavascriptInterface public void scanReceipt(String source) {
+            runOnUiThread(() -> { if ("gallery".equals(source)) launchReceiptGallery(); else launchReceiptCamera(); });
+        }
+
+        @JavascriptInterface public void retryReceiptOcr() {
+            runOnUiThread(() -> { if (pendingReceiptUri != null) processReceiptUri(pendingReceiptUri); else sendReceiptError("找不到剛才的收據照片，請重新拍照。"); });
+        }
+
+        @JavascriptInterface public String keepReceiptPhoto() {
+            if (pendingReceiptUri == null) return "";
+            String uri = pendingReceiptUri.toString(); pendingReceiptUri = null; pendingReceiptFromCamera = false; return uri;
+        }
+
+        @JavascriptInterface public void discardReceiptPhoto() { runOnUiThread(() -> discardPendingReceipt()); }
+
+        @JavascriptInterface public void openReceiptPhoto(String uriText) {
+            runOnUiThread(() -> {
+                try { Uri uri=Uri.parse(uriText); Intent i=new Intent(Intent.ACTION_VIEW); i.setDataAndType(uri,"image/*"); i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION); startActivity(i); }
+                catch (Exception e) { Toast.makeText(MainActivity.this,"收據照片已不存在或無法開啟",Toast.LENGTH_SHORT).show(); }
+            });
+        }
+
         @JavascriptInterface public void saveBase64File(String name, String mime, String dataUrl) {
             try {
                 byte[] bytes = decodeDataUrl(dataUrl);

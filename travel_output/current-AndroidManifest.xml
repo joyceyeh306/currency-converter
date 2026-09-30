@@ -26,5 +26,8 @@
             android:grantUriPermissions="true" />
             <activity android:name=".AttachmentViewerActivity" android:exported="false" android:theme="@android:style/Theme.Material.Light.NoActionBar" />
         <receiver android:name=".ReminderReceiver" android:exported="false" />
-    </application>
+        <meta-data
+        android:name="com.google.mlkit.vision.DEPENDENCIES"
+        android:value="ocr,ocr_korean" />
+</application>
 </manifest>
