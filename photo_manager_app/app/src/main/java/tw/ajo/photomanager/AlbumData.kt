@@ -744,7 +744,10 @@ class AlbumRepository(private val context: Context) {
         val detail = readDetail(item)
         val lat = detail.lat ?: return@withContext null
         val lon = detail.lon ?: return@withContext null
+        resolvePlace(lat, lon)
+    }
 
+    suspend fun resolvePlace(lat: Double, lon: Double): String? = withContext(Dispatchers.IO) {
         val cacheKey = String.format(Locale.US, "%.5f,%.5f", lat, lon)
         placePrefs.getString(cacheKey, null)?.let { cached ->
             if (cached.isNotBlank()) return@withContext cached
