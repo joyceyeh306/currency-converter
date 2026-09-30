@@ -34,6 +34,7 @@ import java.util.Locale;
 import java.util.HashSet;
 import java.util.Set;
 import org.json.JSONObject;
+import org.json.JSONArray;
 import com.google.mlkit.vision.common.InputImage;
 import com.google.mlkit.vision.text.TextRecognition;
 import com.google.mlkit.vision.text.TextRecognizer;
@@ -139,12 +140,16 @@ public class MainActivity extends Activity {
             return;
         }
         if (requestCode == REQ_RECEIPT_GALLERY) {
-            if (resultCode == RESULT_OK && data != null && data.getData() != null) {
-                pendingReceiptUri = data.getData();
-                pendingReceiptFromCamera = false;
-                try { getContentResolver().takePersistableUriPermission(pendingReceiptUri, data.getFlags() & (Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION)); } catch (Exception ignored) {}
-                processReceiptUri(pendingReceiptUri);
-            } else { pendingReceiptUri = null; pendingReceiptFromCamera = false; }
+            if (resultCode == RESULT_OK && data != null) {
+                JSONArray arr = new JSONArray();
+                if (data.getClipData() != null) {
+                    int n=data.getClipData().getItemCount();
+                    for(int x=0;x<n;x++){ Uri u=data.getClipData().getItemAt(x).getUri(); if(u!=null) arr.put(u.toString()); }
+                } else if (data.getData()!=null) arr.put(data.getData().toString());
+                pendingReceiptUri=null; pendingReceiptFromCamera=false;
+                final String payload=arr.toString();
+                if (pageReady) webView.evaluateJavascript("receiptGallerySelected("+JSONObject.quote(payload)+")",null);
+            } else { pendingReceiptUri=null; pendingReceiptFromCamera=false; }
             return;
         }
         if (requestCode == REQ_SAVE_FILE) {
@@ -159,32 +164,14 @@ public class MainActivity extends Activity {
 
     private void launchReceiptGallery() {
         discardPendingReceipt();
-
-        // OPPO / ColorOS Photos.  On OPPO devices this opens the familiar system album
-        // directly instead of Android's generic document/file browser.
-        Intent pick = new Intent(Intent.ACTION_PICK, MediaStore.Images.Media.EXTERNAL_CONTENT_URI);
-        pick.setType("image/*");
-        pick.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
-
-        Intent oppo = new Intent(pick);
-        oppo.setPackage("com.coloros.gallery3d");
-        if (oppo.resolveActivity(getPackageManager()) != null) {
-            startActivityForResult(oppo, REQ_RECEIPT_GALLERY);
-            return;
+        String[] oppoPackages=new String[]{"com.coloros.gallery3d","com.oplus.gallery"};
+        for(String pkg:oppoPackages){
+            Intent oppo=new Intent(Intent.ACTION_GET_CONTENT); oppo.setType("image/*"); oppo.putExtra(Intent.EXTRA_ALLOW_MULTIPLE,true); oppo.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION); oppo.setPackage(pkg);
+            if(oppo.resolveActivity(getPackageManager())!=null){ startActivityForResult(oppo,REQ_RECEIPT_GALLERY); return; }
         }
-
-        // Fallback for non-OPPO devices: use the device's normal image picker first.
-        if (pick.resolveActivity(getPackageManager()) != null) {
-            startActivityForResult(pick, REQ_RECEIPT_GALLERY);
-            return;
-        }
-
-        // Last fallback only.
-        Intent doc = new Intent(Intent.ACTION_OPEN_DOCUMENT);
-        doc.addCategory(Intent.CATEGORY_OPENABLE);
-        doc.setType("image/*");
-        doc.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
-        startActivityForResult(doc, REQ_RECEIPT_GALLERY);
+        Intent pick=new Intent(Intent.ACTION_GET_CONTENT); pick.setType("image/*"); pick.putExtra(Intent.EXTRA_ALLOW_MULTIPLE,true); pick.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+        if(pick.resolveActivity(getPackageManager())!=null){ startActivityForResult(pick,REQ_RECEIPT_GALLERY); return; }
+        Intent doc=new Intent(Intent.ACTION_OPEN_DOCUMENT); doc.addCategory(Intent.CATEGORY_OPENABLE); doc.setType("image/*"); doc.putExtra(Intent.EXTRA_ALLOW_MULTIPLE,true); doc.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION); startActivityForResult(doc,REQ_RECEIPT_GALLERY);
     }
 
     private void launchReceiptCamera() {
@@ -241,6 +228,13 @@ public class MainActivity extends Activity {
     public class AndroidBridge {
         @JavascriptInterface public void scanReceipt(String source) {
             runOnUiThread(() -> { if ("gallery".equals(source)) launchReceiptGallery(); else launchReceiptCamera(); });
+        }
+
+        @JavascriptInterface public void scanReceiptUri(String uriText) {
+            runOnUiThread(() -> {
+                try { pendingReceiptUri=Uri.parse(uriText); pendingReceiptFromCamera=false; processReceiptUri(pendingReceiptUri); }
+                catch(Exception e){ sendReceiptError("這張收據照片無法讀取，請略過或換一張收據。"); }
+            });
         }
 
         @JavascriptInterface public void retryReceiptOcr() {
