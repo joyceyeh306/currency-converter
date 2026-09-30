@@ -236,14 +236,16 @@ jobs:
         run: |
           cat travel_build/v115afixpart* | tr -d '\n' | base64 -d > /tmp/apply-v115a.py
           cat travel_build/v115bpart* | tr -d '\n' | base64 -d > /tmp/apply-v115b.py
-          python3 -m py_compile /tmp/apply-v115a.py /tmp/apply-v115b.py travel_build/apply-v115c.py
+          python3 -m py_compile /tmp/apply-v115a.py /tmp/apply-v115b.py travel_build/apply-v115c.py travel_build/apply-v115d.py
           python3 /tmp/apply-v115a.py
           python3 /tmp/apply-v115b.py
           python3 travel_build/apply-v115c.py
+          python3 travel_build/apply-v115d.py
           grep -q "versionName '1.0.15'" /tmp/ajo/ajo_build_min/app/build.gradle
           grep -q "play-services-mlkit-text-recognition:19.0.1" /tmp/ajo/ajo_build_min/app/build.gradle
           grep -q "play-services-mlkit-text-recognition-korean:16.0.1" /tmp/ajo/ajo_build_min/app/build.gradle
           grep -q 'com.google.mlkit.vision.DEPENDENCIES' /tmp/ajo/ajo_build_min/app/src/main/AndroidManifest.xml
+          grep -q 'android.useAndroidX=true' /tmp/ajo/ajo_build_min/gradle.properties
           grep -q 'function receiptOcrResult' /tmp/ajo/ajo_build_min/app/src/main/assets/index.html
           grep -q 'scanReceipt(String source)' /tmp/ajo/ajo_build_min/app/src/main/java/tw/ajo/travelnotebook/MainActivity.java
           python3 - <<'PY'
@@ -298,7 +300,9 @@ jobs:
         id: buildapk
         continue-on-error: true
         working-directory: /tmp/ajo/ajo_build_min
-        run: gradle :app:assembleRelease --stacktrace 2>&1 | tee /tmp/ajo-build.log
+        run: |
+          set -o pipefail
+          gradle :app:assembleRelease --stacktrace 2>&1 | tee /tmp/ajo-build.log
 
       - name: Sign APK with stable AOSP test key
         id: signapk
