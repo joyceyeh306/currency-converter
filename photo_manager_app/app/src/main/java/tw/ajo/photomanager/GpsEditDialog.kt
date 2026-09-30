@@ -18,7 +18,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -448,7 +447,7 @@ fun GpsEditDialog(
                                     }
                                     if (unchangedCount > 0) {
                                         Text(
-                                            unchangedCount + " 項位置原本就相同／沒有位置",
+                                            unchangedCount.toString() + " 項位置原本就相同／沒有位置",
                                             fontSize = 10.sp,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant
                                         )
