@@ -465,7 +465,7 @@ private fun AlbumApp(repository: AlbumRepository, resumeVersion: Int) {
                         "目前版本：${BuildConfig.VERSION_NAME}\n" +
                         "版本代碼：${BuildConfig.VERSION_CODE}\n\n" +
                         "穩定母版：${BuildConfig.STABLE_BASELINE}\n\n" +
-                        "本次更新：拍攝時間修改新增 MP4／MOV 影片支援\n" +
+                        "本次更新：修正 MP4／MOV 影片時間修改相容性\n" +
                         "製作日期：2026-09-29"
                 )
             },
