@@ -465,7 +465,7 @@ private fun AlbumApp(repository: AlbumRepository, resumeVersion: Int) {
                         "目前版本：${BuildConfig.VERSION_NAME}\n" +
                         "版本代碼：${BuildConfig.VERSION_CODE}\n\n" +
                         "穩定母版：${BuildConfig.STABLE_BASELINE}\n\n" +
-                        "本次更新：拍攝時間新增「由 GPS 時間讀入」\n" +
+                        "本次更新：GPS 時間自動換算拍攝地當地時間\n" +
                         "製作日期：2026-09-29"
                 )
             },
