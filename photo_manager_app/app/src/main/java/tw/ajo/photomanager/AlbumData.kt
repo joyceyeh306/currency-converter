@@ -26,7 +26,6 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.time.Instant
 import java.time.LocalDateTime
-import java.time.OffsetDateTime
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
@@ -1015,12 +1014,12 @@ class AlbumRepository(private val context: Context) {
                         changed = false
                     )
                 }
-                item.kind == MediaKind.VIDEO && !supportsVideoTimeWrite(item) -> {
+                item.kind == MediaKind.VIDEO -> {
                     PhotoTimePreview(
                         item = item,
                         currentTime = item.wallTime,
                         newTime = item.wallTime,
-                        error = "目前影片只支援 MP4／MOV",
+                        error = "無 GPS 時間－略過",
                         changed = false
                     )
                 }
@@ -1111,10 +1110,7 @@ class AlbumRepository(private val context: Context) {
     )
 
     private fun readGpsCaptureData(item: MediaItem): GpsCaptureData {
-        return when (item.kind) {
-            MediaKind.IMAGE -> readImageGpsCaptureData(item)
-            MediaKind.VIDEO -> readVideoGpsCaptureData(item)
-        }
+        return readImageGpsCaptureData(item)
     }
 
     private fun originalMediaUri(item: MediaItem): Uri {
@@ -1160,67 +1156,6 @@ class AlbumRepository(private val context: Context) {
         }
     }
 
-    private fun readVideoGpsCaptureData(item: MediaItem): GpsCaptureData {
-        return try {
-            val retriever = MediaMetadataRetriever()
-            try {
-                retriever.setDataSource(context, originalMediaUri(item))
-
-                val location = parseIso6709Location(
-                    retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_LOCATION)
-                )
-                val utcTime = parseVideoUtcDate(
-                    retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DATE)
-                )
-
-                GpsCaptureData(
-                    utcTime = utcTime,
-                    lat = location?.first,
-                    lon = location?.second
-                )
-            } finally {
-                retriever.release()
-            }
-        } catch (_: Exception) {
-            GpsCaptureData(null, null, null)
-        }
-    }
-
-    private fun parseVideoUtcDate(raw: String?): LocalDateTime? {
-        val value = raw?.trim().orEmpty()
-        if (value.isBlank()) return null
-
-        val formatters = listOf(
-            "yyyyMMdd'T'HHmmss.SSSXXX",
-            "yyyyMMdd'T'HHmmss.SSSXX",
-            "yyyyMMdd'T'HHmmss.SSSX",
-            "yyyyMMdd'T'HHmmssXXX",
-            "yyyyMMdd'T'HHmmssXX",
-            "yyyyMMdd'T'HHmmssX",
-            "yyyy-MM-dd'T'HH:mm:ss.SSSXXX",
-            "yyyy-MM-dd'T'HH:mm:ss.SSSXX",
-            "yyyy-MM-dd'T'HH:mm:ss.SSSX",
-            "yyyy-MM-dd'T'HH:mm:ssXXX",
-            "yyyy-MM-dd'T'HH:mm:ssXX",
-            "yyyy-MM-dd'T'HH:mm:ssX"
-        )
-
-        for (pattern in formatters) {
-            try {
-                val parsed = OffsetDateTime.parse(
-                    value,
-                    DateTimeFormatter.ofPattern(pattern, Locale.US)
-                )
-                return LocalDateTime.ofInstant(
-                    parsed.toInstant(),
-                    java.time.ZoneOffset.UTC
-                )
-            } catch (_: Exception) {
-            }
-        }
-
-        return null
-    }
 
     private fun lookupTimeZoneId(
         lat: Double,
