@@ -13,7 +13,7 @@ def rep(old,new,label):
 
 old="""function localDateISO(){const d=new Date(),y=d.getFullYear(),m=String(d.getMonth()+1).padStart(2,'0'),da=String(d.getDate()).padStart(2,'0');return `${y}-${m}-${da}`}"""
 new="""function localDateISO(){const d=new Date(),y=d.getFullYear(),m=String(d.getMonth()+1).padStart(2,'0'),da=String(d.getDate()).padStart(2,'0');return `${y}-${m}-${da}`}
-function applyStartupRoute(){const today=localDateISO(),active=(data.trips||[]).filter(t=>t.start&&t.end&&t.start<=today&&t.nd>=today);if(!active.length)return;let t=active.find(x=>x.id===data.currentTripId)||active[0];const d=(t.days||[]).find(x=>x.date===today);data.currentTripId=t.id;route={tab:'trips',tripId:t.id,dayId:d?d.id:null};saveData()}"""
+function applyStartupRoute(){const today=localDateISO(),active=(data.trips||[]).filter(t=>t.start&&t.end&&t.start<=today&&t.end>=today);if(!active.length)return;let t=active.find(x=>x.id===data.currentTripId)||active[0];const d=(t.days||[]).find(x=>x.date===today);data.currentTripId=t.id;route={tab:'trips',tripId:t.id,dayId:d?d.id:null};saveData()}"""
 rep(old,new,"startup route function")
 
 rep("render();setTimeout(syncNativeReminders,600);","applyStartupRoute();render();setTimeout(syncNativeReminders,600);","apply startup route")
