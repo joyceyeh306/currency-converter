@@ -840,12 +840,12 @@ private fun PhotoTimeEditDialog(
                                     verticalArrangement = Arrangement.spacedBy(3.dp)
                                 ) {
                                     Text(
-                                        "可修改 $changedCount 張",
+                                        "可修改 $changedCount 項",
                                         fontWeight = FontWeight.SemiBold
                                     )
                                     if (skippedCount > 0) {
                                         Text(
-                                            "略過 $skippedCount 項：影片或暫不支援的圖片格式",
+                                            "略過 $skippedCount 項：暫不支援的圖片／影片格式",
                                             fontSize = 10.sp,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant
                                         )
@@ -920,7 +920,7 @@ private fun PhotoTimeEditDialog(
 
                         item {
                             Text(
-                                "會寫入 EXIF 原始拍攝時間、數位化時間與影像時間，並同步 Android 拍攝時間索引。只修改 metadata，不重新編碼照片像素。",
+                                "照片會寫入 EXIF 拍攝時間；MP4／MOV 影片會修改容器建立時間並同步 Android 拍攝時間索引。影音內容不重新編碼。",
                                 fontSize = 10.sp,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -952,7 +952,7 @@ private fun PhotoTimeEditDialog(
                 ) {
                     Text(
                         if (processing) "處理中…"
-                        else "修改 $changedCount 張"
+                        else "修改 $changedCount 項"
                     )
                 }
             }
@@ -973,7 +973,7 @@ private fun PhotoTimeEditDialog(
             title = { Text("確認修改拍攝時間") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
-                    Text("將修改 $changedCount 張照片的拍攝時間。")
+                    Text("將修改 $changedCount 項的拍攝時間。")
                     if (mode == PhotoTimeBatchMode.SHIFT_ALL && first != null && parsedTarget != null) {
                         val delta = Duration.between(first.wallTime, parsedTarget)
                         Text(
