@@ -11,15 +11,26 @@ import android.location.Geocoder
 import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.os.Build
+import android.os.ParcelFileDescriptor
 import android.provider.MediaStore
 import androidx.core.content.ContextCompat
 import androidx.exifinterface.media.ExifInterface
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import org.mp4parser.IsoFile
+import org.mp4parser.boxes.iso14496.part12.MediaBox
+import org.mp4parser.boxes.iso14496.part12.MediaHeaderBox
+import org.mp4parser.boxes.iso14496.part12.MovieHeaderBox
+import org.mp4parser.boxes.iso14496.part12.TrackBox
+import org.mp4parser.boxes.iso14496.part12.TrackHeaderBox
+import java.io.File
+import java.io.FileInputStream
+import java.io.FileOutputStream
 import java.time.Instant
 import java.time.LocalDateTime
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import java.util.Date
 import java.util.Locale
 import java.util.regex.Pattern
 
@@ -973,8 +984,10 @@ class AlbumRepository(private val context: Context) {
     ): List<PhotoTimePreview> {
         return requests.map { (item, target) ->
             val error = when {
-                item.kind != MediaKind.IMAGE -> "影片暫不支援修改拍攝時間"
-                !supportsExifTimeWrite(item) -> "這個圖片格式暫不支援安全寫入拍攝時間"
+                item.kind == MediaKind.IMAGE && !supportsExifTimeWrite(item) ->
+                    "這個圖片格式暫不支援安全寫入拍攝時間"
+                item.kind == MediaKind.VIDEO && !supportsVideoTimeWrite(item) ->
+                    "目前影片只支援 MP4／MOV"
                 else -> null
             }
             PhotoTimePreview(
@@ -1009,23 +1022,9 @@ class AlbumRepository(private val context: Context) {
             val item = preview.item
             val target = preview.newTime
             try {
-                resolver.openFileDescriptor(item.uri, "rw")?.use { pfd ->
-                    val exif = ExifInterface(pfd.fileDescriptor)
-                    val value = target.format(exifFormatter)
-                    exif.setAttribute(ExifInterface.TAG_DATETIME_ORIGINAL, value)
-                    exif.setAttribute(ExifInterface.TAG_DATETIME_DIGITIZED, value)
-                    exif.setAttribute(ExifInterface.TAG_DATETIME, value)
-                    exif.saveAttributes()
-                } ?: throw IllegalStateException("無法開啟照片")
-
-                val verified = readOriginalTime(item.uri)
-                if (verified != target) {
-                    failed += 1
-                    val actual = verified?.format(displayFormatter) ?: "讀不到"
-                    details.add(
-                        item.name + "：修改後驗證失敗（實際：" + actual + "）"
-                    )
-                    return@forEach
+                when (item.kind) {
+                    MediaKind.IMAGE -> writeImageCaptureTime(item, target)
+                    MediaKind.VIDEO -> writeVideoCaptureTime(item, target)
                 }
 
                 try {
@@ -1042,14 +1041,16 @@ class AlbumRepository(private val context: Context) {
                         null
                     )
                 } catch (_: Exception) {
-                    // EXIF 已成功；MediaStore 索引可在重新掃描時更新。
+                    // 檔案 metadata 已成功；MediaStore 索引可在重新掃描時更新。
                 }
 
-                val modified = currentModifiedMillis(item)
-                if (modified > 0L) {
-                    saveIndex(item.key, modified, target)
-                } else {
-                    timeIndexPrefs.edit().remove(cacheKey(item.key)).apply()
+                if (item.kind == MediaKind.IMAGE) {
+                    val modified = currentModifiedMillis(item)
+                    if (modified > 0L) {
+                        saveIndex(item.key, modified, target)
+                    } else {
+                        timeIndexPrefs.edit().remove(cacheKey(item.key)).apply()
+                    }
                 }
 
                 succeeded += 1
@@ -1082,6 +1083,173 @@ class AlbumRepository(private val context: Context) {
             failed = failed,
             details = details
         )
+    }
+
+    private fun writeImageCaptureTime(
+        item: MediaItem,
+        target: LocalDateTime
+    ) {
+        resolver.openFileDescriptor(item.uri, "rw")?.use { pfd ->
+            val exif = ExifInterface(pfd.fileDescriptor)
+            val value = target.format(exifFormatter)
+            exif.setAttribute(ExifInterface.TAG_DATETIME_ORIGINAL, value)
+            exif.setAttribute(ExifInterface.TAG_DATETIME_DIGITIZED, value)
+            exif.setAttribute(ExifInterface.TAG_DATETIME, value)
+            exif.saveAttributes()
+        } ?: throw IllegalStateException("無法開啟照片")
+
+        val verified = readOriginalTime(item.uri)
+        if (verified != target) {
+            val actual = verified?.format(
+                DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss", Locale.US)
+            ) ?: "讀不到"
+            throw IllegalStateException("修改後驗證失敗（實際：" + actual + "）")
+        }
+    }
+
+    private fun supportsVideoTimeWrite(item: MediaItem): Boolean {
+        val mime = item.mime.lowercase(Locale.ROOT)
+        val name = item.name.lowercase(Locale.ROOT)
+        return mime == "video/mp4" ||
+            mime == "video/quicktime" ||
+            name.endsWith(".mp4") ||
+            name.endsWith(".mov")
+    }
+
+    private fun writeVideoCaptureTime(
+        item: MediaItem,
+        target: LocalDateTime
+    ) {
+        val safeKey = item.key.replace(Regex("[^A-Za-z0-9_.-]"), "_")
+        val inputFile = File(context.cacheDir, "video_time_" + safeKey + "_input")
+        val outputFile = File(context.cacheDir, "video_time_" + safeKey + "_output")
+
+        inputFile.delete()
+        outputFile.delete()
+
+        try {
+            resolver.openInputStream(item.uri)?.use { input ->
+                FileOutputStream(inputFile).use { output ->
+                    input.copyTo(output, 1024 * 1024)
+                }
+            } ?: throw IllegalStateException("無法讀取影片")
+
+            val targetDate = Date.from(
+                target.atZone(ZoneId.systemDefault()).toInstant()
+            )
+
+            IsoFile(inputFile).use { iso ->
+                val movie = iso.movieBox
+                    ?: throw IllegalStateException("找不到影片容器時間資料")
+
+                val movieHeaders = movie.getBoxes(MovieHeaderBox::class.java)
+                if (movieHeaders.isEmpty()) {
+                    throw IllegalStateException("找不到影片建立時間欄位")
+                }
+                movieHeaders.forEach { box ->
+                    box.creationTime = targetDate
+                    box.modificationTime = targetDate
+                }
+
+                movie.getBoxes(TrackBox::class.java).forEach { track ->
+                    track.getBoxes(TrackHeaderBox::class.java).forEach { box ->
+                        box.creationTime = targetDate
+                        box.modificationTime = targetDate
+                    }
+                    track.getBoxes(MediaBox::class.java).forEach { media ->
+                        media.getBoxes(MediaHeaderBox::class.java).forEach { box ->
+                            box.creationTime = targetDate
+                            box.modificationTime = targetDate
+                        }
+                    }
+                }
+
+                FileOutputStream(outputFile).channel.use { channel ->
+                    iso.getBox(channel)
+                }
+            }
+
+            val outputVerified = readVideoCreationTime(outputFile)
+            if (outputVerified != target) {
+                val actual = outputVerified?.format(
+                    DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss", Locale.US)
+                ) ?: "讀不到"
+                throw IllegalStateException(
+                    "影片容器驗證失敗（實際：" + actual + "）"
+                )
+            }
+
+            writeFileBackToUri(outputFile, item.uri)
+
+            val destinationVerified = readVideoCreationTime(item.uri)
+            if (destinationVerified != target) {
+                try {
+                    writeFileBackToUri(inputFile, item.uri)
+                } catch (_: Exception) {
+                }
+                val actual = destinationVerified?.format(
+                    DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss", Locale.US)
+                ) ?: "讀不到"
+                throw IllegalStateException(
+                    "寫回後驗證失敗，已嘗試還原原影片（實際：" + actual + "）"
+                )
+            }
+        } finally {
+            inputFile.delete()
+            outputFile.delete()
+        }
+    }
+
+    private fun writeFileBackToUri(file: File, uri: Uri) {
+        val pfd = resolver.openFileDescriptor(uri, "rw")
+            ?: throw IllegalStateException("無法開啟影片寫入")
+        ParcelFileDescriptor.AutoCloseOutputStream(pfd).use { output ->
+            FileInputStream(file).use { input ->
+                output.channel.truncate(0)
+                input.copyTo(output, 1024 * 1024)
+                output.flush()
+            }
+        }
+    }
+
+    private fun readVideoCreationTime(file: File): LocalDateTime? {
+        return try {
+            IsoFile(file).use { iso ->
+                val date = iso.movieBox
+                    ?.getBoxes(MovieHeaderBox::class.java)
+                    ?.firstOrNull()
+                    ?.creationTime
+                    ?: return null
+                LocalDateTime.ofInstant(
+                    date.toInstant(),
+                    ZoneId.systemDefault()
+                )
+            }
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    private fun readVideoCreationTime(uri: Uri): LocalDateTime? {
+        return try {
+            val pfd = resolver.openFileDescriptor(uri, "r") ?: return null
+            pfd.use {
+                val channel = FileInputStream(it.fileDescriptor).channel
+                IsoFile(channel).use { iso ->
+                    val date = iso.movieBox
+                        ?.getBoxes(MovieHeaderBox::class.java)
+                        ?.firstOrNull()
+                        ?.creationTime
+                        ?: return null
+                    LocalDateTime.ofInstant(
+                        date.toInstant(),
+                        ZoneId.systemDefault()
+                    )
+                }
+            }
+        } catch (_: Exception) {
+            null
+        }
     }
 
     private fun supportsExifTimeWrite(item: MediaItem): Boolean {
