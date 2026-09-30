@@ -592,8 +592,8 @@ private enum class PhotoTimeBatchMode(
         "照片以 GPS UTC 時間＋座標，自動換算成拍攝地當地時間；影片沒有 GPS 時間時會略過"
     ),
     FILENAME_TIME(
-        "由相片檔名讀入",
-        "從檔名完整的年月日＋時分秒讀入拍攝時間；影片與不完整檔名會略過"
+        "由檔名讀入",
+        "從照片／影片檔名中的完整年月日＋時分秒讀入拍攝時間；不完整檔名會略過"
     )
 }
 
@@ -893,7 +893,7 @@ private fun PhotoTimeEditDialog(
                     } else {
                         item {
                             Text(
-                                "只讀取檔名中完整的年月日＋時分秒，例如 IMG20260930140123、IMG_20260930_140123、2026-09-30_14-01-23；日期不完整、不合法或影片會直接略過。",
+                                "只讀取檔名中完整的年月日＋時分秒，例如 IMG20260930140123、VID20260930204500、IMG_20260930_140123、2026-09-30_14-01-23；日期不完整或不合法會直接略過。",
                                 fontSize = 10.sp,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -938,7 +938,7 @@ private fun PhotoTimeEditDialog(
                                                 PhotoTimeBatchMode.GPS_TIME ->
                                                     "略過 $skippedCount 項：無 UTC 時間、無座標或無法取得時區"
                                                 PhotoTimeBatchMode.FILENAME_TIME ->
-                                                    "略過 $skippedCount 項：影片、無完整檔名時間或不支援的圖片格式"
+                                                    "略過 $skippedCount 項：無完整檔名時間或不支援的圖片／影片格式"
                                                 else ->
                                                     "略過 $skippedCount 項：暫不支援的圖片／影片格式"
                                             },
@@ -1020,7 +1020,7 @@ private fun PhotoTimeEditDialog(
                                     PhotoTimeBatchMode.GPS_TIME ->
                                         "GPS 模式只使用真正的 GPS 時間。照片會依 GPS 座標把 GPS UTC 換算成當地時間並寫入 EXIF 拍攝時間；影片沒有獨立 GPS 時間時直接略過，不使用 DATE_TAKEN 或一般影片建立時間推算。"
                                     PhotoTimeBatchMode.FILENAME_TIME ->
-                                        "檔名模式只處理照片，必須從檔名完整讀到年月日＋時分秒才會寫入 EXIF 拍攝時間；不完整或不合法的檔名不會猜測。"
+                                        "檔名模式可處理照片與 MP4／MOV 影片。必須從檔名完整讀到年月日＋時分秒才會修改；照片寫入 EXIF 拍攝時間，影片修改容器建立時間並同步 Android 拍攝時間索引。影音內容不重新編碼。"
                                     else ->
                                         "照片會寫入 EXIF 拍攝時間；MP4／MOV 影片會修改容器建立時間並同步 Android 拍攝時間索引。影音內容不重新編碼。"
                                 },
