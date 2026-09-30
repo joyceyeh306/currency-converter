@@ -159,9 +159,32 @@ public class MainActivity extends Activity {
 
     private void launchReceiptGallery() {
         discardPendingReceipt();
-        Intent i=new Intent(Intent.ACTION_OPEN_DOCUMENT); i.addCategory(Intent.CATEGORY_OPENABLE); i.setType("image/*");
-        i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
-        startActivityForResult(Intent.createChooser(i,"選擇收據照片"),REQ_RECEIPT_GALLERY);
+
+        // OPPO / ColorOS Photos.  On OPPO devices this opens the familiar system album
+        // directly instead of Android's generic document/file browser.
+        Intent pick = new Intent(Intent.ACTION_PICK, MediaStore.Images.Media.EXTERNAL_CONTENT_URI);
+        pick.setType("image/*");
+        pick.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+
+        Intent oppo = new Intent(pick);
+        oppo.setPackage("com.coloros.gallery3d");
+        if (oppo.resolveActivity(getPackageManager()) != null) {
+            startActivityForResult(oppo, REQ_RECEIPT_GALLERY);
+            return;
+        }
+
+        // Fallback for non-OPPO devices: use the device's normal image picker first.
+        if (pick.resolveActivity(getPackageManager()) != null) {
+            startActivityForResult(pick, REQ_RECEIPT_GALLERY);
+            return;
+        }
+
+        // Last fallback only.
+        Intent doc = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+        doc.addCategory(Intent.CATEGORY_OPENABLE);
+        doc.setType("image/*");
+        doc.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
+        startActivityForResult(doc, REQ_RECEIPT_GALLERY);
     }
 
     private void launchReceiptCamera() {
