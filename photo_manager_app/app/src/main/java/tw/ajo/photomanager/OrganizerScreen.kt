@@ -589,7 +589,7 @@ private enum class PhotoTimeBatchMode(
     ),
     GPS_TIME(
         "由 GPS 時間讀入",
-        "用 GPS UTC 時間＋座標，自動換算成拍攝地當地時間"
+        "照片／影片以 UTC 時間＋GPS 座標，自動換算成拍攝地當地時間"
     )
 }
 
@@ -867,7 +867,7 @@ private fun PhotoTimeEditDialog(
                     } else {
                         item {
                             Text(
-                                "會讀取照片的 GPS UTC 時間與 GPS 座標，自動判斷拍攝地時區並換算成當地拍攝時間。",
+                                "會讀取照片的 GPS UTC；影片則讀取影片 UTC 時間，再搭配 GPS 座標判斷拍攝地時區並換算成當地拍攝時間。",
                                 fontSize = 10.sp,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -905,7 +905,7 @@ private fun PhotoTimeEditDialog(
                                     if (skippedCount > 0) {
                                         Text(
                                             if (mode == PhotoTimeBatchMode.GPS_TIME)
-                                                "略過 $skippedCount 項：無 GPS 時間、無座標或無法取得時區"
+                                                "略過 $skippedCount 項：無 UTC 時間、無座標或無法取得時區"
                                             else
                                                 "略過 $skippedCount 項：暫不支援的圖片／影片格式",
                                             fontSize = 10.sp,
@@ -983,7 +983,7 @@ private fun PhotoTimeEditDialog(
                         item {
                             Text(
                                 if (mode == PhotoTimeBatchMode.GPS_TIME)
-                                    "GPS 時間會先依拍攝座標換算成當地時間，再寫入 EXIF 拍攝時間；沒有 GPS 時間的照片會顯示「無 GPS 時間－略過」。"
+                                    "GPS 模式會先依拍攝座標把 UTC 時間換算成當地時間；照片寫入 EXIF 拍攝時間，MP4／MOV 影片修改容器建立時間並同步 Android 拍攝時間索引。無 UTC 時間或 GPS 座標的項目會略過。"
                                 else
                                     "照片會寫入 EXIF 拍攝時間；MP4／MOV 影片會修改容器建立時間並同步 Android 拍攝時間索引。影音內容不重新編碼。",
                                 fontSize = 10.sp,
