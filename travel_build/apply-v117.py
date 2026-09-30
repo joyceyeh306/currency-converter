@@ -7,7 +7,7 @@ s=p.read_text()
 
 def sub(pattern,repl,label):
     global s
-    ns,n=re.subn(pattern,repl,s,count=1,flags=re.S)
+    ns,n=re.subn(pattern,lambda _m: repl,s,count=1,flags=re.S)
     if n!=1: raise SystemExit('v1.0.17 patch failed: '+label)
     s=ns
 
