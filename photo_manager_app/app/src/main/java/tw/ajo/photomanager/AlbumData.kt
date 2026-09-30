@@ -17,10 +17,13 @@ import androidx.core.content.ContextCompat
 import androidx.exifinterface.media.ExifInterface
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import org.json.JSONObject
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.io.RandomAccessFile
+import java.net.HttpURLConnection
+import java.net.URL
 import java.time.Instant
 import java.time.LocalDateTime
 import java.time.ZoneId
@@ -998,6 +1001,8 @@ class AlbumRepository(private val context: Context) {
     fun previewGpsPhotoTimes(
         items: List<MediaItem>
     ): List<PhotoTimePreview> {
+        val timeZoneCache = mutableMapOf<String, String?>()
+
         return items.map { item ->
             when {
                 item.kind != MediaKind.IMAGE -> {
@@ -1019,30 +1024,89 @@ class AlbumRepository(private val context: Context) {
                     )
                 }
                 else -> {
-                    val gpsTime = readGpsRawTime(item)
-                    if (gpsTime == null) {
+                    val gps = readGpsCaptureData(item)
+
+                    if (gps.utcTime == null) {
                         PhotoTimePreview(
                             item = item,
                             currentTime = item.wallTime,
                             newTime = item.wallTime,
-                            error = "照片沒有可讀取的 GPS 日期時間",
+                            error = "無 GPS 時間－略過",
                             changed = false
                         )
-                    } else {
+                    } else if (gps.lat == null || gps.lon == null) {
                         PhotoTimePreview(
                             item = item,
                             currentTime = item.wallTime,
-                            newTime = gpsTime,
-                            error = null,
-                            changed = item.wallTime != gpsTime
+                            newTime = item.wallTime,
+                            error = "無 GPS 座標－略過",
+                            changed = false
                         )
+                    } else {
+                        val coordinateKey = String.format(
+                            Locale.US,
+                            "%.4f,%.4f",
+                            gps.lat,
+                            gps.lon
+                        )
+
+                        val zoneId = if (timeZoneCache.containsKey(coordinateKey)) {
+                            timeZoneCache[coordinateKey]
+                        } else {
+                            val lookedUp = lookupTimeZoneId(gps.lat, gps.lon)
+                            timeZoneCache[coordinateKey] = lookedUp
+                            lookedUp
+                        }
+
+                        if (zoneId.isNullOrBlank()) {
+                            PhotoTimePreview(
+                                item = item,
+                                currentTime = item.wallTime,
+                                newTime = item.wallTime,
+                                error = "無法取得拍攝地時區－略過",
+                                changed = false
+                            )
+                        } else {
+                            val localTime = try {
+                                gps.utcTime
+                                    .atZone(java.time.ZoneOffset.UTC)
+                                    .withZoneSameInstant(ZoneId.of(zoneId))
+                                    .toLocalDateTime()
+                            } catch (_: Exception) {
+                                null
+                            }
+
+                            if (localTime == null) {
+                                PhotoTimePreview(
+                                    item = item,
+                                    currentTime = item.wallTime,
+                                    newTime = item.wallTime,
+                                    error = "拍攝地時區無法換算－略過",
+                                    changed = false
+                                )
+                            } else {
+                                PhotoTimePreview(
+                                    item = item,
+                                    currentTime = item.wallTime,
+                                    newTime = localTime,
+                                    error = null,
+                                    changed = item.wallTime != localTime
+                                )
+                            }
+                        }
                     }
                 }
             }
         }
     }
 
-    private fun readGpsRawTime(item: MediaItem): LocalDateTime? {
+    private data class GpsCaptureData(
+        val utcTime: LocalDateTime?,
+        val lat: Double?,
+        val lon: Double?
+    )
+
+    private fun readGpsCaptureData(item: MediaItem): GpsCaptureData {
         return try {
             val exifUri = if (
                 Build.VERSION.SDK_INT >= 29 &&
@@ -1059,17 +1123,66 @@ class AlbumRepository(private val context: Context) {
             resolver.openInputStream(exifUri)?.use { stream ->
                 val exif = ExifInterface(stream)
                 val gpsMillis = exif.gpsDateTime
-                if (gpsMillis == null || gpsMillis <= 0L) {
-                    null
-                } else {
-                    LocalDateTime.ofInstant(
-                        Instant.ofEpochMilli(gpsMillis),
-                        java.time.ZoneOffset.UTC
-                    )
-                }
+                val utcTime =
+                    if (gpsMillis == null || gpsMillis <= 0L) {
+                        null
+                    } else {
+                        LocalDateTime.ofInstant(
+                            Instant.ofEpochMilli(gpsMillis),
+                            java.time.ZoneOffset.UTC
+                        )
+                    }
+
+                val ll = FloatArray(2)
+                val hasLocation = exif.getLatLong(ll)
+
+                GpsCaptureData(
+                    utcTime = utcTime,
+                    lat = if (hasLocation) ll[0].toDouble() else null,
+                    lon = if (hasLocation) ll[1].toDouble() else null
+                )
+            } ?: GpsCaptureData(null, null, null)
+        } catch (_: Exception) {
+            GpsCaptureData(null, null, null)
+        }
+    }
+
+    private fun lookupTimeZoneId(
+        lat: Double,
+        lon: Double
+    ): String? {
+        val url = URL(
+            "https://timeapi.io/api/TimeZone/coordinate" +
+                "?latitude=" + String.format(Locale.US, "%.6f", lat) +
+                "&longitude=" + String.format(Locale.US, "%.6f", lon)
+        )
+
+        val connection = (url.openConnection() as HttpURLConnection).apply {
+            requestMethod = "GET"
+            connectTimeout = 6000
+            readTimeout = 8000
+            setRequestProperty("Accept", "application/json")
+            setRequestProperty("User-Agent", "AjoAlbum/" + BuildConfig.VERSION_NAME)
+        }
+
+        return try {
+            if (connection.responseCode !in 200..299) {
+                null
+            } else {
+                val body = connection.inputStream
+                    .bufferedReader(Charsets.UTF_8)
+                    .use { it.readText() }
+
+                val zone = JSONObject(body)
+                    .optString("timeZone")
+                    .trim()
+
+                if (zone.isBlank()) null else zone
             }
         } catch (_: Exception) {
             null
+        } finally {
+            connection.disconnect()
         }
     }
 
