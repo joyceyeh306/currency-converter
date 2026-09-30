@@ -12,12 +12,10 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -45,6 +43,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.osmdroid.config.Configuration
@@ -62,7 +61,7 @@ private enum class GpsEditMode(
 ) {
     SET_LOCATION(
         "設定／微調位置",
-        "單張修改；批次時全部設成同一位置"
+        "地圖拖曳微調；批次時全部設成同一位置"
     ),
     COPY_SOURCE(
         "從照片複製位置",
@@ -87,9 +86,9 @@ fun GpsEditDialog(
         mutableStateOf<Map<String, Pair<Double, Double>?>>(emptyMap())
     }
     var loadingCurrent by remember { mutableStateOf(true) }
-    var initializedTarget by remember { mutableStateOf(false) }
-    var latText by remember { mutableStateOf("") }
-    var lonText by remember { mutableStateOf("") }
+    var coordinateText by remember { mutableStateOf("") }
+    var originalPlace by remember { mutableStateOf<String?>(null) }
+    var targetPlace by remember { mutableStateOf<String?>(null) }
     var selectedSourceKey by remember { mutableStateOf<String?>(null) }
     var processing by remember { mutableStateOf(false) }
     var confirmOpen by remember { mutableStateOf(false) }
@@ -99,11 +98,34 @@ fun GpsEditDialog(
 
     LaunchedEffect(selectedItems.map { it.key }) {
         loadingCurrent = true
-        currentLocations = withContext(Dispatchers.IO) {
+        originalPlace = null
+        targetPlace = null
+
+        val loaded = withContext(Dispatchers.IO) {
             selectedItems.associate { item ->
                 item.key to repository.gpsFor(item)
             }
         }
+        currentLocations = loaded
+
+        val firstLocatedItem = selectedItems.firstOrNull { item ->
+            item.kind == MediaKind.IMAGE && loaded[item.key] != null
+        }
+        val firstLocation = firstLocatedItem?.let { loaded[it.key] }
+
+        if (firstLocation != null) {
+            coordinateText = formatCoordinatePair(firstLocation)
+            originalPlace = withContext(Dispatchers.IO) {
+                repository.resolvePlace(firstLocation.first, firstLocation.second)
+            }
+        } else {
+            coordinateText = ""
+        }
+
+        selectedSourceKey = selectedItems.firstOrNull { item ->
+            item.kind == MediaKind.IMAGE && loaded[item.key] != null
+        }?.key
+
         loadingCurrent = false
     }
 
@@ -113,50 +135,40 @@ fun GpsEditDialog(
         }
     }
 
-    LaunchedEffect(loadingCurrent, sourceCandidates) {
-        if (!loadingCurrent) {
-            if (selectedSourceKey == null) {
-                selectedSourceKey = sourceCandidates.firstOrNull()?.key
-            }
-            if (!initializedTarget) {
-                val firstLocation = selectedItems
-                    .asSequence()
-                    .filter { it.kind == MediaKind.IMAGE }
-                    .mapNotNull { currentLocations[it.key] }
-                    .firstOrNull()
-                if (firstLocation != null) {
-                    latText = formatCoordinate(firstLocation.first)
-                    lonText = formatCoordinate(firstLocation.second)
-                }
-                initializedTarget = true
-            }
-        }
+    val manualTarget = remember(coordinateText) {
+        parseCoordinatePair(coordinateText)
     }
-
-    val manualLat = latText.trim().toDoubleOrNull()
-    val manualLon = lonText.trim().toDoubleOrNull()
-    val manualTarget = if (
-        manualLat != null && manualLon != null &&
-        manualLat in -90.0..90.0 &&
-        manualLon in -180.0..180.0
-    ) {
-        manualLat to manualLon
-    } else {
-        null
-    }
-
     val sourceTarget = selectedSourceKey?.let { currentLocations[it] }
+    val originalLocation = remember(selectedItems, currentLocations) {
+        selectedItems
+            .asSequence()
+            .filter { it.kind == MediaKind.IMAGE }
+            .mapNotNull { currentLocations[it.key] }
+            .firstOrNull()
+    }
+
     val target = when (mode) {
         GpsEditMode.SET_LOCATION -> manualTarget
         GpsEditMode.COPY_SOURCE -> sourceTarget
         GpsEditMode.REMOVE -> null
     }
 
+    LaunchedEffect(mode, target?.first, target?.second) {
+        targetPlace = null
+        if (target != null) {
+            delay(280)
+            targetPlace = withContext(Dispatchers.IO) {
+                repository.resolvePlace(target.first, target.second)
+            }
+        }
+    }
+
     val previews = remember(
         selectedItems,
         currentLocations,
         target,
-        mode
+        mode,
+        loadingCurrent
     ) {
         if (loadingCurrent) {
             emptyList()
@@ -243,11 +255,12 @@ fun GpsEditDialog(
             }
         },
         text = {
-            LazyColumn(
-                modifier = Modifier.heightIn(max = 620.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                result?.let { gpsResult ->
+            if (result != null) {
+                val gpsResult = result!!
+                LazyColumn(
+                    modifier = Modifier.heightIn(max = 520.dp),
+                    verticalArrangement = Arrangement.spacedBy(7.dp)
+                ) {
                     item {
                         Surface(
                             shape = RoundedCornerShape(16.dp),
@@ -263,289 +276,231 @@ fun GpsEditDialog(
                                         "　失敗 " + gpsResult.failed,
                                     fontSize = 12.sp
                                 )
-                                gpsResult.details.take(20).forEach { line ->
-                                    Text(
-                                        line,
-                                        fontSize = 10.sp,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
                             }
                         }
                     }
-                }
-
-                if (result == null) {
-                    item {
-                        Text("修改方式", fontSize = 13.sp)
+                    items(gpsResult.details.take(30)) { line ->
+                        Text(
+                            line,
+                            fontSize = 10.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     }
+                }
+            } else {
+                Column(
+                    modifier = Modifier.heightIn(max = 650.dp),
+                    verticalArrangement = Arrangement.spacedBy(7.dp)
+                ) {
+                    Text("修改方式", fontSize = 13.sp)
 
-                    items(
+                    val availableModes =
                         if (selectedItems.size > 1)
                             GpsEditMode.entries
                         else
-                            listOf(GpsEditMode.SET_LOCATION, GpsEditMode.REMOVE),
-                        key = { it.name }
-                    ) { option ->
-                        Surface(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable { mode = option },
-                            shape = RoundedCornerShape(15.dp),
-                            color = MaterialTheme.colorScheme.surfaceVariant.copy(
-                                alpha = if (mode == option) 0.55f else 0.28f
-                            )
+                            listOf(GpsEditMode.SET_LOCATION, GpsEditMode.REMOVE)
+
+                    availableModes.forEach { option ->
+                        GpsModeCard(
+                            option = option,
+                            selected = mode == option,
+                            onClick = { mode = option }
+                        )
+
+                        if (option == GpsEditMode.SET_LOCATION &&
+                            mode == GpsEditMode.SET_LOCATION
                         ) {
-                            Row(
-                                Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
-                            ) {
-                                RadioButton(
-                                    selected = mode == option,
-                                    onClick = { mode = option }
+                            if (loadingCurrent) {
+                                Text(
+                                    "正在讀取原本 GPS 位置…",
+                                    fontSize = 11.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(horizontal = 4.dp)
                                 )
-                                Column(Modifier.padding(start = 3.dp)) {
-                                    Text(option.label, fontSize = 13.sp)
+                            } else {
+                                OriginalLocationInfo(
+                                    originalLocation = originalLocation,
+                                    originalPlace = originalPlace
+                                )
+
+                                GpsTargetMap(
+                                    initialTarget = originalLocation,
+                                    target = manualTarget,
+                                    onTargetChange = { lat, lon ->
+                                        coordinateText = formatCoordinatePair(lat to lon)
+                                    }
+                                )
+
+                                Text(
+                                    "拖曳圖釘或點地圖即可微調。",
+                                    fontSize = 10.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(horizontal = 4.dp)
+                                )
+
+                                OutlinedTextField(
+                                    value = coordinateText,
+                                    onValueChange = { coordinateText = it },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    singleLine = true,
+                                    label = { Text("緯度, 經度") },
+                                    placeholder = { Text("例如 24.150000, 120.680000") },
+                                    textStyle = androidx.compose.ui.text.TextStyle(
+                                        fontSize = 12.sp
+                                    )
+                                )
+
+                                if (manualTarget == null && coordinateText.isNotBlank()) {
                                     Text(
-                                        option.description,
+                                        "座標格式不正確。請輸入「緯度, 經度」。",
                                         fontSize = 10.sp,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        color = MaterialTheme.colorScheme.error,
+                                        modifier = Modifier.padding(horizontal = 4.dp)
+                                    )
+                                }
+
+                                if (manualTarget != null) {
+                                    Text(
+                                        "目前位置：" +
+                                            (targetPlace ?: "中文地點讀取中…"),
+                                        fontSize = 10.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.padding(horizontal = 4.dp)
                                     )
                                 }
                             }
                         }
-                    }
 
-                    if (loadingCurrent) {
-                        item {
-                            Text(
-                                "正在讀取目前 GPS 位置…",
-                                fontSize = 11.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    } else if (mode == GpsEditMode.SET_LOCATION) {
-                        item {
-                            GpsTargetMap(
-                                target = manualTarget,
-                                onTargetChange = { lat, lon ->
-                                    latText = formatCoordinate(lat)
-                                    lonText = formatCoordinate(lon)
-                                }
-                            )
-                        }
-                        item {
-                            Text(
-                                "拖曳圖釘或直接點地圖即可微調；也可以直接輸入經緯度。地圖圖磚需要網路。",
-                                fontSize = 10.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                        item {
-                            Row(
-                                Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                OutlinedTextField(
-                                    value = latText,
-                                    onValueChange = { latText = it },
-                                    modifier = Modifier.weight(1f),
-                                    singleLine = true,
-                                    label = { Text("緯度") }
-                                )
-                                OutlinedTextField(
-                                    value = lonText,
-                                    onValueChange = { lonText = it },
-                                    modifier = Modifier.weight(1f),
-                                    singleLine = true,
-                                    label = { Text("經度") }
-                                )
-                            }
-                        }
-                        if (manualTarget == null) {
-                            item {
+                        if (option == GpsEditMode.COPY_SOURCE &&
+                            mode == GpsEditMode.COPY_SOURCE
+                        ) {
+                            if (loadingCurrent) {
                                 Text(
-                                    "請在地圖上指定位置，或輸入有效座標：緯度 -90～90、經度 -180～180。",
-                                    fontSize = 10.sp,
-                                    color = MaterialTheme.colorScheme.error
+                                    "正在讀取 GPS…",
+                                    fontSize = 11.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
-                            }
-                        }
-                    } else if (mode == GpsEditMode.COPY_SOURCE) {
-                        item {
-                            if (sourceCandidates.isEmpty()) {
+                            } else if (sourceCandidates.isEmpty()) {
                                 Text(
                                     "已選照片中沒有可作為來源的 GPS 位置。",
                                     fontSize = 11.sp,
-                                    color = MaterialTheme.colorScheme.error
+                                    color = MaterialTheme.colorScheme.error,
+                                    modifier = Modifier.padding(horizontal = 4.dp)
                                 )
                             } else {
-                                Column(
-                                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                                Text(
+                                    "選來源照片",
+                                    fontSize = 11.sp,
+                                    modifier = Modifier.padding(horizontal = 4.dp)
+                                )
+                                LazyRow(
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
                                 ) {
-                                    Text("選來源照片", fontSize = 12.sp)
-                                    LazyRow(
-                                        horizontalArrangement = Arrangement.spacedBy(7.dp)
-                                    ) {
-                                        items(
-                                            sourceCandidates,
-                                            key = { it.key }
-                                        ) { item ->
-                                            FilterChip(
-                                                selected = selectedSourceKey == item.key,
-                                                onClick = { selectedSourceKey = item.key },
-                                                label = {
-                                                    Text(
-                                                        item.name,
-                                                        maxLines = 1,
-                                                        fontSize = 10.sp
-                                                    )
-                                                }
-                                            )
-                                        }
-                                    }
-                                    sourceTarget?.let { location ->
-                                        Text(
-                                            "來源位置：" +
-                                                formatCoordinate(location.first) +
-                                                ", " +
-                                                formatCoordinate(location.second),
-                                            fontSize = 10.sp,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    items(sourceCandidates, key = { it.key }) { item ->
+                                        FilterChip(
+                                            selected = selectedSourceKey == item.key,
+                                            onClick = { selectedSourceKey = item.key },
+                                            label = {
+                                                Text(
+                                                    item.name,
+                                                    maxLines = 1,
+                                                    fontSize = 9.sp
+                                                )
+                                            }
                                         )
                                     }
                                 }
+                                sourceTarget?.let { location ->
+                                    Text(
+                                        "來源位置：" +
+                                            formatCoordinatePair(location) +
+                                            "　" +
+                                            (targetPlace ?: "中文地點讀取中…"),
+                                        fontSize = 10.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.padding(horizontal = 4.dp)
+                                    )
+                                }
                             }
                         }
-                    } else {
-                        item {
+
+                        if (option == GpsEditMode.REMOVE &&
+                            mode == GpsEditMode.REMOVE
+                        ) {
                             Text(
-                                "會移除照片的 GPS 經緯度與高度位置資料；不會改動照片畫質。",
+                                "會移除照片的 GPS 經緯度與高度位置資料；不影響照片畫質。",
                                 fontSize = 10.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(horizontal = 4.dp)
                             )
                         }
                     }
 
                     if (!loadingCurrent) {
-                        item {
-                            Surface(
-                                shape = RoundedCornerShape(15.dp),
-                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.38f)
+                        Surface(
+                            shape = RoundedCornerShape(13.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.38f)
+                        ) {
+                            Column(
+                                Modifier.padding(horizontal = 11.dp, vertical = 8.dp),
+                                verticalArrangement = Arrangement.spacedBy(2.dp)
                             ) {
-                                Column(
-                                    Modifier.padding(12.dp),
-                                    verticalArrangement = Arrangement.spacedBy(3.dp)
-                                ) {
-                                    Text("可修改 " + changedCount + " 項")
-                                    if (skippedCount > 0) {
-                                        Text(
-                                            "略過 " + skippedCount +
-                                                " 項：目前只支援可安全寫入 EXIF 的照片",
-                                            fontSize = 10.sp,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                    }
-                                    if (unchangedCount > 0) {
-                                        Text(
-                                            unchangedCount.toString() + " 項位置原本就相同／沒有位置",
-                                            fontSize = 10.sp,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                    }
-                                }
-                            }
-                        }
-
-                        item {
-                            Text("預覽", fontSize = 13.sp)
-                        }
-
-                        items(previews.take(60), key = { it.item.key }) { preview ->
-                            Surface(
-                                shape = RoundedCornerShape(13.dp),
-                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
-                            ) {
-                                Column(
-                                    Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
-                                    verticalArrangement = Arrangement.spacedBy(2.dp)
-                                ) {
+                                Text("可修改 " + changedCount + " 項", fontSize = 12.sp)
+                                if (skippedCount > 0) {
                                     Text(
-                                        preview.item.name,
-                                        fontSize = 10.sp,
+                                        "略過 " + skippedCount +
+                                            " 項：目前只支援可安全寫入 EXIF 的照片",
+                                        fontSize = 9.sp,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
-                                    if (preview.error != null) {
-                                        Text(
-                                            "略過：" + preview.error,
-                                            fontSize = 10.sp,
-                                            color = MaterialTheme.colorScheme.error
-                                        )
-                                    } else {
-                                        val before = if (
-                                            preview.currentLat != null &&
-                                            preview.currentLon != null
-                                        ) {
-                                            formatCoordinate(preview.currentLat) +
-                                                ", " +
-                                                formatCoordinate(preview.currentLon)
-                                        } else {
-                                            "無位置"
-                                        }
-                                        val after = if (preview.remove) {
-                                            "移除位置"
-                                        } else {
-                                            formatCoordinate(preview.newLat!!) +
-                                                ", " +
-                                                formatCoordinate(preview.newLon!!)
-                                        }
-                                        Text(
-                                            before + " → " + after,
-                                            fontSize = 11.sp
-                                        )
-                                        if (!preview.changed) {
-                                            Text(
-                                                "位置相同，不會修改",
-                                                fontSize = 9.sp,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                                            )
-                                        }
-                                    }
+                                }
+                                if (unchangedCount > 0) {
+                                    Text(
+                                        unchangedCount.toString() +
+                                            " 項位置原本就相同／沒有位置",
+                                        fontSize = 9.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
                                 }
                             }
                         }
 
-                        if (previews.size > 60) {
-                            item {
-                                Text(
-                                    "先顯示前 60 項；執行時會處理全部 " +
-                                        previews.size + " 項。",
-                                    fontSize = 10.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
+                        Text("預覽", fontSize = 12.sp)
+
+                        LazyColumn(
+                            modifier = Modifier.heightIn(max = 145.dp),
+                            verticalArrangement = Arrangement.spacedBy(5.dp)
+                        ) {
+                            items(previews.take(60), key = { it.item.key }) { preview ->
+                                GpsPreviewRow(preview)
+                            }
+                            if (previews.size > 60) {
+                                item {
+                                    Text(
+                                        "先顯示前 60 項；執行時會處理全部 " +
+                                            previews.size + " 項。",
+                                        fontSize = 9.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
                             }
                         }
 
-                        item {
-                            HorizontalDivider()
-                        }
+                        HorizontalDivider()
 
-                        item {
-                            Text(
-                                "GPS 修改只改照片 metadata，不重新編碼、不重新壓縮影像。影片目前只讀取 GPS，不修改位置。",
-                                fontSize = 10.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
+                        Text(
+                            "GPS 修改只改照片 metadata，不重新編碼、不重新壓縮。影片目前只讀取 GPS，不修改位置。",
+                            fontSize = 9.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     }
 
                     notice?.let { message ->
-                        item {
-                            Text(
-                                message,
-                                fontSize = 11.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
+                        Text(
+                            message,
+                            fontSize = 10.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     }
                 }
             }
@@ -606,21 +561,145 @@ fun GpsEditDialog(
 }
 
 @Composable
+private fun GpsModeCard(
+    option: GpsEditMode,
+    selected: Boolean,
+    onClick: () -> Unit
+) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick),
+        shape = RoundedCornerShape(13.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(
+            alpha = if (selected) 0.55f else 0.28f
+        )
+    ) {
+        Row(
+            Modifier.padding(horizontal = 7.dp, vertical = 4.dp)
+        ) {
+            RadioButton(
+                selected = selected,
+                onClick = onClick
+            )
+            Column(Modifier.padding(start = 2.dp, top = 4.dp, bottom = 4.dp)) {
+                Text(option.label, fontSize = 12.sp)
+                Text(
+                    option.description,
+                    fontSize = 9.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun OriginalLocationInfo(
+    originalLocation: Pair<Double, Double>?,
+    originalPlace: String?
+) {
+    Surface(
+        shape = RoundedCornerShape(12.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.30f)
+    ) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 10.dp, vertical = 7.dp),
+            verticalArrangement = Arrangement.spacedBy(2.dp)
+        ) {
+            if (originalLocation == null) {
+                Text("原位置：沒有 GPS", fontSize = 10.sp)
+            } else {
+                Text(
+                    "原位置：" + (originalPlace ?: "中文地點讀取不到"),
+                    fontSize = 10.sp
+                )
+                Text(
+                    formatCoordinatePair(originalLocation),
+                    fontSize = 10.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun GpsPreviewRow(preview: GpsEditPreview) {
+    Surface(
+        shape = RoundedCornerShape(11.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.28f)
+    ) {
+        Column(
+            Modifier.padding(horizontal = 9.dp, vertical = 6.dp),
+            verticalArrangement = Arrangement.spacedBy(1.dp)
+        ) {
+            Text(
+                preview.item.name,
+                fontSize = 9.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            if (preview.error != null) {
+                Text(
+                    "略過：" + preview.error,
+                    fontSize = 9.sp,
+                    color = MaterialTheme.colorScheme.error
+                )
+            } else {
+                val before = if (
+                    preview.currentLat != null &&
+                    preview.currentLon != null
+                ) {
+                    formatCoordinatePair(
+                        preview.currentLat to preview.currentLon
+                    )
+                } else {
+                    "無位置"
+                }
+                val after = if (preview.remove) {
+                    "移除位置"
+                } else {
+                    formatCoordinatePair(
+                        preview.newLat!! to preview.newLon!!
+                    )
+                }
+                Text(
+                    before + " → " + after,
+                    fontSize = 10.sp
+                )
+                if (!preview.changed) {
+                    Text(
+                        "位置相同，不會修改",
+                        fontSize = 8.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun GpsTargetMap(
+    initialTarget: Pair<Double, Double>?,
     target: Pair<Double, Double>?,
     onTargetChange: (Double, Double) -> Unit
 ) {
     val context = LocalContext.current
-    val mapView = remember {
+    val initial = initialTarget ?: target
+
+    val mapView = remember(initial?.first, initial?.second) {
         Configuration.getInstance().userAgentValue = context.packageName
         MapView(context).apply {
             setTileSource(TileSourceFactory.MAPNIK)
             setMultiTouchControls(true)
             minZoomLevel = 2.5
             maxZoomLevel = 20.0
-            if (target != null) {
+            if (initial != null) {
                 controller.setZoom(17.0)
-                controller.setCenter(GeoPoint(target.first, target.second))
+                controller.setCenter(GeoPoint(initial.first, initial.second))
             } else {
                 controller.setZoom(2.5)
                 controller.setCenter(GeoPoint(20.0, 0.0))
@@ -633,12 +712,6 @@ private fun GpsTargetMap(
         onDispose {
             mapView.onPause()
             mapView.onDetach()
-        }
-    }
-
-    LaunchedEffect(target?.first, target?.second) {
-        if (target != null) {
-            mapView.controller.animateTo(GeoPoint(target.first, target.second))
         }
     }
 
@@ -700,9 +773,27 @@ private fun GpsTargetMap(
         },
         modifier = Modifier
             .fillMaxWidth()
-            .height(245.dp)
+            .height(190.dp)
     )
+}
+
+private fun parseCoordinatePair(raw: String): Pair<Double, Double>? {
+    val parts = raw
+        .trim()
+        .split(Regex("""\s*[,，]\s*|\s+"""))
+        .filter { it.isNotBlank() }
+
+    if (parts.size != 2) return null
+
+    val lat = parts[0].toDoubleOrNull() ?: return null
+    val lon = parts[1].toDoubleOrNull() ?: return null
+
+    if (lat !in -90.0..90.0 || lon !in -180.0..180.0) return null
+    return lat to lon
 }
 
 private fun formatCoordinate(value: Double): String =
     String.format(Locale.US, "%.6f", value)
+
+private fun formatCoordinatePair(value: Pair<Double, Double>): String =
+    formatCoordinate(value.first) + ", " + formatCoordinate(value.second)
