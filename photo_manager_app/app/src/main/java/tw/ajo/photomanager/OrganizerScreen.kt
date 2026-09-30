@@ -589,7 +589,7 @@ private enum class PhotoTimeBatchMode(
     ),
     GPS_TIME(
         "由 GPS 時間讀入",
-        "直接讀取照片 EXIF 裡的 GPS 日期與時間，不做時區換算"
+        "用 GPS UTC 時間＋座標，自動換算成拍攝地當地時間"
     )
 }
 
@@ -867,7 +867,7 @@ private fun PhotoTimeEditDialog(
                     } else {
                         item {
                             Text(
-                                "GPS 日期與時間會直接依照片內的 EXIF 原值讀入（UTC），不做所在地時區換算。",
+                                "會讀取照片的 GPS UTC 時間與 GPS 座標，自動判斷拍攝地時區並換算成當地拍攝時間。",
                                 fontSize = 10.sp,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -905,7 +905,7 @@ private fun PhotoTimeEditDialog(
                                     if (skippedCount > 0) {
                                         Text(
                                             if (mode == PhotoTimeBatchMode.GPS_TIME)
-                                                "略過 $skippedCount 項：沒有 GPS 日期時間或不是照片"
+                                                "略過 $skippedCount 項：無 GPS 時間、無座標或無法取得時區"
                                             else
                                                 "略過 $skippedCount 項：暫不支援的圖片／影片格式",
                                             fontSize = 10.sp,
@@ -983,7 +983,7 @@ private fun PhotoTimeEditDialog(
                         item {
                             Text(
                                 if (mode == PhotoTimeBatchMode.GPS_TIME)
-                                    "只讀取照片既有 GPS 日期與 GPS 時間，直接寫入 EXIF 拍攝時間；不做時區換算，也不加入任何時區資料庫。"
+                                    "GPS 時間會先依拍攝座標換算成當地時間，再寫入 EXIF 拍攝時間；沒有 GPS 時間的照片會顯示「無 GPS 時間－略過」。"
                                 else
                                     "照片會寫入 EXIF 拍攝時間；MP4／MOV 影片會修改容器建立時間並同步 Android 拍攝時間索引。影音內容不重新編碼。",
                                 fontSize = 10.sp,
@@ -1048,7 +1048,7 @@ private fun PhotoTimeEditDialog(
                     }
                     if (mode == PhotoTimeBatchMode.GPS_TIME) {
                         Text(
-                            "GPS 時間會使用照片內的 UTC 原值，不做時區換算。",
+                            "GPS UTC 時間會依拍攝地時區（包含當天夏令時間規則）換算成當地時間。",
                             fontSize = 12.sp
                         )
                     }
