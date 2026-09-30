@@ -20,6 +20,7 @@ import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.WindowInsets;
+import android.view.WindowManager;
 import android.view.inputmethod.InputMethodManager;
 import android.widget.AdapterView;
 import android.widget.ArrayAdapter;
@@ -133,6 +134,10 @@ public class MainActivity extends Activity {
     private void configureSystemBars() {
         getWindow().setStatusBarColor(BG);
         getWindow().setNavigationBarColor(BG);
+        getWindow().setSoftInputMode(
+                WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN |
+                        WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING
+        );
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             View decor = getWindow().getDecorView();
             decor.setSystemUiVisibility(
@@ -395,8 +400,12 @@ public class MainActivity extends Activity {
         amountInput.setPadding(dp(10), 0, dp(8), 0);
         amountInput.setBackground(roundStroke(Color.WHITE, LINE, 12));
         amountInput.setShowSoftInputOnFocus(false);
+        amountInput.setFocusableInTouchMode(true);
         amountInput.setSelectAllOnFocus(true);
-        amountInput.setOnClickListener(v -> showNumericKeypad());
+        amountInput.setOnClickListener(v -> {
+            hideSystemKeyboard();
+            showNumericKeypad();
+        });
         amountInput.setOnFocusChangeListener((v, hasFocus) -> {
             v.setBackground(
                     roundStroke(
@@ -405,7 +414,10 @@ public class MainActivity extends Activity {
                             12
                     )
             );
-            if (hasFocus) showNumericKeypad();
+            if (hasFocus) {
+                hideSystemKeyboard();
+                showNumericKeypad();
+            }
         });
 
         amountBox.addView(
@@ -578,8 +590,10 @@ public class MainActivity extends Activity {
         renderResults();
 
         amountInput.post(() -> {
+            hideSystemKeyboard();
             amountInput.requestFocus();
             amountInput.selectAll();
+            hideSystemKeyboard();
             showNumericKeypad();
         });
     }
@@ -1281,6 +1295,42 @@ public class MainActivity extends Activity {
                 if (conn != null) conn.disconnect();
             }
         }).start();
+    }
+
+    private void hideSystemKeyboard() {
+        try {
+            InputMethodManager imm =
+                    (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
+
+            if (imm != null) {
+                View target = amountInput != null ? amountInput : getWindow().getDecorView();
+                if (target != null) {
+                    imm.hideSoftInputFromWindow(target.getWindowToken(), 0);
+                }
+            }
+        } catch (Exception ignored) {
+        }
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+
+        getWindow().setSoftInputMode(
+                WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN |
+                        WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING
+        );
+
+        if (!showingSettings && amountInput != null) {
+            amountInput.post(() -> {
+                hideSystemKeyboard();
+                amountInput.setShowSoftInputOnFocus(false);
+                amountInput.requestFocus();
+                amountInput.selectAll();
+                hideSystemKeyboard();
+                showNumericKeypad();
+            });
+        }
     }
 
     private LinearLayout buildNumericKeypad() {
