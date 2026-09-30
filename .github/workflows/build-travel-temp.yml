@@ -234,7 +234,7 @@ jobs:
 
       - name: Apply v1.0.15 receipt OCR
         run: |
-          cat travel_build/v115apart* | tr -d '\n' | base64 -d > /tmp/apply-v115a.py
+          cat travel_build/v115afixpart* | tr -d '\n' | base64 -d > /tmp/apply-v115a.py
           cat travel_build/v115bpart* | tr -d '\n' | base64 -d > /tmp/apply-v115b.py
           python3 -m py_compile /tmp/apply-v115a.py /tmp/apply-v115b.py travel_build/apply-v115c.py
           python3 /tmp/apply-v115a.py
