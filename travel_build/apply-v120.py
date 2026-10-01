@@ -33,7 +33,7 @@ if needle not in s: raise SystemExit('v120 new time field marker')
 s=s.replace(needle,repl,1)
 
 # OCR time extraction and pass-through.
-needle="category=guessReceiptCategory(lines.join('\\n')),batchTotal="
+needle="category=guessReceiptCategory(lines.join('\\\\n')),batchTotal="
 repl="category=guessReceiptCategory(lines.join('\\n')),time=guessReceiptTime(lines),batchTotal="
 if needle not in s: raise SystemExit('v120 OCR time marker')
 s=s.replace(needle,repl,1)
