@@ -77,6 +77,6 @@ p.write_text(s)
 
 p=root/'app/build.gradle'
 g=p.read_text()
-g=re.sub(r"versionCode\\s+\\d+","versionCode 122",g,count=1)
-g=re.sub(r"versionName\\s+['\\\"][^'\\\"]+['\\\"]","versionName '1.0.22'",g,count=1)
+g=re.sub(r"versionCode\s+\d+","versionCode 122",g,count=1)
+g=re.sub(r"versionName\s+[\'\"][^\'\"]+[\'\"]","versionName \'1.0.22\'",g,count=1)
 p.write_text(g)
