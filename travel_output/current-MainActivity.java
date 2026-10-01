@@ -9,6 +9,8 @@ import android.content.Context;
 import android.content.SharedPreferences;
 import android.content.Intent;
 import android.graphics.Color;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.net.Uri;
 import android.provider.MediaStore;
 import android.content.ContentValues;
@@ -28,11 +30,15 @@ import android.webkit.WebViewClient;
 import android.widget.Toast;
 
 import java.io.File;
+import java.io.FileInputStream;
+import java.io.InputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.FileOutputStream;
 import java.io.OutputStream;
 import java.util.Locale;
 import java.util.HashSet;
 import java.util.Set;
+import java.util.UUID;
 import org.json.JSONObject;
 import org.json.JSONArray;
 import com.google.mlkit.vision.common.InputImage;
@@ -206,12 +212,67 @@ public class MainActivity extends Activity {
     }
 
     private void sendReceiptError(String message) {
-        runOnUiThread(() -> { if (pageReady) webView.evaluateJavascript("receiptOcrError("+JSONObject.quote(message)+")",null); else Toast.makeText(MainActivity.this,message,Toast.LENGTH_LONG).show(); });
+        runOnUiThread(() -> {
+            if (pageReady) {
+                String uri = pendingReceiptUri == null ? "" : pendingReceiptUri.toString();
+                webView.evaluateJavascript("receiptOcrError("+JSONObject.quote(message)+","+JSONObject.quote(uri)+")",null);
+            } else Toast.makeText(MainActivity.this,message,Toast.LENGTH_LONG).show();
+        });
     }
 
     private void discardPendingReceipt() {
         if (pendingReceiptUri!=null && pendingReceiptFromCamera) { try { getContentResolver().delete(pendingReceiptUri,null,null); } catch(Exception ignored) {} }
         pendingReceiptUri=null; pendingReceiptFromCamera=false;
+    }
+
+    private File receiptFileFromToken(String token) {
+        if (token == null || !token.startsWith("ajo-receipt://")) return null;
+        try {
+            String name = Uri.decode(token.substring("ajo-receipt://".length()));
+            if (name.isEmpty() || name.contains("/") || name.contains("\\") || name.contains("..")) return null;
+            return new File(new File(getFilesDir(), "receipts"), name);
+        } catch (Exception e) { return null; }
+    }
+
+    private InputStream openReceiptInput(String ref) throws Exception {
+        File f = receiptFileFromToken(ref);
+        if (f != null) return new FileInputStream(f);
+        return getContentResolver().openInputStream(Uri.parse(ref));
+    }
+
+    private String persistReceiptPhoto(Uri uri) throws Exception {
+        if (uri == null) return "";
+        File dir = new File(getFilesDir(), "receipts");
+        if (!dir.exists() && !dir.mkdirs()) throw new IllegalStateException("receipt dir");
+        String mime = null;
+        try { mime = getContentResolver().getType(uri); } catch (Exception ignored) {}
+        String ext = mime != null && mime.contains("png") ? ".png" : (mime != null && mime.contains("webp") ? ".webp" : ".jpg");
+        String name = "receipt_" + System.currentTimeMillis() + "_" + UUID.randomUUID().toString().substring(0,8) + ext;
+        File out = new File(dir, name);
+        try (InputStream in = getContentResolver().openInputStream(uri); FileOutputStream os = new FileOutputStream(out)) {
+            if (in == null) throw new IllegalStateException("receipt input");
+            byte[] buf = new byte[65536]; int n;
+            while ((n = in.read(buf)) > 0) os.write(buf, 0, n);
+        }
+        return "ajo-receipt://" + Uri.encode(name);
+    }
+
+    private String buildReceiptPreviewData(String ref) {
+        if (ref == null || ref.isEmpty()) return "";
+        try {
+            BitmapFactory.Options bounds = new BitmapFactory.Options();
+            bounds.inJustDecodeBounds = true;
+            try (InputStream in = openReceiptInput(ref)) { if (in == null) return ""; BitmapFactory.decodeStream(in, null, bounds); }
+            int sample = 1;
+            while ((bounds.outWidth > 0 && bounds.outWidth / sample > 900) || (bounds.outHeight > 0 && bounds.outHeight / sample > 5000)) sample *= 2;
+            BitmapFactory.Options opts = new BitmapFactory.Options(); opts.inSampleSize = Math.max(1, sample);
+            Bitmap bmp;
+            try (InputStream in = openReceiptInput(ref)) { if (in == null) return ""; bmp = BitmapFactory.decodeStream(in, null, opts); }
+            if (bmp == null) return "";
+            ByteArrayOutputStream bos = new ByteArrayOutputStream();
+            bmp.compress(Bitmap.CompressFormat.JPEG, 82, bos); bmp.recycle();
+            return "data:image/jpeg;base64," + Base64.encodeToString(bos.toByteArray(), Base64.NO_WRAP);
+        } catch (Exception e) { return ""; }
     }
 
     private byte[] decodeDataUrl(String dataUrl) {
@@ -243,15 +304,34 @@ public class MainActivity extends Activity {
 
         @JavascriptInterface public String keepReceiptPhoto() {
             if (pendingReceiptUri == null) return "";
-            String uri = pendingReceiptUri.toString(); pendingReceiptUri = null; pendingReceiptFromCamera = false; return uri;
+            Uri source = pendingReceiptUri; boolean tempCamera = pendingReceiptFromCamera;
+            try {
+                String token = persistReceiptPhoto(source);
+                if (tempCamera) { try { getContentResolver().delete(source,null,null); } catch(Exception ignored) {} }
+                pendingReceiptUri = null; pendingReceiptFromCamera = false;
+                return token;
+            } catch (Exception e) { return ""; }
+        }
+
+        @JavascriptInterface public String getReceiptPreviewData(String uriText) { return buildReceiptPreviewData(uriText); }
+
+        @JavascriptInterface public void deleteReceiptPhoto(String uriText) {
+            File f = receiptFileFromToken(uriText);
+            if (f != null && f.exists()) { try { f.delete(); } catch(Exception ignored) {} }
         }
 
         @JavascriptInterface public void discardReceiptPhoto() { runOnUiThread(() -> discardPendingReceipt()); }
 
         @JavascriptInterface public void openReceiptPhoto(String uriText) {
             runOnUiThread(() -> {
-                try { Uri uri=Uri.parse(uriText); Intent i=new Intent(Intent.ACTION_VIEW); i.setDataAndType(uri,"image/*"); i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION); startActivity(i); }
-                catch (Exception e) { Toast.makeText(MainActivity.this,"收據照片已不存在或無法開啟",Toast.LENGTH_SHORT).show(); }
+                try {
+                    File f = receiptFileFromToken(uriText);
+                    if (f != null && f.exists()) {
+                        Intent i = new Intent(MainActivity.this, AttachmentViewerActivity.class);
+                        i.putExtra("path", f.getAbsolutePath()); i.putExtra("mime", "image/*"); i.putExtra("name", f.getName()); startActivity(i); return;
+                    }
+                    Uri uri=Uri.parse(uriText); Intent i=new Intent(Intent.ACTION_VIEW); i.setDataAndType(uri,"image/*"); i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION); startActivity(i);
+                } catch (Exception e) { Toast.makeText(MainActivity.this,"收據照片已不存在或無法開啟",Toast.LENGTH_SHORT).show(); }
             });
         }
 

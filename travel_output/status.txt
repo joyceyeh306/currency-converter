@@ -1,4 +1,4 @@
 build=success
 sign=success
-source=29557bceb066a64f51aabe285ec7b10c8748ccbc
-version=1.0.18
+source=87043dd12ab68f58d70fe662e12484a37bc53c12
+version=1.0.19
