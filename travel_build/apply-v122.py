@@ -13,11 +13,11 @@ s=s.replace(
 
 start=s.index("function guessReceiptTime(lines){")
 end=s.index("function guessReceiptCategory",start)
-dt_helpers=r'''function receiptDateParts(text){const m=String(text||'').match(/(?:^|[^\\d])((?:20)?\\d{2})[\\/.\\-](\\d{1,2})[\\/.\\-](\\d{1,2})(?:[^\\d]|$)/);if(!m)return'';let y=m[1];if(y.length===2)y='20'+y;const mo=Number(m[2]),d=Number(m[3]);if(mo<1||mo>12||d<1||d>31)return'';return y+'/'+String(mo).padStart(2,'0')+'/'+String(d).padStart(2,'0')}
-function receiptTimeParts(text){const m=String(text||'').match(/(?:^|[^\\d])([01]?\\d|2[0-3]):([0-5]\\d)(?::[0-5]\\d)?(?:[^\\d]|$)/);return m?String(m[1]).padStart(2,'0')+':'+m[2]:''}
+dt_helpers=r'''function receiptDateParts(text){const m=String(text||'').match(/(?:^|[^0-9])((?:20)?[0-9]{2})[/.\-]([0-9]{1,2})[/.\-]([0-9]{1,2})(?:[^0-9]|$)/);if(!m)return'';let y=m[1];if(y.length===2)y='20'+y;const mo=Number(m[2]),d=Number(m[3]);if(mo<1||mo>12||d<1||d>31)return'';return y+'/'+String(mo).padStart(2,'0')+'/'+String(d).padStart(2,'0')}
+function receiptTimeParts(text){const m=String(text||'').match(/(?:^|[^0-9])([01]?[0-9]|2[0-3]):([0-5][0-9])(?::[0-5][0-9])?(?:[^0-9]|$)/);return m?String(m[1]).padStart(2,'0')+':'+m[2]:''}
 function normalizeReceiptDateTime(value,fallbackDate=''){let v=String(value||'').trim();if(!v)return'';const d=receiptDateParts(v)||(fallbackDate?String(fallbackDate).replace(/-/g,'/'):'');const t=receiptTimeParts(v);if(!d||!t)return'';return d+' '+t}
 function receiptTimeFromDateTime(value){return receiptTimeParts(value)}
-function guessReceiptDateTime(lines,fallbackDate=''){const preferred=/(date\\s*of\\s*sale|date|time|일시|날짜|판매일|판매시간|거래일시|거래시간|승인시간|결제시간)/i;let date='',time='';for(const line of lines){if(!preferred.test(line))continue;if(!date)date=receiptDateParts(line);if(!time)time=receiptTimeParts(line);if(date&&time)break}if(!date||!time){for(const line of lines){if(!date)date=receiptDateParts(line);if(!time)time=receiptTimeParts(line);if(date&&time)break}}if(!date&&fallbackDate)date=String(fallbackDate).replace(/-/g,'/');return date&&time?date+' '+time:(date?date:'')}
+function guessReceiptDateTime(lines,fallbackDate=''){const preferred=/(date *of *sale|date|time|일시|날짜|판매일|판매시간|거래일시|거래시간|승인시간|결제시간)/i;let date='',time='';for(const line of lines){if(!preferred.test(line))continue;if(!date)date=receiptDateParts(line);if(!time)time=receiptTimeParts(line);if(date&&time)break}if(!date||!time){for(const line of lines){if(!date)date=receiptDateParts(line);if(!time)time=receiptTimeParts(line);if(date&&time)break}}if(!date&&fallbackDate)date=String(fallbackDate).replace(/-/g,'/');return date&&time?date+' '+time:(date?date:'')}
 function receiptStoredDateTime(x,d){if(x?.dateTime)return x.dateTime;if(x?.time&&d?.date)return String(d.date).replace(/-/g,'/')+' '+x.time;return x?.time||''}
 '''
 s=s[:start]+dt_helpers+s[end:]
