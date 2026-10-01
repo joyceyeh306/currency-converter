@@ -45,6 +45,8 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -64,6 +66,11 @@ import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.MapEventsOverlay
 import org.osmdroid.views.overlay.Marker
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Paint
+import android.graphics.Typeface
+import android.graphics.drawable.BitmapDrawable
 import java.util.Locale
 
 private enum class GpsEditMode(
@@ -329,24 +336,14 @@ fun GpsEditDialog(
                                     modifier = Modifier.padding(horizontal = 4.dp)
                                 )
                             } else {
-                                Column(
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    OriginalLocationInfo(
-                                        originalLocation = originalLocation,
-                                        originalPlace = originalPlace
-                                    )
-
-                                    Spacer(Modifier.height(8.dp))
-
-                                    GpsTargetMap(
-                                        initialTarget = originalLocation,
-                                        target = manualTarget,
-                                        onTargetChange = { lat, lon ->
-                                            coordinateText = formatCoordinatePair(lat to lon)
-                                        }
-                                    )
-                                }
+                                GpsTargetMap(
+                                    initialTarget = originalLocation,
+                                    target = manualTarget,
+                                    originalPlace = originalPlace,
+                                    onTargetChange = { lat, lon ->
+                                        coordinateText = formatCoordinatePair(lat to lon)
+                                    }
+                                )
 
                                 Text(
                                     "拖曳底下的地圖，中央圖釘固定不動；用 ＋／－ 縮放。",
@@ -612,47 +609,6 @@ private fun GpsModeCard(
 }
 
 @Composable
-private fun OriginalLocationInfo(
-    originalLocation: Pair<Double, Double>?,
-    originalPlace: String?
-) {
-    Surface(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(if (originalLocation == null) 42.dp else 58.dp),
-        shape = RoundedCornerShape(12.dp),
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.30f)
-    ) {
-        Column(
-            Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 10.dp, vertical = 7.dp),
-            verticalArrangement = Arrangement.spacedBy(2.dp)
-        ) {
-            if (originalLocation == null) {
-                Text(
-                    "原位置：沒有 GPS",
-                    fontSize = 10.sp
-                )
-            } else {
-                Text(
-                    "原位置：" + (originalPlace ?: "中文地點讀取不到"),
-                    fontSize = 10.sp,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Text(
-                    formatCoordinatePair(originalLocation),
-                    fontSize = 10.sp,
-                    maxLines = 1,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-        }
-    }
-}
-
-@Composable
 private fun GpsPreviewRow(preview: GpsEditPreview) {
     Surface(
         shape = RoundedCornerShape(11.dp),
@@ -711,6 +667,7 @@ private fun GpsPreviewRow(preview: GpsEditPreview) {
 private fun GpsTargetMap(
     initialTarget: Pair<Double, Double>?,
     target: Pair<Double, Double>?,
+    originalPlace: String?,
     onTargetChange: (Double, Double) -> Unit
 ) {
     val context = LocalContext.current
@@ -721,9 +678,6 @@ private fun GpsTargetMap(
         Configuration.getInstance().userAgentValue = context.packageName
         MapView(context).apply {
             setTileSource(TileSourceFactory.MAPNIK)
-
-            // GPS 微調以「固定中央圖釘、移動地圖」為主。
-            // 關閉雙指縮放，避免 OSMDroid 以手勢中心縮放而讓選定位置飄移。
             setMultiTouchControls(false)
             setBuiltInZoomControls(true)
 
@@ -750,7 +704,6 @@ private fun GpsTargetMap(
                     }
 
                     override fun onZoom(event: ZoomEvent?): Boolean {
-                        // ＋／－ 縮放以目前地圖中心為準；選定位置不跳到手勢焦點。
                         val center = mapCenter
                         currentOnTargetChange(
                             center.latitude,
@@ -774,7 +727,8 @@ private fun GpsTargetMap(
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .height(190.dp)
+            .height(215.dp)
+            .clip(RoundedCornerShape(14.dp))
     ) {
         AndroidView(
             factory = { mapView },
@@ -803,21 +757,127 @@ private fun GpsTargetMap(
                     )
                 )
 
+                // 原 GPS 是地圖上的固定參考標記；拖動地圖後仍留在原座標。
+                if (initialTarget != null) {
+                    map.overlays.add(
+                        Marker(map).apply {
+                            position = GeoPoint(
+                                initialTarget.first,
+                                initialTarget.second
+                            )
+                            setAnchor(
+                                Marker.ANCHOR_CENTER,
+                                Marker.ANCHOR_CENTER
+                            )
+                            icon = originalGpsMarkerDrawable(context)
+                            title = "原 GPS 位置"
+                        }
+                    )
+                }
+
                 map.invalidate()
             },
-            modifier = Modifier.fillMaxWidth().height(190.dp)
+            modifier = Modifier
+                .matchParentSize()
+                .clip(RoundedCornerShape(14.dp))
         )
 
-        // 圖釘固定在畫面中心，不跟地圖一起移動。
+        // 原位置資訊固定在地圖框內，不再放在 AndroidView 上方，
+        // 因此不會被原生地圖繪製層蓋掉。
+        Surface(
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .padding(7.dp)
+                .zIndex(3f),
+            shape = RoundedCornerShape(10.dp),
+            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.93f),
+            tonalElevation = 2.dp
+        ) {
+            Column(
+                Modifier.padding(horizontal = 9.dp, vertical = 6.dp),
+                verticalArrangement = Arrangement.spacedBy(1.dp)
+            ) {
+                if (initialTarget == null) {
+                    Text(
+                        "原位置：沒有 GPS",
+                        fontSize = 9.sp
+                    )
+                } else {
+                    Text(
+                        "原位置：" + (originalPlace ?: "中文地點讀取不到"),
+                        fontSize = 9.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Text(
+                        formatCoordinatePair(initialTarget),
+                        fontSize = 9.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1
+                    )
+                }
+            }
+        }
+
+        // 中央圖釘代表將要寫入的新位置，永遠固定在畫面中央。
         Icon(
             imageVector = Icons.Default.LocationOn,
             contentDescription = "目前選定位置",
             modifier = Modifier
                 .align(Alignment.Center)
-                .padding(bottom = 20.dp),
+                .padding(bottom = 20.dp)
+                .zIndex(3f),
             tint = MaterialTheme.colorScheme.primary
         )
     }
+}
+
+private fun originalGpsMarkerDrawable(
+    context: android.content.Context
+): BitmapDrawable {
+    val density = context.resources.displayMetrics.density
+    val size = (28f * density).toInt().coerceAtLeast(28)
+    val bitmap = Bitmap.createBitmap(
+        size,
+        size,
+        Bitmap.Config.ARGB_8888
+    )
+    val canvas = Canvas(bitmap)
+
+    val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = android.graphics.Color.argb(230, 190, 70, 55)
+    }
+    canvas.drawCircle(
+        size / 2f,
+        size / 2f,
+        size * 0.43f,
+        fill
+    )
+
+    val ring = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = android.graphics.Color.WHITE
+        style = Paint.Style.STROKE
+        strokeWidth = 1.5f * density
+    }
+    canvas.drawCircle(
+        size / 2f,
+        size / 2f,
+        size * 0.43f,
+        ring
+    )
+
+    val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = android.graphics.Color.WHITE
+        textAlign = Paint.Align.CENTER
+        typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+        textSize = 11f * density
+    }
+    val y =
+        size / 2f -
+            (textPaint.ascent() + textPaint.descent()) / 2f
+    canvas.drawText("原", size / 2f, y, textPaint)
+
+    return BitmapDrawable(context.resources, bitmap)
 }
 
 private fun parseCoordinatePair(raw: String): Pair<Double, Double>? {
