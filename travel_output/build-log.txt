@@ -9,8 +9,8 @@ Starting a Gradle Daemon (subsequent builds will be faster)
 > Task :app:packageReleaseResources
 > Task :app:createReleaseCompatibleScreenManifests
 > Task :app:extractDeepLinksRelease
-> Task :app:parseReleaseLocalResources
 > Task :app:mergeReleaseResources
+> Task :app:parseReleaseLocalResources
 > Task :app:processReleaseMainManifest
 > Task :app:processReleaseManifest
 > Task :app:extractProguardFiles
@@ -36,11 +36,11 @@ Starting a Gradle Daemon (subsequent builds will be faster)
 Note: Some input files use or override a deprecated API.
 Note: Recompile with -Xlint:deprecation for details.
 
-> Task :app:generateReleaseLintVitalReportModel
 > Task :app:mergeExtDexRelease
+> Task :app:generateReleaseLintVitalReportModel
 > Task :app:dexBuilderRelease
-> Task :app:processReleaseJavaRes NO-SOURCE
 > Task :app:mergeReleaseGlobalSynthetics
+> Task :app:processReleaseJavaRes NO-SOURCE
 > Task :app:optimizeReleaseResources
 > Task :app:mergeReleaseJavaResource
 > Task :app:collectReleaseDependencies
@@ -55,7 +55,7 @@ Note: Recompile with -Xlint:deprecation for details.
 > Task :app:lintVitalReportRelease
 > Task :app:lintVitalRelease
 > Task :app:assembleRelease
-gradle/actions: Writing build results to /home/runner/work/_temp/.gradle-actions/build-results/buildapk-1790846780603.json
+gradle/actions: Writing build results to /home/runner/work/_temp/.gradle-actions/build-results/buildapk-1790858406504.json
 
-BUILD SUCCESSFUL in 25s
+BUILD SUCCESSFUL in 26s
 42 actionable tasks: 42 executed
