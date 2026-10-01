@@ -326,20 +326,45 @@ jobs:
           PY
           node --check /tmp/travel-index-v119.js
 
-      - name: Package v1.0.19 complete source master
+      - name: Apply v1.0.20 receipt zoom and time
+        run: |
+          python3 -m py_compile travel_build/apply-v120.py
+          python3 travel_build/apply-v120.py
+          grep -q "versionName '1.0.20'" /tmp/ajo/ajo_build_min/app/build.gradle
+          grep -q 'function initReceiptPreviewZoom' /tmp/ajo/ajo_build_min/app/src/main/assets/index.html
+          grep -q 'function guessReceiptTime' /tmp/ajo/ajo_build_min/app/src/main/assets/index.html
+          grep -q 'id="rCostTime"' /tmp/ajo/ajo_build_min/app/src/main/assets/index.html
+          grep -q 'id="rsTime"' /tmp/ajo/ajo_build_min/app/src/main/assets/index.html
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          s=Path('/tmp/ajo/ajo_build_min/app/src/main/assets/index.html').read_text()
+          m=re.search(r'<script>(.*)</script>',s,re.S)
+          if not m: raise SystemExit('inline script not found')
+          js=m.group(1)
+          Path('/tmp/travel-index-v120.js').write_text(js)
+          a=js.index('function guessReceiptTime')
+          b=js.index('function guessReceiptCategory',a)
+          test=js[a:b]+"\nif(guessReceiptTime(['Date of sale 2026/09/30 20:59:41'])!=='20:59')throw new Error('time1');\nif(guessReceiptTime(['일시 : 2026-09-30 12:04:26'])!=='12:04')throw new Error('time2');\nconsole.log('receipt time tests passed');\n"
+          Path('/tmp/receipt-time-v120-test.js').write_text(test)
+          PY
+          node --check /tmp/travel-index-v120.js
+          node /tmp/receipt-time-v120-test.js
+
+      - name: Package v1.0.20 complete source master
         run: |
           cat > /tmp/ajo/ajo_build_min/SOURCE_MASTER_README.txt <<'EOF'
-          自助旅行筆記 v1.0.19 完整原始母檔
+          自助旅行筆記 v1.0.20 完整原始母檔
           ==================================
-          版本：1.0.19
+          版本：1.0.20
           Android package：tw.ajo.travelnotebook
 
-          這份 ZIP 是經過 v1.0.1～v1.0.19 所有修正後的「完整展開原始碼」，
+          這份 ZIP 是經過 v1.0.1～v1.0.20 所有修正後的「完整展開原始碼」，
           可直接當作下一個對話／下一版開發的唯一母版。
           不需要重新套用 travel_build 的歷史 patch 檔。
 
           新對話建議說法：
-          「請以我上傳的『自助旅行筆記 v1.0.19 完整原始母檔』作為唯一母版，
+          「請以我上傳的『自助旅行筆記 v1.0.20 完整原始母檔』作為唯一母版，
           不要從舊 APK 或更早版本重建。先完整讀取原始碼後，再依我的新需求修改。」
 
           v1.0.8 主要狀態：
@@ -361,12 +386,13 @@ jobs:
           - v1.0.17：「從相簿選」支援一次多選收據；App 會逐張 OCR、顯示第幾張／共幾張，儲存後自動進下一張；可略過單張或取消全部，最後顯示建立／略過統計
           - v1.0.18：重做收據金額與店名判讀；排除日期、電話、護照、卡號、核准號、條碼等非金額數字；退稅收據優先抓實付／ 승인금액／信用卡／Receive Amount；修正 Busan 被誤判成 bus 交通；新增藥局、ARTBOX、Olive Young、롯데、寢具等購物分類
           - v1.0.19：收據記帳改為直式全螢幕左右分割；左邊長條收據可獨立上下滑、可放大，右邊直接輸入分類／店名備註／金額；中間分隔線可拖曳調整寬度。已保存的收據明細也用同一畫面，先唯讀顯示，按修改後才可編輯；刪除可連同 App 內收據副本一起刪除。收據保存改成真正複製到 App 私有儲存，不再只記會失效的相簿 URI。
+          - v1.0.20：左側收據支援直接雙指放大縮小與雙擊切換 100%／200%，最高 400%，放大後仍可上下左右拖動；右側新增「時間」，優先從收據日期／交易時間辨識 HH:MM 自動帶入，可手動修改；已保存的收據明細與每日消費列表也會顯示時間。
           - 保留 v1.0.7 縮小後的桌面圖示
           - v1.0.6 的提醒、內建 PDF/圖片附件檢視、交通／票券等功能均保留
           EOF
           cd /tmp/ajo
-          zip -qr /tmp/ajo-travel-notebook-v1.0.19-source.zip ajo_build_min
-          test -s /tmp/ajo-travel-notebook-v1.0.19-source.zip
+          zip -qr /tmp/ajo-travel-notebook-v1.0.20-source.zip ajo_build_min
+          test -s /tmp/ajo-travel-notebook-v1.0.20-source.zip
 
       - name: Build unsigned release APK
         id: buildapk
@@ -384,15 +410,15 @@ jobs:
           curl -fsSL --retry 5 --retry-all-errors 'https://raw.githubusercontent.com/aosp-mirror/platform_build/main/target/product/security/testkey.pk8' -o /tmp/testkey.pk8
           curl -fsSL --retry 5 --retry-all-errors 'https://raw.githubusercontent.com/aosp-mirror/platform_build/main/target/product/security/testkey.x509.pem' -o /tmp/testkey.x509.pem
           BT="$ANDROID_HOME/build-tools/35.0.0"
-          "$BT/zipalign" -f -p 4 /tmp/ajo/ajo_build_min/app/build/outputs/apk/release/app-release-unsigned.apk /tmp/ajo-v119-aligned.apk
-          "$BT/apksigner" sign --key /tmp/testkey.pk8 --cert /tmp/testkey.x509.pem --out /tmp/ajo-travel-notebook-v1.0.19.apk /tmp/ajo-v119-aligned.apk
-          "$BT/apksigner" verify --verbose --print-certs /tmp/ajo-travel-notebook-v1.0.19.apk | tee /tmp/apk-signature.txt
+          "$BT/zipalign" -f -p 4 /tmp/ajo/ajo_build_min/app/build/outputs/apk/release/app-release-unsigned.apk /tmp/ajo-v120-aligned.apk
+          "$BT/apksigner" sign --key /tmp/testkey.pk8 --cert /tmp/testkey.x509.pem --out /tmp/ajo-travel-notebook-v1.0.20.apk /tmp/ajo-v120-aligned.apk
+          "$BT/apksigner" verify --verbose --print-certs /tmp/ajo-travel-notebook-v1.0.20.apk | tee /tmp/apk-signature.txt
 
       - name: Publish result to travel branch
         if: always()
         run: |
           mkdir -p travel_output
-          printf 'build=%s\nsign=%s\nsource=%s\nversion=1.0.19\n' '${{ steps.buildapk.outcome }}' '${{ steps.signapk.outcome }}' '${{ github.sha }}' > travel_output/status.txt
+          printf 'build=%s\nsign=%s\nsource=%s\nversion=1.0.20\n' '${{ steps.buildapk.outcome }}' '${{ steps.signapk.outcome }}' '${{ github.sha }}' > travel_output/status.txt
           if [ -f /tmp/ajo-build.log ]; then tail -n 250 /tmp/ajo-build.log > travel_output/build-log.txt; fi
           if [ -f /tmp/apk-signature.txt ]; then cat /tmp/apk-signature.txt > travel_output/signature.txt; fi
           if [ -f /tmp/ajo/ajo_build_min/app/src/main/assets/index.html ]; then
@@ -407,16 +433,16 @@ jobs:
           if [ -f /tmp/ajo/ajo_build_min/app/src/main/AndroidManifest.xml ]; then
             cp /tmp/ajo/ajo_build_min/app/src/main/AndroidManifest.xml travel_output/current-AndroidManifest.xml
           fi
-          if [ -f /tmp/ajo-travel-notebook-v1.0.19.apk ]; then
-            cp /tmp/ajo-travel-notebook-v1.0.19.apk travel_output/ajo-travel-notebook-v1.0.19.apk
+          if [ -f /tmp/ajo-travel-notebook-v1.0.20.apk ]; then
+            cp /tmp/ajo-travel-notebook-v1.0.20.apk travel_output/ajo-travel-notebook-v1.0.20.apk
           fi
-          if [ -f /tmp/ajo-travel-notebook-v1.0.19-source.zip ]; then
-            cp /tmp/ajo-travel-notebook-v1.0.19-source.zip travel_output/ajo-travel-notebook-v1.0.19-source.zip
+          if [ -f /tmp/ajo-travel-notebook-v1.0.20-source.zip ]; then
+            cp /tmp/ajo-travel-notebook-v1.0.20-source.zip travel_output/ajo-travel-notebook-v1.0.20-source.zip
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -- travel_output
-          git commit -m "Travel notebook v1.0.19 stable-signed build" || exit 0
+          git commit -m "Travel notebook v1.0.20 stable-signed build" || exit 0
           git push origin HEAD:travel-notebook-build
 
       - name: Fail if build or signing failed
