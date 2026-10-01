@@ -1,4 +1,4 @@
-build=success
-sign=success
-source=87043dd12ab68f58d70fe662e12484a37bc53c12
-version=1.0.19
+build=skipped
+sign=skipped
+source=265d695b208243c458679a22ed1a18c61aa1674d
+version=1.0.20
