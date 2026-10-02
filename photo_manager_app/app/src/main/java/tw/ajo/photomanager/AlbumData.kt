@@ -15,6 +15,13 @@ import android.os.ParcelFileDescriptor
 import android.provider.MediaStore
 import androidx.core.content.ContextCompat
 import androidx.exifinterface.media.ExifInterface
+import com.google.android.gms.tasks.Tasks
+import com.google.mlkit.vision.common.InputImage
+import com.google.mlkit.vision.text.TextRecognition
+import com.google.mlkit.vision.text.TextRecognizer
+import com.google.mlkit.vision.text.chinese.ChineseTextRecognizerOptions
+import com.google.mlkit.vision.text.korean.KoreanTextRecognizerOptions
+import com.google.mlkit.vision.text.latin.TextRecognizerOptions
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
@@ -24,6 +31,7 @@ import java.io.FileOutputStream
 import java.io.RandomAccessFile
 import java.net.HttpURLConnection
 import java.net.URL
+import java.text.Normalizer
 import java.time.Instant
 import java.time.LocalDateTime
 import java.time.ZoneId
@@ -161,6 +169,7 @@ class AlbumRepository(private val context: Context) {
     private val placePrefs = context.getSharedPreferences("ajo_album_place_cache", Context.MODE_PRIVATE)
     private val placeSearchPrefs = context.getSharedPreferences("ajo_album_place_search_index", Context.MODE_PRIVATE)
     private val placeSearchCoordPrefs = context.getSharedPreferences("ajo_album_place_search_coord", Context.MODE_PRIVATE)
+    private val ocrPrefs = context.getSharedPreferences("ajo_album_ocr_index_v1", Context.MODE_PRIVATE)
     private val albumPrefs = context.getSharedPreferences("ajo_album_custom_albums", Context.MODE_PRIVATE)
     private val gpsPrefs = context.getSharedPreferences("ajo_album_gps_index", Context.MODE_PRIVATE)
     private val collectionPrefs = context.getSharedPreferences("ajo_album_collection_order", Context.MODE_PRIVATE)
@@ -169,6 +178,20 @@ class AlbumRepository(private val context: Context) {
     private val keywordPrefs = context.getSharedPreferences("ajo_album_keywords", Context.MODE_PRIVATE)
     private val organizerPrefs = context.getSharedPreferences("ajo_album_organizer_history", Context.MODE_PRIVATE)
     private var keywordCache: MutableMap<String, Set<String>>? = null
+
+    private val latinTextRecognizer: TextRecognizer by lazy {
+        TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
+    }
+    private val chineseTextRecognizer: TextRecognizer by lazy {
+        TextRecognition.getClient(
+            ChineseTextRecognizerOptions.Builder().build()
+        )
+    }
+    private val koreanTextRecognizer: TextRecognizer by lazy {
+        TextRecognition.getClient(
+            KoreanTextRecognizerOptions.Builder().build()
+        )
+    }
 
     fun hasImagePermission(): Boolean {
         return if (Build.VERSION.SDK_INT >= 33) {
@@ -740,6 +763,99 @@ class AlbumRepository(private val context: Context) {
         }
         gpsPrefs.edit().putString("gps_${item.key}", value).apply()
         if (lat != null && lon != null) lat to lon else null
+    }
+
+    fun hasOcrCache(item: MediaItem): Boolean {
+        val raw = ocrPrefs.getString("item_${item.key}", null) ?: return false
+        val split = raw.indexOf('|')
+        if (split <= 0) return false
+        val modified = raw.substring(0, split).toLongOrNull() ?: return false
+        return modified == item.dateModified
+    }
+
+    fun cachedOcrText(item: MediaItem): String? {
+        val raw = ocrPrefs.getString("item_${item.key}", null) ?: return null
+        val split = raw.indexOf('|')
+        if (split <= 0) return null
+
+        val modified = raw.substring(0, split).toLongOrNull() ?: return null
+        if (modified != item.dateModified) return null
+
+        val value = raw.substring(split + 1)
+        return value.takeIf { it.isNotBlank() && it != "NONE" }
+    }
+
+    fun cachedOcrTexts(items: List<MediaItem>): Map<String, String> {
+        return buildMap {
+            items.forEach { item ->
+                cachedOcrText(item)?.let { text ->
+                    put(item.key, text)
+                }
+            }
+        }
+    }
+
+    suspend fun ocrTextFor(item: MediaItem): String? = withContext(Dispatchers.IO) {
+        if (hasOcrCache(item)) {
+            return@withContext cachedOcrText(item)
+        }
+
+        if (item.kind != MediaKind.IMAGE) {
+            ocrPrefs.edit()
+                .putString("item_${item.key}", "${item.dateModified}|NONE")
+                .apply()
+            return@withContext null
+        }
+
+        val image = try {
+            InputImage.fromFilePath(context, item.uri)
+        } catch (_: Exception) {
+            return@withContext null
+        }
+
+        val recognized = mutableListOf<String>()
+        var successfulRecognizers = 0
+
+        listOf(
+            latinTextRecognizer,
+            chineseTextRecognizer,
+            koreanTextRecognizer
+        ).forEach { recognizer ->
+            try {
+                val text = Tasks.await(recognizer.process(image)).text
+                successfulRecognizers += 1
+                if (text.isNotBlank()) recognized.add(text)
+            } catch (_: Exception) {
+                // 其中一個語系辨識失敗時仍保留其他模型的結果。
+            }
+        }
+
+        // 三個模型都無法處理時先不寫空快取，下次仍可重試。
+        if (successfulRecognizers == 0) {
+            return@withContext null
+        }
+
+        val normalized = normalizeOcrIndexText(
+            recognized.joinToString("\n")
+        )
+
+        ocrPrefs.edit()
+            .putString(
+                "item_${item.key}",
+                "${item.dateModified}|" +
+                    if (normalized.isBlank()) "NONE" else normalized
+            )
+            .apply()
+
+        normalized.takeIf { it.isNotBlank() }
+    }
+
+    private fun normalizeOcrIndexText(value: String): String {
+        return Normalizer.normalize(value, Normalizer.Form.NFKC)
+            .lowercase(Locale.TAIWAN)
+            .replace('臺', '台')
+            .replace(Regex("""\s+"""), "")
+            .take(12000)
     }
 
     fun hasSearchPlaceCache(item: MediaItem): Boolean {
