@@ -20,7 +20,6 @@ import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.gestures.detectDragGestures
-import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
@@ -118,6 +117,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 
 class MainActivity : ComponentActivity() {
     private var resumeVersion by mutableIntStateOf(0)
@@ -2029,20 +2029,56 @@ private fun RegularGrid(
                 }
             )
         } else {
-            // 尚未進入選取模式時，仍維持「長按第一張 → 繼續拖曳」的既有操作。
-            detectDragGesturesAfterLongPress(
-                onDragStart = { offset ->
+            // 尚未進入選取模式時，固定長按 700ms 才啟動。
+            // 700ms 內若手指已放開或移動超過 touch slop，交還給一般點擊／捲動。
+            awaitEachGesture {
+                val down = awaitFirstDown(requireUnconsumed = false)
+                val startPosition = down.position
+                val touchSlop = viewConfiguration.touchSlop
+
+                val cancelledBeforeLongPress = withTimeoutOrNull(700L) {
+                    while (true) {
+                        val event = awaitPointerEvent()
+                        val change = event.changes.firstOrNull {
+                            it.id == down.id
+                        } ?: return@withTimeoutOrNull true
+
+                        if (!change.pressed) {
+                            return@withTimeoutOrNull true
+                        }
+
+                        val dx = change.position.x - startPosition.x
+                        val dy = change.position.y - startPosition.y
+                        if (dx * dx + dy * dy > touchSlop * touchSlop) {
+                            return@withTimeoutOrNull true
+                        }
+                    }
+                }
+
+                // null 代表 700ms 已到，而且手指仍停留在同一張照片附近。
+                if (cancelledBeforeLongPress == null) {
                     startDragSelection(
-                        offset = offset,
+                        offset = startPosition,
                         fromLongPress = true
                     )
-                },
-                onDrag = { change, _ ->
-                    change.consume()
-                    updateDragSelection(change.position)
-                    autoScroll(change.position.y)
+
+                    var keepTracking = true
+                    while (keepTracking) {
+                        val event = awaitPointerEvent()
+                        val change = event.changes.firstOrNull {
+                            it.id == down.id
+                        }
+
+                        if (change == null || !change.pressed) {
+                            keepTracking = false
+                        } else {
+                            change.consume()
+                            updateDragSelection(change.position)
+                            autoScroll(change.position.y)
+                        }
+                    }
                 }
-            )
+            }
         }
     }
 
