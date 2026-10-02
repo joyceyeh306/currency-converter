@@ -1945,9 +1945,13 @@ private fun RegularGrid(
         }
     }
 
-    val dragModifier = Modifier.pointerInput(sections, columns) {
+    val dragModifier = Modifier.pointerInput(
+        sections,
+        columns,
+        selectionMode
+    ) {
         var addMode = true
-        val visited = mutableSetOf<String>()
+        val dragPath = mutableListOf<String>()
 
         fun mediaKeyAt(offset: Offset): String? {
             val hit = state.layoutInfo.visibleItemsInfo.firstOrNull { info ->
@@ -1961,34 +1965,85 @@ private fun RegularGrid(
             return raw.removePrefix("media:")
         }
 
-        detectDragGesturesAfterLongPress(
-            onDragStart = { offset ->
-                visited.clear()
-                val key = mediaKeyAt(offset)
-                if (key != null && mediaByKey.containsKey(key)) {
-                    addMode = !selectedState.contains(key)
-                    visited.add(key)
-                    onLongPressStart(key, addMode)
-                }
-            },
-            onDrag = { change, _ ->
-                change.consume()
-                val key = mediaKeyAt(change.position)
-                if (key != null && mediaByKey.containsKey(key) && visited.add(key)) {
-                    onDragSelect(key, addMode)
-                }
+        fun startDragSelection(
+            offset: Offset,
+            fromLongPress: Boolean
+        ) {
+            dragPath.clear()
+            val key = mediaKeyAt(offset) ?: return
+            if (!mediaByKey.containsKey(key)) return
 
-                val edge = 90f
-                when {
-                    change.position.y < edge -> {
-                        scope.launch { state.scrollBy(-70f) }
-                    }
-                    change.position.y > size.height - edge -> {
-                        scope.launch { state.scrollBy(70f) }
-                    }
+            addMode = !selectedState.contains(key)
+            dragPath.add(key)
+
+            if (fromLongPress) {
+                onLongPressStart(key, addMode)
+            } else {
+                onDragSelect(key, addMode)
+            }
+        }
+
+        fun updateDragSelection(offset: Offset) {
+            val key = mediaKeyAt(offset) ?: return
+            if (!mediaByKey.containsKey(key)) return
+            if (dragPath.lastOrNull() == key) return
+
+            val previousIndex = dragPath.indexOf(key)
+            if (previousIndex >= 0) {
+                // 手指沿原路滑回去時，把這次手勢剛經過的照片恢復。
+                while (dragPath.lastIndex > previousIndex) {
+                    val removed = dragPath.removeAt(dragPath.lastIndex)
+                    onDragSelect(removed, !addMode)
+                }
+            } else {
+                dragPath.add(key)
+                onDragSelect(key, addMode)
+            }
+        }
+
+        fun autoScroll(y: Float) {
+            val edge = 90f
+            when {
+                y < edge -> {
+                    scope.launch { state.scrollBy(-70f) }
+                }
+                y > size.height - edge -> {
+                    scope.launch { state.scrollBy(70f) }
                 }
             }
-        )
+        }
+
+        if (selectionMode) {
+            // 已在選取模式時，不必再長按；直接拖過照片即可連續選取／取消選取。
+            detectDragGestures(
+                onDragStart = { offset ->
+                    startDragSelection(
+                        offset = offset,
+                        fromLongPress = false
+                    )
+                },
+                onDrag = { change, _ ->
+                    change.consume()
+                    updateDragSelection(change.position)
+                    autoScroll(change.position.y)
+                }
+            )
+        } else {
+            // 尚未進入選取模式時，仍維持「長按第一張 → 繼續拖曳」的既有操作。
+            detectDragGesturesAfterLongPress(
+                onDragStart = { offset ->
+                    startDragSelection(
+                        offset = offset,
+                        fromLongPress = true
+                    )
+                },
+                onDrag = { change, _ ->
+                    change.consume()
+                    updateDragSelection(change.position)
+                    autoScroll(change.position.y)
+                }
+            )
+        }
     }
 
     val fastScrollLabels = remember(sections) {
