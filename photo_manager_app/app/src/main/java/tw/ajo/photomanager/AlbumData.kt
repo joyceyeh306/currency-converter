@@ -7,6 +7,8 @@ import android.content.ContentValues
 import android.content.Context
 import android.content.pm.PackageManager
 import android.database.Cursor
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.location.Geocoder
 import android.media.MediaMetadataRetriever
 import android.net.Uri
@@ -24,6 +26,8 @@ import java.io.FileOutputStream
 import java.io.RandomAccessFile
 import java.net.HttpURLConnection
 import java.net.URL
+import java.security.MessageDigest
+import java.time.Duration
 import java.time.Instant
 import java.time.LocalDateTime
 import java.time.ZoneId
@@ -82,6 +86,19 @@ data class MediaLocation(
     val item: MediaItem,
     val lat: Double,
     val lon: Double
+)
+
+enum class PhotoMatchType { EXACT, SIMILAR }
+
+data class PhotoMatchGroup(
+    val type: PhotoMatchType,
+    val items: List<MediaItem>,
+    val reclaimableBytes: Long = 0L
+)
+
+data class PhotoMatchScanResult(
+    val exactGroups: List<PhotoMatchGroup>,
+    val similarGroups: List<PhotoMatchGroup>
 )
 
 data class DetailInfo(
@@ -168,6 +185,8 @@ class AlbumRepository(private val context: Context) {
     private val devicePrefs = context.getSharedPreferences("ajo_album_device_index", Context.MODE_PRIVATE)
     private val keywordPrefs = context.getSharedPreferences("ajo_album_keywords", Context.MODE_PRIVATE)
     private val organizerPrefs = context.getSharedPreferences("ajo_album_organizer_history", Context.MODE_PRIVATE)
+    private val exactHashPrefs = context.getSharedPreferences("ajo_album_exact_hash_v1", Context.MODE_PRIVATE)
+    private val similarHashPrefs = context.getSharedPreferences("ajo_album_similar_hash_v1", Context.MODE_PRIVATE)
     private var keywordCache: MutableMap<String, Set<String>>? = null
 
     fun hasImagePermission(): Boolean {
@@ -277,6 +296,268 @@ class AlbumRepository(private val context: Context) {
                     onBatch(working)
                 }
             }
+        }
+    }
+
+    suspend fun scanPhotoMatches(
+        media: List<MediaItem>,
+        onProgress: suspend (done: Int, total: Int, label: String) -> Unit
+    ): PhotoMatchScanResult = withContext(Dispatchers.IO) {
+        val photos = media.filter { it.kind == MediaKind.IMAGE }
+        if (photos.size < 2) {
+            return@withContext PhotoMatchScanResult(emptyList(), emptyList())
+        }
+
+        val sameSizeBuckets = photos
+            .filter { it.size > 0L }
+            .groupBy { it.size }
+            .values
+            .filter { it.size > 1 }
+
+        val exactWork = sameSizeBuckets.sumOf { it.size }
+        val totalWork = (exactWork + photos.size).coerceAtLeast(1)
+        var done = 0
+
+        val exactGroups = mutableListOf<PhotoMatchGroup>()
+        for (bucket in sameSizeBuckets) {
+            val byHash = mutableMapOf<String, MutableList<MediaItem>>()
+            for (item in bucket) {
+                val hash = exactContentHash(item)
+                if (hash != null) {
+                    byHash.getOrPut(hash) { mutableListOf() }.add(item)
+                }
+                done += 1
+                if (done % 8 == 0 || done == exactWork) {
+                    onProgress(done, totalWork, "比對完全重複照片")
+                }
+            }
+            byHash.values
+                .filter { it.size > 1 }
+                .forEach { group ->
+                    val sorted = group.sortedBy { it.wallTime }
+                    val reclaimable =
+                        (sorted.sumOf { it.size } - sorted.maxOf { it.size })
+                            .coerceAtLeast(0L)
+                    exactGroups.add(
+                        PhotoMatchGroup(
+                            type = PhotoMatchType.EXACT,
+                            items = sorted,
+                            reclaimableBytes = reclaimable
+                        )
+                    )
+                }
+        }
+
+        val exactKeys = exactGroups
+            .flatMap { it.items }
+            .map { it.key }
+            .toSet()
+
+        val hashed = mutableListOf<Pair<MediaItem, Long>>()
+        photos.forEachIndexed { index, item ->
+            val hash = perceptualHash(item)
+            if (hash != null && !exactKeys.contains(item.key)) {
+                hashed.add(item to hash)
+            }
+            done = exactWork + index + 1
+            if (index % 6 == 0 || index == photos.lastIndex) {
+                onProgress(done, totalWork, "分析相似照片")
+            }
+        }
+
+        val sortedHashed = hashed.sortedBy { it.first.wallTime }
+        val parent = IntArray(sortedHashed.size) { it }
+
+        fun find(x: Int): Int {
+            var current = x
+            while (parent[current] != current) {
+                parent[current] = parent[parent[current]]
+                current = parent[current]
+            }
+            return current
+        }
+
+        fun union(a: Int, b: Int) {
+            val ra = find(a)
+            val rb = find(b)
+            if (ra != rb) parent[rb] = ra
+        }
+
+        for (i in sortedHashed.indices) {
+            val (itemA, hashA) = sortedHashed[i]
+            var compared = 0
+            var j = i - 1
+            while (j >= 0 && compared < 24) {
+                val (itemB, hashB) = sortedHashed[j]
+                val seconds = kotlin.math.abs(
+                    Duration.between(itemB.wallTime, itemA.wallTime).seconds
+                )
+                if (seconds > 600L) break
+
+                val ratioA =
+                    if (itemA.height > 0) itemA.width.toDouble() / itemA.height else 0.0
+                val ratioB =
+                    if (itemB.height > 0) itemB.width.toDouble() / itemB.height else 0.0
+                val ratioClose =
+                    ratioA == 0.0 || ratioB == 0.0 ||
+                        kotlin.math.abs(ratioA - ratioB) /
+                            kotlin.math.max(ratioA, ratioB) <= 0.08
+
+                if (
+                    ratioClose &&
+                    java.lang.Long.bitCount(hashA xor hashB) <= 8
+                ) {
+                    union(i, j)
+                }
+
+                compared += 1
+                j -= 1
+            }
+        }
+
+        val similarGroups = sortedHashed.indices
+            .groupBy { find(it) }
+            .values
+            .map { indices ->
+                indices.map { sortedHashed[it].first }
+                    .distinctBy { it.key }
+                    .sortedBy { it.wallTime }
+            }
+            .filter { it.size > 1 }
+            .map {
+                PhotoMatchGroup(
+                    type = PhotoMatchType.SIMILAR,
+                    items = it
+                )
+            }
+            .sortedWith(
+                compareByDescending<PhotoMatchGroup> { it.items.size }
+                    .thenByDescending { it.items.maxOfOrNull { item -> item.wallTime } }
+            )
+
+        PhotoMatchScanResult(
+            exactGroups = exactGroups.sortedWith(
+                compareByDescending<PhotoMatchGroup> { it.reclaimableBytes }
+                    .thenByDescending { it.items.size }
+            ),
+            similarGroups = similarGroups
+        )
+    }
+
+    private fun exactContentHash(item: MediaItem): String? {
+        val cacheKey = "item_${item.key}"
+        exactHashPrefs.getString(cacheKey, null)?.let { raw ->
+            val parts = raw.split("|", limit = 3)
+            if (
+                parts.size == 3 &&
+                parts[0].toLongOrNull() == item.dateModified &&
+                parts[1].toLongOrNull() == item.size
+            ) {
+                return parts[2]
+            }
+        }
+
+        return try {
+            val digest = MessageDigest.getInstance("SHA-256")
+            resolver.openInputStream(item.uri)?.use { input ->
+                val buffer = ByteArray(64 * 1024)
+                while (true) {
+                    val read = input.read(buffer)
+                    if (read <= 0) break
+                    digest.update(buffer, 0, read)
+                }
+            } ?: return null
+
+            val hash = digest.digest().joinToString("") { byte ->
+                "%02x".format(byte.toInt() and 0xff)
+            }
+            exactHashPrefs.edit()
+                .putString(
+                    cacheKey,
+                    "${item.dateModified}|${item.size}|$hash"
+                )
+                .apply()
+            hash
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    private fun perceptualHash(item: MediaItem): Long? {
+        val cacheKey = "item_${item.key}"
+        similarHashPrefs.getString(cacheKey, null)?.let { raw ->
+            val split = raw.indexOf('|')
+            if (split > 0) {
+                val modified = raw.substring(0, split).toLongOrNull()
+                val hash = raw.substring(split + 1).toLongOrNull()
+                if (modified == item.dateModified && hash != null) {
+                    return hash
+                }
+            }
+        }
+
+        val bitmap = decodeSmallBitmap(item) ?: return null
+        return try {
+            val scaled = Bitmap.createScaledBitmap(bitmap, 9, 8, true)
+            if (scaled !== bitmap) bitmap.recycle()
+
+            var hash = 0L
+            var bit = 0
+            for (y in 0 until 8) {
+                for (x in 0 until 8) {
+                    val left = scaled.getPixel(x, y)
+                    val right = scaled.getPixel(x + 1, y)
+
+                    fun gray(pixel: Int): Int {
+                        val r = (pixel shr 16) and 0xff
+                        val g = (pixel shr 8) and 0xff
+                        val b = pixel and 0xff
+                        return (r * 299 + g * 587 + b * 114) / 1000
+                    }
+
+                    if (gray(left) > gray(right)) {
+                        hash = hash or (1L shl bit)
+                    }
+                    bit += 1
+                }
+            }
+            scaled.recycle()
+
+            similarHashPrefs.edit()
+                .putString(cacheKey, "${item.dateModified}|$hash")
+                .apply()
+            hash
+        } catch (_: Exception) {
+            if (!bitmap.isRecycled) bitmap.recycle()
+            null
+        }
+    }
+
+    private fun decodeSmallBitmap(item: MediaItem): Bitmap? {
+        return try {
+            val bounds = BitmapFactory.Options().apply {
+                inJustDecodeBounds = true
+            }
+            resolver.openInputStream(item.uri)?.use {
+                BitmapFactory.decodeStream(it, null, bounds)
+            }
+
+            if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+
+            var sample = 1
+            val maxSide = kotlin.math.max(bounds.outWidth, bounds.outHeight)
+            while (maxSide / sample > 512) sample *= 2
+
+            val options = BitmapFactory.Options().apply {
+                inSampleSize = sample.coerceAtLeast(1)
+                inPreferredConfig = Bitmap.Config.ARGB_8888
+            }
+
+            resolver.openInputStream(item.uri)?.use {
+                BitmapFactory.decodeStream(it, null, options)
+            }
+        } catch (_: Exception) {
+            null
         }
     }
 
