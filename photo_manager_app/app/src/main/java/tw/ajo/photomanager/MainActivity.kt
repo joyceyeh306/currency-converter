@@ -118,6 +118,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
+import java.text.Normalizer
 import java.util.Locale
 
 class MainActivity : ComponentActivity() {
@@ -234,6 +235,8 @@ private fun AlbumApp(repository: AlbumRepository, resumeVersion: Int) {
     var searchText by remember { mutableStateOf("") }
     var placeSearchIndex by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
     var placeIndexing by remember { mutableStateOf(false) }
+    var ocrSearchIndex by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
+    var ocrIndexing by remember { mutableStateOf(false) }
     var viewerKey by remember { mutableStateOf<String?>(null) }
     var homeScreen by remember { mutableStateOf(HomeScreen.GALLERY) }
     var activeCollectionId by remember { mutableStateOf<String?>(null) }
@@ -688,9 +691,12 @@ private fun AlbumApp(repository: AlbumRepository, resumeVersion: Int) {
     }
 
     LaunchedEffect(media, albumVersion) {
-        placeSearchIndex = withContext(Dispatchers.IO) {
-            repository.cachedSearchPlaces(media)
+        val cached = withContext(Dispatchers.IO) {
+            repository.cachedSearchPlaces(media) to
+                repository.cachedOcrTexts(media)
         }
+        placeSearchIndex = cached.first
+        ocrSearchIndex = cached.second
     }
 
     val collectionMedia = remember(media, activeCollectionKeys, activeCollectionTitle, albumVersion) {
@@ -753,17 +759,56 @@ private fun AlbumApp(repository: AlbumRepository, resumeVersion: Int) {
         }
     }
 
+    LaunchedEffect(
+        searchOpen,
+        searchText.isNotBlank(),
+        filteredByType,
+        albumVersion
+    ) {
+        if (!searchOpen || searchText.isBlank()) {
+            ocrIndexing = false
+            return@LaunchedEffect
+        }
+
+        // OCR 比地名反查更耗資源：使用者開始搜尋後才背景建立，
+        // 每張照片辨識完就立刻加入搜尋索引，結果會逐步出現。
+        delay(500)
+        ocrIndexing = true
+        try {
+            val unresolved = withContext(Dispatchers.IO) {
+                filteredByType.filter {
+                    it.kind == MediaKind.IMAGE &&
+                        !repository.hasOcrCache(it)
+                }
+            }
+
+            unresolved.forEach { item ->
+                val text = withContext(Dispatchers.IO) {
+                    repository.ocrTextFor(item)
+                }
+
+                if (!text.isNullOrBlank()) {
+                    ocrSearchIndex = ocrSearchIndex + (item.key to text)
+                }
+            }
+        } finally {
+            ocrIndexing = false
+        }
+    }
+
     val searched = remember(
         filteredByType,
         searchText,
         albumVersion,
-        placeSearchIndex
+        placeSearchIndex,
+        ocrSearchIndex
     ) {
         val query = searchText.trim()
         if (query.isBlank()) {
             filteredByType
         } else {
             val normalizedPlaceQuery = normalizePlaceSearchText(query)
+            val normalizedOcrQuery = normalizeOcrSearchText(query)
             filteredByType.filter {
                 it.name.contains(query, true) ||
                     formatDateTime(it.wallTime).contains(query, true) ||
@@ -772,7 +817,13 @@ private fun AlbumApp(repository: AlbumRepository, resumeVersion: Int) {
                     repository.matchesKeyword(it.key, query) ||
                     normalizePlaceSearchText(
                         placeSearchIndex[it.key].orEmpty()
-                    ).contains(normalizedPlaceQuery)
+                    ).contains(normalizedPlaceQuery) ||
+                    (
+                        normalizedOcrQuery.isNotBlank() &&
+                            ocrSearchIndex[it.key]
+                                .orEmpty()
+                                .contains(normalizedOcrQuery)
+                    )
             }
         }
     }
@@ -1048,7 +1099,7 @@ private fun AlbumApp(repository: AlbumRepository, resumeVersion: Int) {
 
                 searchOpen -> SearchTopBar(
                     query = searchText,
-                    indexingPlaces = placeIndexing,
+                    indexingSearchData = placeIndexing || ocrIndexing,
                     onQuery = { searchText = it },
                     onClose = {
                         haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
@@ -1470,6 +1521,14 @@ private fun AlbumApp(repository: AlbumRepository, resumeVersion: Int) {
     }
 }
 
+private fun normalizeOcrSearchText(value: String): String {
+    return Normalizer.normalize(value, Normalizer.Form.NFKC)
+        .trim()
+        .lowercase(Locale.TAIWAN)
+        .replace('臺', '台')
+        .replace(Regex("""\s+"""), "")
+}
+
 private fun normalizePlaceSearchText(value: String): String {
     return value
         .trim()
@@ -1514,7 +1573,7 @@ private fun SelectionTopBar(
 @Composable
 private fun SearchTopBar(
     query: String,
-    indexingPlaces: Boolean,
+    indexingSearchData: Boolean,
     onQuery: (String) -> Unit,
     onClose: () -> Unit
 ) {
@@ -1531,7 +1590,7 @@ private fun SearchTopBar(
             },
             trailingIcon = {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    if (indexingPlaces) {
+                    if (indexingSearchData) {
                         CircularProgressIndicator(
                             modifier = Modifier.size(18.dp),
                             strokeWidth = 2.dp
@@ -1544,7 +1603,7 @@ private fun SearchTopBar(
                 }
             },
             placeholder = {
-                Text("搜尋檔名、日期、關鍵字或地點")
+                Text("搜尋檔名、日期、地點或照片文字")
             },
             singleLine = true,
             shape = RoundedCornerShape(24.dp)
