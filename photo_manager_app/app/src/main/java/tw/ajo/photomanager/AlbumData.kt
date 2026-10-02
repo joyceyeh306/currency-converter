@@ -159,6 +159,8 @@ class AlbumRepository(private val context: Context) {
     private val favoritePrefs = context.getSharedPreferences("ajo_album_favorites", Context.MODE_PRIVATE)
     private val timeIndexPrefs = context.getSharedPreferences("ajo_album_time_index", Context.MODE_PRIVATE)
     private val placePrefs = context.getSharedPreferences("ajo_album_place_cache", Context.MODE_PRIVATE)
+    private val placeSearchPrefs = context.getSharedPreferences("ajo_album_place_search_index", Context.MODE_PRIVATE)
+    private val placeSearchCoordPrefs = context.getSharedPreferences("ajo_album_place_search_coord", Context.MODE_PRIVATE)
     private val albumPrefs = context.getSharedPreferences("ajo_album_custom_albums", Context.MODE_PRIVATE)
     private val gpsPrefs = context.getSharedPreferences("ajo_album_gps_index", Context.MODE_PRIVATE)
     private val collectionPrefs = context.getSharedPreferences("ajo_album_collection_order", Context.MODE_PRIVATE)
@@ -740,6 +742,96 @@ class AlbumRepository(private val context: Context) {
         if (lat != null && lon != null) lat to lon else null
     }
 
+    fun hasSearchPlaceCache(item: MediaItem): Boolean {
+        val raw = placeSearchPrefs.getString("item_${item.key}", null) ?: return false
+        val split = raw.indexOf('|')
+        if (split <= 0) return false
+        val modified = raw.substring(0, split).toLongOrNull() ?: return false
+        return modified == item.dateModified
+    }
+
+    fun cachedSearchPlace(item: MediaItem): String? {
+        val raw = placeSearchPrefs.getString("item_${item.key}", null) ?: return null
+        val split = raw.indexOf('|')
+        if (split <= 0) return null
+
+        val modified = raw.substring(0, split).toLongOrNull() ?: return null
+        if (modified != item.dateModified) return null
+
+        val value = raw.substring(split + 1)
+        return value.takeIf { it.isNotBlank() && it != "NONE" }
+    }
+
+    fun cachedSearchPlaces(items: List<MediaItem>): Map<String, String> {
+        return buildMap {
+            items.forEach { item ->
+                cachedSearchPlace(item)?.let { place ->
+                    put(item.key, place)
+                }
+            }
+        }
+    }
+
+    suspend fun searchPlaceFor(item: MediaItem): String? = withContext(Dispatchers.IO) {
+        if (hasSearchPlaceCache(item)) {
+            return@withContext cachedSearchPlace(item)
+        }
+
+        val gps = gpsFor(item)
+        if (gps == null) {
+            placeSearchPrefs.edit()
+                .putString("item_${item.key}", "${item.dateModified}|NONE")
+                .apply()
+            return@withContext null
+        }
+
+        val place = resolveSearchPlace(gps.first, gps.second)
+            ?: return@withContext null
+
+        placeSearchPrefs.edit()
+            .putString("item_${item.key}", "${item.dateModified}|$place")
+            .apply()
+        place
+    }
+
+    private fun resolveSearchPlace(lat: Double, lon: Double): String? {
+        // 地點搜尋只需要城市／行政區等文字，比精密座標容許更粗的快取。
+        // 約 0.001 度可大幅減少同一景點連拍照片的重複反查。
+        val cacheKey = String.format(Locale.US, "%.3f,%.3f", lat, lon)
+        placeSearchCoordPrefs.getString(cacheKey, null)?.let { cached ->
+            if (cached.isNotBlank()) return cached
+        }
+
+        val address = try {
+            @Suppress("DEPRECATION")
+            Geocoder(context, Locale.TAIWAN)
+                .getFromLocation(lat, lon, 1)
+                ?.firstOrNull()
+        } catch (_: Exception) {
+            null
+        } ?: return null
+
+        val parts = listOf(
+            address.countryName,
+            address.countryCode,
+            address.adminArea,
+            address.subAdminArea,
+            address.locality,
+            address.subLocality,
+            address.thoroughfare,
+            address.subThoroughfare,
+            address.featureName
+        )
+            .mapNotNull { it?.trim()?.takeIf(String::isNotBlank) }
+            .distinct()
+
+        val place = parts.joinToString("・").takeIf { it.isNotBlank() }
+        if (place != null) {
+            placeSearchCoordPrefs.edit().putString(cacheKey, place).apply()
+        }
+        return place
+    }
+
     suspend fun resolvePlace(item: MediaItem): String? = withContext(Dispatchers.IO) {
         val detail = readDetail(item)
         val lat = detail.lat ?: return@withContext null
@@ -1088,6 +1180,9 @@ class AlbumRepository(private val context: Context) {
                 gpsPrefs.edit()
                     .remove("gps_${item.key}")
                     .remove("map_index_signature")
+                    .apply()
+                placeSearchPrefs.edit()
+                    .remove("item_${item.key}")
                     .apply()
 
                 succeeded += 1
