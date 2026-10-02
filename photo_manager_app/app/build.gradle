@@ -11,8 +11,8 @@ android {
         applicationId 'tw.ajo.photomanager'
         minSdk 26
         targetSdk 35
-        versionCode 55
-        versionName '2.0.0-alpha11-slim31'
+        versionCode 56
+        versionName '2.0.0-alpha11-slim32'
         buildConfigField 'String', 'STABLE_BASELINE', '"2.0.0-alpha11-stable1"'
     }
 
@@ -56,8 +56,5 @@ dependencies {
     implementation 'androidx.media3:media3-exoplayer:1.4.1'
     implementation 'androidx.media3:media3-ui:1.4.1'
     implementation 'org.osmdroid:osmdroid-android:6.1.20'
-    implementation 'com.google.mlkit:text-recognition:16.0.1'
-    implementation 'com.google.mlkit:text-recognition-chinese:16.0.1'
-    implementation 'com.google.mlkit:text-recognition-korean:16.0.1'
     debugImplementation 'androidx.compose.ui:ui-tooling'
 }
