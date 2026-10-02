@@ -247,6 +247,7 @@ private fun AlbumApp(repository: AlbumRepository, resumeVersion: Int) {
     var albumDialogKeys by remember { mutableStateOf<Set<String>?>(null) }
     var organizerOpen by remember { mutableStateOf(false) }
     var organizerKeys by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var photoMatchOpen by remember { mutableStateOf(false) }
     var albumVersion by remember { mutableIntStateOf(0) }
 
     var menuOpen by remember { mutableStateOf(false) }
@@ -829,6 +830,33 @@ private fun AlbumApp(repository: AlbumRepository, resumeVersion: Int) {
         return
     }
 
+    if (photoMatchOpen) {
+        DuplicateFinderScreen(
+            media = media.filterNot { repository.isArchived(it.key) },
+            repository = repository,
+            refreshVersion = albumVersion,
+            onBack = {
+                photoMatchOpen = false
+            },
+            onOpenGroup = { group, title ->
+                photoMatchOpen = false
+                mapClusterGridOpen = false
+                activeCollectionId = "match:" + group.type.name.lowercase() + ":" +
+                    group.items.joinToString(",") { it.key }.hashCode().toString()
+                activeCollectionTitle = title
+                activeCollectionKeys = group.items.map { it.key }.toSet()
+                mediaFilter = MediaFilter.PHOTO
+                selectionMode = false
+                selected = emptySet()
+                searchOpen = false
+                searchText = ""
+                viewerOpenedFromMap = false
+                homeScreen = HomeScreen.GALLERY
+            }
+        )
+        return
+    }
+
     val currentViewerKey = viewerKey
     if (currentViewerKey != null) {
         ViewerScreen(
@@ -1004,6 +1032,12 @@ private fun AlbumApp(repository: AlbumRepository, resumeVersion: Int) {
                 groupMode = previousGroupMode!!
                 previousGroupMode = null
                 prefs.edit().putString("groupMode", groupMode.name).apply()
+            }
+            activeCollectionId?.startsWith("match:") == true -> {
+                activeCollectionId = null
+                activeCollectionTitle = null
+                activeCollectionKeys = null
+                photoMatchOpen = true
             }
             activeCollectionId != null -> {
                 homeScreen = HomeScreen.COLLECTIONS
@@ -1213,13 +1247,20 @@ private fun AlbumApp(repository: AlbumRepository, resumeVersion: Int) {
                                     }
                                 )
                                 DropdownMenuItem(
-                                    text = { Text("重複與相似照片・後續開放") },
+                                    text = { Text("重複與相似照片") },
                                     leadingIcon = {
                                         Icon(Icons.Default.PhotoLibrary, contentDescription = null)
                                     },
                                     onClick = {
                                         menuOpen = false
-                                        infoDialog = "重複、相似照片與照片比對會在後續版本加入。"
+                                        activeCollectionId = null
+                                        activeCollectionTitle = null
+                                        activeCollectionKeys = null
+                                        selectionMode = false
+                                        selected = emptySet()
+                                        searchOpen = false
+                                        searchText = ""
+                                        photoMatchOpen = true
                                     }
                                 )
                                 DropdownMenuItem(
