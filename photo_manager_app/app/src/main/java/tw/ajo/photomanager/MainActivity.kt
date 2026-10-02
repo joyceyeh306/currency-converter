@@ -118,6 +118,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
+import java.util.Locale
 
 class MainActivity : ComponentActivity() {
     private var resumeVersion by mutableIntStateOf(0)
@@ -231,6 +232,8 @@ private fun AlbumApp(repository: AlbumRepository, resumeVersion: Int) {
     var selectionMode by remember { mutableStateOf(false) }
     var searchOpen by remember { mutableStateOf(false) }
     var searchText by remember { mutableStateOf("") }
+    var placeSearchIndex by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
+    var placeIndexing by remember { mutableStateOf(false) }
     var viewerKey by remember { mutableStateOf<String?>(null) }
     var homeScreen by remember { mutableStateOf(HomeScreen.GALLERY) }
     var activeCollectionId by remember { mutableStateOf<String?>(null) }
@@ -684,6 +687,12 @@ private fun AlbumApp(repository: AlbumRepository, resumeVersion: Int) {
         )
     }
 
+    LaunchedEffect(media, albumVersion) {
+        placeSearchIndex = withContext(Dispatchers.IO) {
+            repository.cachedSearchPlaces(media)
+        }
+    }
+
     val collectionMedia = remember(media, activeCollectionKeys, activeCollectionTitle, albumVersion) {
         activeCollectionKeys?.let { keys ->
             media.filter { keys.contains(it.key) }
@@ -709,17 +718,61 @@ private fun AlbumApp(repository: AlbumRepository, resumeVersion: Int) {
         filterMedia(searchBaseMedia, mediaFilter)
     }
 
-    val searched = remember(filteredByType, searchText, albumVersion) {
+    LaunchedEffect(searchOpen, searchText, filteredByType, albumVersion) {
+        val query = searchText.trim()
+        if (!searchOpen || query.isBlank()) {
+            placeIndexing = false
+            return@LaunchedEffect
+        }
+
+        // 先讓檔名／日期／關鍵字立即搜尋；停下輸入後再背景建立 GPS 地名索引。
+        delay(350)
+        placeIndexing = true
+        try {
+            val unresolved = withContext(Dispatchers.IO) {
+                filteredByType.filterNot { repository.hasSearchPlaceCache(it) }
+            }
+
+            unresolved.chunked(12).forEach { chunk ->
+                val updates = withContext(Dispatchers.IO) {
+                    buildMap<String, String> {
+                        chunk.forEach { item ->
+                            repository.searchPlaceFor(item)?.let { place ->
+                                put(item.key, place)
+                            }
+                        }
+                    }
+                }
+
+                if (updates.isNotEmpty()) {
+                    placeSearchIndex = placeSearchIndex + updates
+                }
+            }
+        } finally {
+            placeIndexing = false
+        }
+    }
+
+    val searched = remember(
+        filteredByType,
+        searchText,
+        albumVersion,
+        placeSearchIndex
+    ) {
         val query = searchText.trim()
         if (query.isBlank()) {
             filteredByType
         } else {
+            val normalizedPlaceQuery = normalizePlaceSearchText(query)
             filteredByType.filter {
                 it.name.contains(query, true) ||
                     formatDateTime(it.wallTime).contains(query, true) ||
                     formatDateOnly(it.wallTime).contains(query, true) ||
                     it.wallTime.year.toString().contains(query) ||
-                    repository.matchesKeyword(it.key, query)
+                    repository.matchesKeyword(it.key, query) ||
+                    normalizePlaceSearchText(
+                        placeSearchIndex[it.key].orEmpty()
+                    ).contains(normalizedPlaceQuery)
             }
         }
     }
@@ -995,6 +1048,7 @@ private fun AlbumApp(repository: AlbumRepository, resumeVersion: Int) {
 
                 searchOpen -> SearchTopBar(
                     query = searchText,
+                    indexingPlaces = placeIndexing,
                     onQuery = { searchText = it },
                     onClose = {
                         haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
@@ -1416,6 +1470,13 @@ private fun AlbumApp(repository: AlbumRepository, resumeVersion: Int) {
     }
 }
 
+private fun normalizePlaceSearchText(value: String): String {
+    return value
+        .trim()
+        .lowercase(Locale.TAIWAN)
+        .replace('臺', '台')
+}
+
 private fun toggleSelected(source: Set<String>, key: String): Set<String> {
     return if (source.contains(key)) source - key else source + key
 }
@@ -1453,6 +1514,7 @@ private fun SelectionTopBar(
 @Composable
 private fun SearchTopBar(
     query: String,
+    indexingPlaces: Boolean,
     onQuery: (String) -> Unit,
     onClose: () -> Unit
 ) {
@@ -1468,9 +1530,21 @@ private fun SearchTopBar(
                 Icon(Icons.Default.Search, contentDescription = null)
             },
             trailingIcon = {
-                IconButton(onClick = onClose) {
-                    Icon(Icons.Default.Close, contentDescription = "關閉")
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (indexingPlaces) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(18.dp),
+                            strokeWidth = 2.dp
+                        )
+                        Spacer(Modifier.size(4.dp))
+                    }
+                    IconButton(onClick = onClose) {
+                        Icon(Icons.Default.Close, contentDescription = "關閉")
+                    }
                 }
+            },
+            placeholder = {
+                Text("搜尋檔名、日期、關鍵字或地點")
             },
             singleLine = true,
             shape = RoundedCornerShape(24.dp)
