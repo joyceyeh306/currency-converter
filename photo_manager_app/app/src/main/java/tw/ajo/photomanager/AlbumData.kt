@@ -11,6 +11,7 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.location.Geocoder
 import android.media.MediaMetadataRetriever
+import android.media.MediaScannerConnection
 import android.net.Uri
 import android.os.Build
 import android.os.ParcelFileDescriptor
@@ -34,6 +35,8 @@ import java.time.LocalDateTime
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import java.util.regex.Pattern
 
 enum class GroupMode(val label: String) { YEAR("年"), MONTH("月"), DAY("日"), ALL("全部") }
@@ -1669,10 +1672,25 @@ class AlbumRepository(private val context: Context) {
                         append(item.name)
                         append("：固定為 ")
                         append(target.format(displayFormatter))
-                        if (!status.mediaStoreSynced) {
-                            append("（Android 索引待相簿重新讀取）")
-                        } else if (!status.fileTimeSynced) {
-                            append("（檔案修改時間由系統管理）")
+                        when {
+                            !status.mediaScanCompleted ->
+                                append("（已固定 EXIF；系統重新掃描逾時）")
+                            !status.mediaStoreSynced -> {
+                                append("（系統已重新掃描，但 MediaStore 仍未固定")
+                                status.mediaStoreDateTaken?.let { actual ->
+                                    val actualWall = LocalDateTime.ofInstant(
+                                        Instant.ofEpochMilli(actual),
+                                        ZoneId.systemDefault()
+                                    )
+                                    append("：")
+                                    append(actualWall.format(displayFormatter))
+                                }
+                                append("）")
+                            }
+                            !status.fileTimeSynced ->
+                                append("（MediaStore 已固定；檔案修改時間由系統管理）")
+                            else ->
+                                append("（EXIF／MediaStore／檔案時間已同步）")
                         }
                     }
                 )
@@ -1710,7 +1728,9 @@ class AlbumRepository(private val context: Context) {
 
     private data class FixedLocalWriteStatus(
         val mediaStoreSynced: Boolean,
-        val fileTimeSynced: Boolean
+        val fileTimeSynced: Boolean,
+        val mediaScanCompleted: Boolean,
+        val mediaStoreDateTaken: Long?
     )
 
     private fun readFixedLocalMetadata(item: MediaItem): FixedLocalMetadata {
@@ -1769,26 +1789,32 @@ class AlbumRepository(private val context: Context) {
             .toEpochMilli()
 
         var fileTimeSynced = false
+        var realPath: String? = null
 
         resolver.openFileDescriptor(item.uri, "rw")?.use { pfd ->
             val exif = ExifInterface(pfd.fileDescriptor)
             val value = target.format(exifFormatter)
 
-            // 保留拍攝地看到的「牆上時間」，不讓目前所在時區再換算它。
+            // 固定「拍攝地牆上時間」：不把它解讀成會跟著目前所在地換算的瞬間。
             exif.setAttribute(ExifInterface.TAG_DATETIME_ORIGINAL, value)
             exif.setAttribute(ExifInterface.TAG_DATETIME_DIGITIZED, value)
             exif.setAttribute(ExifInterface.TAG_DATETIME, value)
 
-            // OPPO / Windows 若看到 OffsetTimeOriginal，可能把拍攝瞬間
-            // 轉成目前所在地時區；固定模式刻意清除 offset，讓 10:14 永遠是 10:14。
+            // OffsetTime 系列會讓部分相簿把韓國 10:14 +09:00
+            // 換算成台灣 09:14 +08:00；固定模式刻意清除三個 offset。
             exif.setAttribute(ExifInterface.TAG_OFFSET_TIME, null)
             exif.setAttribute(ExifInterface.TAG_OFFSET_TIME_ORIGINAL, null)
             exif.setAttribute(ExifInterface.TAG_OFFSET_TIME_DIGITIZED, null)
             exif.saveAttributes()
 
+            realPath = try {
+                Os.readlink("/proc/self/fd/" + pfd.fd)
+            } catch (_: Exception) {
+                null
+            }
+
             fileTimeSynced = try {
-                val realPath = Os.readlink("/proc/self/fd/" + pfd.fd)
-                File(realPath).setLastModified(targetMillis)
+                realPath?.let { File(it).setLastModified(targetMillis) } == true
             } catch (_: Exception) {
                 false
             }
@@ -1803,27 +1829,12 @@ class AlbumRepository(private val context: Context) {
             throw IllegalStateException("EXIF 固定後驗證失敗")
         }
 
-        var mediaStoreSynced = false
+        // 先同步 Android 欄位，讓 scanner 有一致的檔案修改線索。
         try {
             resolver.update(
                 item.uri,
                 ContentValues().apply {
-                    put(MediaStore.MediaColumns.DATE_TAKEN, targetMillis)
-                },
-                null,
-                null
-            )
-        } catch (_: Exception) {
-        }
-
-        try {
-            resolver.update(
-                item.uri,
-                ContentValues().apply {
-                    put(
-                        MediaStore.MediaColumns.DATE_MODIFIED,
-                        targetMillis / 1000L
-                    )
+                    put(MediaStore.MediaColumns.DATE_MODIFIED, targetMillis / 1000L)
                 },
                 null,
                 null
@@ -1838,32 +1849,122 @@ class AlbumRepository(private val context: Context) {
                     kotlin.math.abs(modified - targetMillis) <= 2500L
         }
 
-        try {
-            mediaStoreSynced = resolver.query(
-                item.uri,
+        // 關鍵修正：要求 Android MediaScanner 重新解析「已清除 offset」的原始 JPG。
+        // 讓 OPPO 原生相簿收到真正的媒體重新索引事件，而不是只改資料庫欄位。
+        val scanResult = forceRescanFixedLocalPhoto(
+            item = item,
+            realPath = realPath,
+            targetMillis = targetMillis
+        )
+
+        // 若 scanner 已跑完但 DATE_TAKEN 仍沒有對齊，再做一次明確同步並發出變更通知。
+        if (!scanResult.mediaStoreSynced) {
+            try {
+                resolver.update(
+                    scanResult.scannedUri ?: item.uri,
+                    ContentValues().apply {
+                        put(MediaStore.MediaColumns.DATE_TAKEN, targetMillis)
+                        put(MediaStore.MediaColumns.DATE_MODIFIED, targetMillis / 1000L)
+                    },
+                    null,
+                    null
+                )
+            } catch (_: Exception) {
+            }
+
+            try {
+                resolver.notifyChange(scanResult.scannedUri ?: item.uri, null)
+                resolver.notifyChange(item.uri, null)
+            } catch (_: Exception) {
+            }
+        }
+
+        val finalUri = scanResult.scannedUri ?: item.uri
+        val finalDateTaken = queryMediaStoreDateTaken(finalUri)
+            ?: queryMediaStoreDateTaken(item.uri)
+        val finalSynced =
+            finalDateTaken != null &&
+                kotlin.math.abs(finalDateTaken - targetMillis) <= 1500L
+
+        return FixedLocalWriteStatus(
+            mediaStoreSynced = finalSynced,
+            fileTimeSynced = fileTimeSynced,
+            mediaScanCompleted = scanResult.completed,
+            mediaStoreDateTaken = finalDateTaken
+        )
+    }
+
+    private data class FixedLocalScanResult(
+        val completed: Boolean,
+        val scannedUri: Uri?,
+        val mediaStoreSynced: Boolean
+    )
+
+    private fun forceRescanFixedLocalPhoto(
+        item: MediaItem,
+        realPath: String?,
+        targetMillis: Long
+    ): FixedLocalScanResult {
+        val path = realPath
+            ?.takeIf { it.isNotBlank() && File(it).exists() }
+            ?: return FixedLocalScanResult(
+                completed = false,
+                scannedUri = null,
+                mediaStoreSynced = false
+            )
+
+        val latch = CountDownLatch(1)
+        var scannedUri: Uri? = null
+
+        return try {
+            MediaScannerConnection.scanFile(
+                context,
+                arrayOf(path),
+                arrayOf(item.mime.takeIf { it.isNotBlank() } ?: "image/jpeg")
+            ) { _, uri ->
+                scannedUri = uri
+                latch.countDown()
+            }
+
+            val completed = latch.await(10, TimeUnit.SECONDS)
+            val uri = scannedUri ?: item.uri
+            val dateTaken = if (completed) queryMediaStoreDateTaken(uri) else null
+            val synced =
+                dateTaken != null &&
+                    kotlin.math.abs(dateTaken - targetMillis) <= 1500L
+
+            FixedLocalScanResult(
+                completed = completed,
+                scannedUri = scannedUri,
+                mediaStoreSynced = synced
+            )
+        } catch (_: Exception) {
+            FixedLocalScanResult(
+                completed = false,
+                scannedUri = scannedUri,
+                mediaStoreSynced = false
+            )
+        }
+    }
+
+    private fun queryMediaStoreDateTaken(uri: Uri): Long? {
+        return try {
+            resolver.query(
+                uri,
                 arrayOf(MediaStore.MediaColumns.DATE_TAKEN),
                 null,
                 null,
                 null
             )?.use { cursor ->
-                cursor.moveToFirst() &&
-                    kotlin.math.abs(
-                        cursor.longOrZero(0) - targetMillis
-                    ) <= 1500L
-            } == true
+                if (cursor.moveToFirst() && !cursor.isNull(0)) {
+                    cursor.getLong(0)
+                } else {
+                    null
+                }
+            }
         } catch (_: Exception) {
-            mediaStoreSynced = false
+            null
         }
-
-        try {
-            resolver.notifyChange(item.uri, null)
-        } catch (_: Exception) {
-        }
-
-        return FixedLocalWriteStatus(
-            mediaStoreSynced = mediaStoreSynced,
-            fileTimeSynced = fileTimeSynced
-        )
     }
 
     fun previewPhotoTimes(
