@@ -11,8 +11,8 @@ android {
         applicationId 'tw.ajo.photomanager'
         minSdk 26
         targetSdk 35
-        versionCode 57
-        versionName '2.0.0-alpha11-slim33'
+        versionCode 58
+        versionName '2.0.0-alpha11-slim34'
         buildConfigField 'String', 'STABLE_BASELINE', '"2.0.0-alpha11-stable1"'
     }
 
