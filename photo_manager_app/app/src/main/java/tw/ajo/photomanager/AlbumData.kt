@@ -16,7 +16,6 @@ import android.os.Build
 import android.os.ParcelFileDescriptor
 import android.provider.MediaStore
 import android.system.Os
-import android.system.StructTimespec
 import androidx.core.content.ContextCompat
 import androidx.exifinterface.media.ExifInterface
 import kotlinx.coroutines.Dispatchers
@@ -1788,14 +1787,8 @@ class AlbumRepository(private val context: Context) {
             exif.saveAttributes()
 
             fileTimeSynced = try {
-                val seconds = targetMillis / 1000L
-                val nanos = (targetMillis % 1000L) * 1_000_000L
-                val times = arrayOf(
-                    StructTimespec(seconds, nanos),
-                    StructTimespec(seconds, nanos)
-                )
-                Os.futimens(pfd.fileDescriptor, times)
-                true
+                val realPath = Os.readlink("/proc/self/fd/" + pfd.fd)
+                File(realPath).setLastModified(targetMillis)
             } catch (_: Exception) {
                 false
             }
@@ -1836,6 +1829,13 @@ class AlbumRepository(private val context: Context) {
                 null
             )
         } catch (_: Exception) {
+        }
+
+        if (!fileTimeSynced) {
+            val modified = currentModifiedMillis(item)
+            fileTimeSynced =
+                modified > 0L &&
+                    kotlin.math.abs(modified - targetMillis) <= 2500L
         }
 
         try {
