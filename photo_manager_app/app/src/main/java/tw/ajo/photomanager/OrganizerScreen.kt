@@ -597,6 +597,10 @@ private enum class PhotoTimeBatchMode(
         "全部設成同一時間",
         "所有可修改的照片都使用同一個拍攝時間"
     ),
+    FIX_LOCAL_TIME(
+        "固定拍攝地當地時間",
+        "保留 EXIF 原始拍攝的當地時間，清除會觸發時區換算的 EXIF offset，並同步 Android 拍攝時間索引"
+    ),
     GPS_TIME(
         "由 GPS 時間讀入",
         "照片以 GPS UTC 時間＋座標，自動換算成拍攝地當地時間；影片沒有 GPS 時間時會略過"
@@ -640,6 +644,8 @@ private fun PhotoTimeEditDialog(
     var notice by remember { mutableStateOf<String?>(null) }
     var gpsPreviews by remember { mutableStateOf<List<PhotoTimePreview>>(emptyList()) }
     var gpsLoading by remember { mutableStateOf(false) }
+    var fixedLocalPreviews by remember { mutableStateOf<List<PhotoTimePreview>>(emptyList()) }
+    var fixedLocalLoading by remember { mutableStateOf(false) }
     val filenamePreviews = remember(orderedItems) {
         repository.previewFilenamePhotoTimes(orderedItems)
     }
@@ -654,6 +660,7 @@ private fun PhotoTimeEditDialog(
 
     val requests = remember(orderedItems, parsedTarget, mode) {
         if (
+            mode == PhotoTimeBatchMode.FIX_LOCAL_TIME ||
             mode == PhotoTimeBatchMode.GPS_TIME ||
             mode == PhotoTimeBatchMode.FILENAME_TIME ||
             first == null ||
@@ -671,6 +678,7 @@ private fun PhotoTimeEditDialog(
                 PhotoTimeBatchMode.SAME_TIME -> {
                     orderedItems.map { item -> item to parsedTarget }
                 }
+                PhotoTimeBatchMode.FIX_LOCAL_TIME -> emptyList()
                 PhotoTimeBatchMode.GPS_TIME -> emptyList()
                 PhotoTimeBatchMode.FILENAME_TIME -> emptyList()
             }
@@ -692,9 +700,21 @@ private fun PhotoTimeEditDialog(
             gpsPreviews = emptyList()
             gpsLoading = false
         }
+
+        if (mode == PhotoTimeBatchMode.FIX_LOCAL_TIME) {
+            fixedLocalLoading = true
+            fixedLocalPreviews = withContext(Dispatchers.IO) {
+                repository.previewFixedLocalPhotoTimes(orderedItems)
+            }
+            fixedLocalLoading = false
+        } else {
+            fixedLocalPreviews = emptyList()
+            fixedLocalLoading = false
+        }
     }
 
     val previews = when (mode) {
+        PhotoTimeBatchMode.FIX_LOCAL_TIME -> fixedLocalPreviews
         PhotoTimeBatchMode.GPS_TIME -> gpsPreviews
         PhotoTimeBatchMode.FILENAME_TIME -> filenamePreviews
         else -> standardPreviews
@@ -703,6 +723,7 @@ private fun PhotoTimeEditDialog(
     val changedCount = previews.count { it.error == null && it.changed }
     val unchangedCount = previews.count { it.error == null && !it.changed }
     val inputReady = when (mode) {
+        PhotoTimeBatchMode.FIX_LOCAL_TIME -> !fixedLocalLoading
         PhotoTimeBatchMode.GPS_TIME -> !gpsLoading
         PhotoTimeBatchMode.FILENAME_TIME -> true
         else -> parsedTarget != null
@@ -718,6 +739,7 @@ private fun PhotoTimeEditDialog(
         } else {
             listOf(
                 PhotoTimeBatchMode.SAME_TIME,
+                PhotoTimeBatchMode.FIX_LOCAL_TIME,
                 PhotoTimeBatchMode.GPS_TIME,
                 PhotoTimeBatchMode.FILENAME_TIME
             )
@@ -729,7 +751,11 @@ private fun PhotoTimeEditDialog(
         notice = null
         scope.launch {
             val applied = withContext(Dispatchers.IO) {
-                repository.applyPhotoTimes(list)
+                if (mode == PhotoTimeBatchMode.FIX_LOCAL_TIME) {
+                    repository.applyFixedLocalPhotoTimes(list)
+                } else {
+                    repository.applyPhotoTimes(list)
+                }
             }
             result = applied
             processing = false
@@ -865,6 +891,7 @@ private fun PhotoTimeEditDialog(
                     }
 
                     if (
+                        mode != PhotoTimeBatchMode.FIX_LOCAL_TIME &&
                         mode != PhotoTimeBatchMode.GPS_TIME &&
                         mode != PhotoTimeBatchMode.FILENAME_TIME
                     ) {
@@ -892,6 +919,14 @@ private fun PhotoTimeEditDialog(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
+                    } else if (mode == PhotoTimeBatchMode.FIX_LOCAL_TIME) {
+                        item {
+                            Text(
+                                "保留照片 EXIF DateTimeOriginal 的拍攝地當地時間，不加減時差；同時清除 OffsetTime／OffsetTimeOriginal／OffsetTimeDigitized，避免 OPPO 或 Windows 依目前時區重新換算，並同步 Android MediaStore 拍攝時間與可寫入的檔案時間。影片會略過。",
+                                fontSize = 10.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                     } else if (mode == PhotoTimeBatchMode.GPS_TIME) {
                         item {
                             Text(
@@ -914,12 +949,14 @@ private fun PhotoTimeEditDialog(
                         item {
                             Text(
                                 when (mode) {
+                                    PhotoTimeBatchMode.FIX_LOCAL_TIME -> "正在檢查 EXIF 與 Android 拍攝時間…"
                                     PhotoTimeBatchMode.GPS_TIME -> "正在讀取 GPS 時間…"
                                     PhotoTimeBatchMode.FILENAME_TIME -> "正在讀取檔名時間…"
                                     else -> "日期時間格式不正確"
                                 },
                                 fontSize = 11.sp,
                                 color = if (
+                                    mode == PhotoTimeBatchMode.FIX_LOCAL_TIME ||
                                     mode == PhotoTimeBatchMode.GPS_TIME ||
                                     mode == PhotoTimeBatchMode.FILENAME_TIME
                                 )
@@ -945,6 +982,8 @@ private fun PhotoTimeEditDialog(
                                     if (skippedCount > 0) {
                                         Text(
                                             when (mode) {
+                                                PhotoTimeBatchMode.FIX_LOCAL_TIME ->
+                                                    "略過 $skippedCount 項：無 EXIF 原始拍攝時間、影片或暫不支援的圖片格式"
                                                 PhotoTimeBatchMode.GPS_TIME ->
                                                     "略過 $skippedCount 項：無 UTC 時間、無座標或無法取得時區"
                                                 PhotoTimeBatchMode.FILENAME_TIME ->
@@ -958,7 +997,10 @@ private fun PhotoTimeEditDialog(
                                     }
                                     if (unchangedCount > 0) {
                                         Text(
-                                            "$unchangedCount 項時間原本就相同",
+                                            if (mode == PhotoTimeBatchMode.FIX_LOCAL_TIME)
+                                                "$unchangedCount 項已經是固定當地時間格式"
+                                            else
+                                                "$unchangedCount 項時間原本就相同",
                                             fontSize = 10.sp,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant
                                         )
@@ -1004,7 +1046,10 @@ private fun PhotoTimeEditDialog(
                                         )
                                         if (!preview.changed) {
                                             Text(
-                                                "時間相同，不會修改",
+                                                if (mode == PhotoTimeBatchMode.FIX_LOCAL_TIME)
+                                                    "已固定，不會重複修改"
+                                                else
+                                                    "時間相同，不會修改",
                                                 fontSize = 9.sp,
                                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                                             )
@@ -1027,6 +1072,8 @@ private fun PhotoTimeEditDialog(
                         item {
                             Text(
                                 when (mode) {
+                                    PhotoTimeBatchMode.FIX_LOCAL_TIME ->
+                                        "固定模式不改變照片看到的年月日與時分秒，只把它改成不會跟著目前手機時區換算的『拍攝地當地時間』：同步三個 EXIF 時間欄位、清除 EXIF offset、更新 Android MediaStore DATE_TAKEN，並嘗試同步檔案修改時間。影像內容不重新編碼。"
                                     PhotoTimeBatchMode.GPS_TIME ->
                                         "GPS 模式只使用真正的 GPS 時間。照片會依 GPS 座標把 GPS UTC 換算成當地時間並寫入 EXIF 拍攝時間；影片沒有獨立 GPS 時間時直接略過，不使用 DATE_TAKEN 或一般影片建立時間推算。"
                                     PhotoTimeBatchMode.FILENAME_TIME ->
@@ -1091,6 +1138,12 @@ private fun PhotoTimeEditDialog(
                         val delta = Duration.between(first.wallTime, parsedTarget)
                         Text(
                             "整批差值：" + formatDurationDelta(delta),
+                            fontSize = 12.sp
+                        )
+                    }
+                    if (mode == PhotoTimeBatchMode.FIX_LOCAL_TIME) {
+                        Text(
+                            "會保留 DateTimeOriginal 顯示的當地時間，清除會觸發跨時區換算的 EXIF offset，並同步 Android 拍攝時間索引。",
                             fontSize = 12.sp
                         )
                     }
