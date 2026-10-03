@@ -838,20 +838,28 @@ private fun AlbumApp(repository: AlbumRepository, resumeVersion: Int) {
             onBack = {
                 photoMatchOpen = false
             },
-            onOpenGroup = { group, title ->
-                photoMatchOpen = false
-                mapClusterGridOpen = false
-                activeCollectionId = "match:" + group.type.name.lowercase() + ":" +
-                    group.items.joinToString(",") { it.key }.hashCode().toString()
-                activeCollectionTitle = title
-                activeCollectionKeys = group.items.map { it.key }.toSet()
-                mediaFilter = MediaFilter.PHOTO
-                selectionMode = false
-                selected = emptySet()
-                searchOpen = false
-                searchText = ""
-                viewerOpenedFromMap = false
-                homeScreen = HomeScreen.GALLERY
+            onDeleteItems = { deleting ->
+                if (deleting.isNotEmpty()) {
+                    val keys = deleting.map { it.key }.toSet()
+                    pendingTrashKeys = keys
+                    val request = repository.trashRequest(deleting)
+
+                    if (request != null) {
+                        trashDialogActive = true
+                        trashLauncher.launch(
+                            IntentSenderRequest.Builder(request.intentSender).build()
+                        )
+                    } else {
+                        repository.removeMediaReferences(keys)
+                        albumVersion += 1
+                        media = media.filterNot { keys.contains(it.key) }
+                        pendingTrashKeys = emptySet()
+                        scope.launch {
+                            delay(250)
+                            reload()
+                        }
+                    }
+                }
             }
         )
         return
@@ -1032,12 +1040,6 @@ private fun AlbumApp(repository: AlbumRepository, resumeVersion: Int) {
                 groupMode = previousGroupMode!!
                 previousGroupMode = null
                 prefs.edit().putString("groupMode", groupMode.name).apply()
-            }
-            activeCollectionId?.startsWith("match:") == true -> {
-                activeCollectionId = null
-                activeCollectionTitle = null
-                activeCollectionKeys = null
-                photoMatchOpen = true
             }
             activeCollectionId != null -> {
                 homeScreen = HomeScreen.COLLECTIONS
