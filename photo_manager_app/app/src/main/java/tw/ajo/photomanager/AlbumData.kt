@@ -15,6 +15,8 @@ import android.net.Uri
 import android.os.Build
 import android.os.ParcelFileDescriptor
 import android.provider.MediaStore
+import android.system.Os
+import android.system.StructTimespec
 import androidx.core.content.ContextCompat
 import androidx.exifinterface.media.ExifInterface
 import kotlinx.coroutines.Dispatchers
@@ -1565,6 +1567,303 @@ class AlbumRepository(private val context: Context) {
                 )
             }
         }
+    }
+
+    fun previewFixedLocalPhotoTimes(
+        items: List<MediaItem>
+    ): List<PhotoTimePreview> {
+        return items.map { item ->
+            when {
+                item.kind != MediaKind.IMAGE -> {
+                    PhotoTimePreview(
+                        item = item,
+                        currentTime = item.wallTime,
+                        newTime = item.wallTime,
+                        error = "固定拍攝地當地時間目前只處理照片",
+                        changed = false
+                    )
+                }
+                !supportsExifTimeWrite(item) -> {
+                    PhotoTimePreview(
+                        item = item,
+                        currentTime = item.wallTime,
+                        newTime = item.wallTime,
+                        error = "這個圖片格式暫不支援安全寫入拍攝時間",
+                        changed = false
+                    )
+                }
+                else -> {
+                    val metadata = readFixedLocalMetadata(item)
+                    val target = metadata.localTime
+                    if (target == null) {
+                        PhotoTimePreview(
+                            item = item,
+                            currentTime = item.wallTime,
+                            newTime = item.wallTime,
+                            error = "讀不到 EXIF 原始拍攝時間",
+                            changed = false
+                        )
+                    } else {
+                        val targetMillis = target
+                            .atZone(ZoneId.systemDefault())
+                            .toInstant()
+                            .toEpochMilli()
+                        val mediaStoreAligned =
+                            item.dateTaken > 0L &&
+                                kotlin.math.abs(item.dateTaken - targetMillis) <= 1500L
+                        val modifiedAligned =
+                            item.dateModified > 0L &&
+                                kotlin.math.abs(item.dateModified - targetMillis) <= 2500L
+
+                        PhotoTimePreview(
+                            item = item,
+                            currentTime = target,
+                            newTime = target,
+                            error = null,
+                            changed =
+                                metadata.hasAnyOffset ||
+                                !metadata.allExifWallTimesAligned ||
+                                !mediaStoreAligned ||
+                                !modifiedAligned
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    fun applyFixedLocalPhotoTimes(
+        previews: List<PhotoTimePreview>
+    ): PhotoTimeResult {
+        val runnable = previews.filter { it.error == null && it.changed }
+        if (runnable.isEmpty()) {
+            return PhotoTimeResult(
+                total = previews.size,
+                succeeded = 0,
+                failed = previews.count { it.error != null },
+                details = listOf("沒有需要固定的拍攝時間。")
+            )
+        }
+
+        var succeeded = 0
+        var failed = 0
+        val details = mutableListOf<String>()
+        val displayFormatter =
+            DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss", Locale.US)
+
+        runnable.forEach { preview ->
+            val item = preview.item
+            val target = preview.newTime
+            try {
+                val status = writeFixedLocalImageTime(item, target)
+
+                val modified = currentModifiedMillis(item)
+                if (modified > 0L) {
+                    saveIndex(item.key, modified, target)
+                } else {
+                    timeIndexPrefs.edit().remove(cacheKey(item.key)).apply()
+                }
+
+                succeeded += 1
+                details.add(
+                    buildString {
+                        append(item.name)
+                        append("：固定為 ")
+                        append(target.format(displayFormatter))
+                        if (!status.mediaStoreSynced) {
+                            append("（Android 索引待相簿重新讀取）")
+                        } else if (!status.fileTimeSynced) {
+                            append("（檔案修改時間由系統管理）")
+                        }
+                    }
+                )
+            } catch (security: SecurityException) {
+                failed += 1
+                details.add(item.name + "：系統尚未授權修改")
+            } catch (e: Exception) {
+                failed += 1
+                details.add(
+                    item.name + "：修改失敗（" + (e.message ?: "未知錯誤") + "）"
+                )
+            }
+        }
+
+        if (succeeded > 0) {
+            appendOrganizerHistory(
+                "固定拍攝地當地時間 " + succeeded + " 項" +
+                    if (failed > 0) "（另有 " + failed + " 項失敗）" else ""
+            )
+        }
+
+        return PhotoTimeResult(
+            total = previews.size,
+            succeeded = succeeded,
+            failed = failed,
+            details = details
+        )
+    }
+
+    private data class FixedLocalMetadata(
+        val localTime: LocalDateTime?,
+        val hasAnyOffset: Boolean,
+        val allExifWallTimesAligned: Boolean
+    )
+
+    private data class FixedLocalWriteStatus(
+        val mediaStoreSynced: Boolean,
+        val fileTimeSynced: Boolean
+    )
+
+    private fun readFixedLocalMetadata(item: MediaItem): FixedLocalMetadata {
+        return try {
+            resolver.openInputStream(originalMediaUri(item))?.use { stream ->
+                val exif = ExifInterface(stream)
+                val rawOriginal =
+                    exif.getAttribute(ExifInterface.TAG_DATETIME_ORIGINAL)
+                val localTime = rawOriginal
+                    ?.take(19)
+                    ?.let {
+                        runCatching {
+                            LocalDateTime.parse(it, exifFormatter)
+                        }.getOrNull()
+                    }
+
+                val hasAnyOffset = listOf(
+                    ExifInterface.TAG_OFFSET_TIME,
+                    ExifInterface.TAG_OFFSET_TIME_ORIGINAL,
+                    ExifInterface.TAG_OFFSET_TIME_DIGITIZED
+                ).any { tag ->
+                    !exif.getAttribute(tag).isNullOrBlank()
+                }
+
+                val expected = localTime?.format(exifFormatter)
+                val aligned = if (expected == null) {
+                    false
+                } else {
+                    listOf(
+                        ExifInterface.TAG_DATETIME_ORIGINAL,
+                        ExifInterface.TAG_DATETIME_DIGITIZED,
+                        ExifInterface.TAG_DATETIME
+                    ).all { tag ->
+                        exif.getAttribute(tag)?.take(19) == expected
+                    }
+                }
+
+                FixedLocalMetadata(
+                    localTime = localTime,
+                    hasAnyOffset = hasAnyOffset,
+                    allExifWallTimesAligned = aligned
+                )
+            } ?: FixedLocalMetadata(null, false, false)
+        } catch (_: Exception) {
+            FixedLocalMetadata(null, false, false)
+        }
+    }
+
+    private fun writeFixedLocalImageTime(
+        item: MediaItem,
+        target: LocalDateTime
+    ): FixedLocalWriteStatus {
+        val targetMillis = target
+            .atZone(ZoneId.systemDefault())
+            .toInstant()
+            .toEpochMilli()
+
+        var fileTimeSynced = false
+
+        resolver.openFileDescriptor(item.uri, "rw")?.use { pfd ->
+            val exif = ExifInterface(pfd.fileDescriptor)
+            val value = target.format(exifFormatter)
+
+            // 保留拍攝地看到的「牆上時間」，不讓目前所在時區再換算它。
+            exif.setAttribute(ExifInterface.TAG_DATETIME_ORIGINAL, value)
+            exif.setAttribute(ExifInterface.TAG_DATETIME_DIGITIZED, value)
+            exif.setAttribute(ExifInterface.TAG_DATETIME, value)
+
+            // OPPO / Windows 若看到 OffsetTimeOriginal，可能把拍攝瞬間
+            // 轉成目前所在地時區；固定模式刻意清除 offset，讓 10:14 永遠是 10:14。
+            exif.setAttribute(ExifInterface.TAG_OFFSET_TIME, null)
+            exif.setAttribute(ExifInterface.TAG_OFFSET_TIME_ORIGINAL, null)
+            exif.setAttribute(ExifInterface.TAG_OFFSET_TIME_DIGITIZED, null)
+            exif.saveAttributes()
+
+            fileTimeSynced = try {
+                val seconds = targetMillis / 1000L
+                val nanos = (targetMillis % 1000L) * 1_000_000L
+                val times = arrayOf(
+                    StructTimespec(seconds, nanos),
+                    StructTimespec(seconds, nanos)
+                )
+                Os.futimens(pfd.fileDescriptor, times)
+                true
+            } catch (_: Exception) {
+                false
+            }
+        } ?: throw IllegalStateException("無法開啟照片")
+
+        val verified = readFixedLocalMetadata(item)
+        if (
+            verified.localTime != target ||
+            verified.hasAnyOffset ||
+            !verified.allExifWallTimesAligned
+        ) {
+            throw IllegalStateException("EXIF 固定後驗證失敗")
+        }
+
+        var mediaStoreSynced = false
+        try {
+            resolver.update(
+                item.uri,
+                ContentValues().apply {
+                    put(MediaStore.MediaColumns.DATE_TAKEN, targetMillis)
+                },
+                null,
+                null
+            )
+        } catch (_: Exception) {
+        }
+
+        try {
+            resolver.update(
+                item.uri,
+                ContentValues().apply {
+                    put(
+                        MediaStore.MediaColumns.DATE_MODIFIED,
+                        targetMillis / 1000L
+                    )
+                },
+                null,
+                null
+            )
+        } catch (_: Exception) {
+        }
+
+        try {
+            mediaStoreSynced = resolver.query(
+                item.uri,
+                arrayOf(MediaStore.MediaColumns.DATE_TAKEN),
+                null,
+                null,
+                null
+            )?.use { cursor ->
+                cursor.moveToFirst() &&
+                    kotlin.math.abs(
+                        cursor.longOrZero(0) - targetMillis
+                    ) <= 1500L
+            } == true
+        } catch (_: Exception) {
+            mediaStoreSynced = false
+        }
+
+        try {
+            resolver.notifyChange(item.uri, null)
+        } catch (_: Exception) {
+        }
+
+        return FixedLocalWriteStatus(
+            mediaStoreSynced = mediaStoreSynced,
+            fileTimeSynced = fileTimeSynced
+        )
     }
 
     fun previewPhotoTimes(
