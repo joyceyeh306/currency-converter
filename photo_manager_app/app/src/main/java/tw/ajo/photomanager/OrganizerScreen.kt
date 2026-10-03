@@ -599,7 +599,7 @@ private enum class PhotoTimeBatchMode(
     ),
     FIX_LOCAL_TIME(
         "固定拍攝地當地時間",
-        "保留 EXIF 原始拍攝的當地時間，清除會觸發時區換算的 EXIF offset，並同步 Android 拍攝時間索引"
+        "保留 EXIF 原始拍攝的當地時間，清除會觸發時區換算的 offset，強制重新掃描照片並同步 Android 拍攝時間"
     ),
     GPS_TIME(
         "由 GPS 時間讀入",
@@ -922,7 +922,7 @@ private fun PhotoTimeEditDialog(
                     } else if (mode == PhotoTimeBatchMode.FIX_LOCAL_TIME) {
                         item {
                             Text(
-                                "保留照片 EXIF DateTimeOriginal 的拍攝地當地時間，不加減時差；同時清除 OffsetTime／OffsetTimeOriginal／OffsetTimeDigitized，避免 OPPO 或 Windows 依目前時區重新換算，並同步 Android MediaStore 拍攝時間與可寫入的檔案時間。影片會略過。",
+                                "保留照片 EXIF DateTimeOriginal 的拍攝地當地時間，不加減時差；清除 OffsetTime／OffsetTimeOriginal／OffsetTimeDigitized，再要求 Android MediaScanner 重新掃描原始照片，最後重新驗證 MediaStore DATE_TAKEN。影片會略過。",
                                 fontSize = 10.sp,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -1073,7 +1073,7 @@ private fun PhotoTimeEditDialog(
                             Text(
                                 when (mode) {
                                     PhotoTimeBatchMode.FIX_LOCAL_TIME ->
-                                        "固定模式不改變照片看到的年月日與時分秒，只把它改成不會跟著目前手機時區換算的『拍攝地當地時間』：同步三個 EXIF 時間欄位、清除 EXIF offset、更新 Android MediaStore DATE_TAKEN，並嘗試同步檔案修改時間。影像內容不重新編碼。"
+                                        "固定模式不改變照片看到的年月日與時分秒：同步三個 EXIF 時間欄位、清除 EXIF offset、同步檔案時間，接著強制 Android MediaScanner 重新解析照片並再次驗證 DATE_TAKEN。影像內容不重新編碼。"
                                     PhotoTimeBatchMode.GPS_TIME ->
                                         "GPS 模式只使用真正的 GPS 時間。照片會依 GPS 座標把 GPS UTC 換算成當地時間並寫入 EXIF 拍攝時間；影片沒有獨立 GPS 時間時直接略過，不使用 DATE_TAKEN 或一般影片建立時間推算。"
                                     PhotoTimeBatchMode.FILENAME_TIME ->
@@ -1143,7 +1143,7 @@ private fun PhotoTimeEditDialog(
                     }
                     if (mode == PhotoTimeBatchMode.FIX_LOCAL_TIME) {
                         Text(
-                            "會保留 DateTimeOriginal 顯示的當地時間，清除會觸發跨時區換算的 EXIF offset，並同步 Android 拍攝時間索引。",
+                            "會保留 DateTimeOriginal 顯示的當地時間，清除會觸發跨時區換算的 EXIF offset，並強制 Android 重新掃描這張照片後驗證拍攝時間索引。",
                             fontSize = 12.sp
                         )
                     }
