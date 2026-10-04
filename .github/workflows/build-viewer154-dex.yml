@@ -1,0 +1,114 @@
+name: Build Viewer154 Dex
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - '.github/workflows/build-viewer154-dex.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install SDK
+        run: |
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager "platforms;android-35" "build-tools;35.0.0"
+
+      - name: Write viewer source
+        shell: bash
+        run: |
+          mkdir -p /tmp/src/tw/ajo/travelnotebook /tmp/classes /tmp/dex
+          cat > /tmp/src/tw/ajo/travelnotebook/AttachmentViewerActivitX.java <<'JAVA'
+package tw.ajo.travelnotebook;
+
+import android.app.Activity;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
+import android.graphics.Color;
+import android.graphics.Matrix;
+import android.graphics.pdf.PdfRenderer;
+import android.os.Bundle;
+import android.os.ParcelFileDescriptor;
+import android.view.GestureDetector;
+import android.view.Gravity;
+import android.view.MotionEvent;
+import android.view.ScaleGestureDetector;
+import android.widget.Button;
+import android.widget.ImageView;
+import android.widget.LinearLayout;
+import android.widget.ScrollView;
+import android.widget.TextView;
+import android.widget.Toast;
+import java.io.File;
+
+public class AttachmentViewerActivitX extends Activity {
+    @Override protected void onCreate(Bundle b){
+        super.onCreate(b);getWindow().setStatusBarColor(Color.rgb(255,214,0));
+        String path=getIntent().getStringExtra("path"),mime=getIntent().getStringExtra("mime"),name=getIntent().getStringExtra("name");
+        LinearLayout root=new LinearLayout(this);root.setOrientation(LinearLayout.VERTICAL);root.setBackgroundColor(Color.WHITE);
+        LinearLayout bar=new LinearLayout(this);bar.setGravity(Gravity.CENTER_VERTICAL);bar.setPadding(dp(8),dp(5),dp(8),dp(5));bar.setBackgroundColor(Color.rgb(255,214,0));
+        Button back=new Button(this);back.setText("‹");back.setTextSize(24);back.setOnClickListener(v->finish());
+        TextView title=new TextView(this);title.setText(name==null?"附件":name);title.setTextSize(17);title.setTextColor(Color.BLACK);title.setSingleLine(true);title.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        bar.addView(back,new LinearLayout.LayoutParams(dp(46),dp(46)));bar.addView(title,new LinearLayout.LayoutParams(0,dp(46),1));root.addView(bar);
+        TextView hint=new TextView(this);hint.setText("雙指縮放・放大後單指拖曳・雙擊快速放大／還原");hint.setTextSize(12);hint.setTextColor(Color.DKGRAY);hint.setGravity(Gravity.CENTER);hint.setPadding(dp(6),dp(5),dp(6),dp(5));root.addView(hint);
+        ScrollView scroll=new ScrollView(this);LinearLayout pages=new LinearLayout(this);pages.setOrientation(LinearLayout.VERTICAL);pages.setPadding(dp(4),dp(6),dp(4),dp(10));scroll.addView(pages,new ScrollView.LayoutParams(-1,-2));root.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));setContentView(root);
+        if(path==null){finish();return;}try{if("application/pdf".equalsIgnoreCase(mime)||path.toLowerCase().endsWith(".pdf"))showPdf(new File(path),pages);else showImage(path,pages);}catch(Exception e){Toast.makeText(this,"附件預覽失敗",Toast.LENGTH_LONG).show();}
+    }
+    private void showImage(String path,LinearLayout pages){Bitmap bm=BitmapFactory.decodeFile(path);if(bm==null)throw new RuntimeException();ZoomImageView iv=new ZoomImageView(this);iv.setImageBitmap(bm);iv.setAdjustViewBounds(true);pages.addView(iv,new LinearLayout.LayoutParams(-1,-2));}
+    private void showPdf(File f,LinearLayout pages)throws Exception{ParcelFileDescriptor fd=ParcelFileDescriptor.open(f,ParcelFileDescriptor.MODE_READ_ONLY);PdfRenderer r=new PdfRenderer(fd);int width=Math.min((int)(getResources().getDisplayMetrics().widthPixels*2.4f),2000);for(int i=0;i<r.getPageCount();i++){PdfRenderer.Page p=r.openPage(i);int height=Math.max(1,(int)((double)width*p.getHeight()/p.getWidth()));Bitmap bm=Bitmap.createBitmap(width,height,Bitmap.Config.ARGB_8888);bm.eraseColor(Color.WHITE);p.render(bm,null,null,PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY);p.close();ZoomImageView iv=new ZoomImageView(this);iv.setImageBitmap(bm);iv.setAdjustViewBounds(true);LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2);lp.bottomMargin=dp(8);pages.addView(iv,lp);}r.close();fd.close();}
+    private int dp(int v){return (int)(v*getResources().getDisplayMetrics().density+.5f);}
+    static class ZoomImageView extends ImageView {
+        private final Matrix matrix=new Matrix();private final ScaleGestureDetector scaleDetector;private final GestureDetector gestureDetector;private float userScale=1f,baseScale=1f,lastX,lastY;
+        ZoomImageView(android.content.Context c){super(c);setScaleType(ImageView.ScaleType.MATRIX);setClickable(true);
+            scaleDetector=new ScaleGestureDetector(c,new ScaleGestureDetector.SimpleOnScaleGestureListener(){
+                @Override public boolean onScaleBegin(ScaleGestureDetector d){getParent().requestDisallowInterceptTouchEvent(true);return true;}
+                @Override public boolean onScale(ScaleGestureDetector d){float next=Math.max(1f,Math.min(5f,userScale*d.getScaleFactor()));float factor=next/userScale;userScale=next;matrix.postScale(factor,factor,d.getFocusX(),d.getFocusY());clamp();setImageMatrix(matrix);return true;}
+                @Override public void onScaleEnd(ScaleGestureDetector d){if(userScale<=1.01f){fit();getParent().requestDisallowInterceptTouchEvent(false);}}
+            });
+            gestureDetector=new GestureDetector(c,new GestureDetector.SimpleOnGestureListener(){@Override public boolean onDown(MotionEvent e){return true;}@Override public boolean onDoubleTap(MotionEvent e){if(userScale>1.05f){fit();getParent().requestDisallowInterceptTouchEvent(false);}else{float target=2.5f,factor=target/userScale;userScale=target;matrix.postScale(factor,factor,e.getX(),e.getY());clamp();setImageMatrix(matrix);getParent().requestDisallowInterceptTouchEvent(true);}return true;}});
+        }
+        private void fit(){if(getDrawable()==null||getWidth()==0)return;baseScale=(float)getWidth()/Math.max(1,getDrawable().getIntrinsicWidth());matrix.reset();matrix.setScale(baseScale,baseScale);userScale=1f;clamp();setImageMatrix(matrix);}
+        private void clamp(){if(getDrawable()==null||getWidth()==0||getHeight()==0)return;float[] v=new float[9];matrix.getValues(v);float sw=getDrawable().getIntrinsicWidth()*v[Matrix.MSCALE_X],sh=getDrawable().getIntrinsicHeight()*v[Matrix.MSCALE_Y],tx=v[Matrix.MTRANS_X],ty=v[Matrix.MTRANS_Y],vw=getWidth(),vh=getHeight();float nx=sw<=vw?(vw-sw)/2f:Math.max(vw-sw,Math.min(0,tx));float ny=sh<=vh?(vh-sh)/2f:Math.max(vh-sh,Math.min(0,ty));matrix.postTranslate(nx-tx,ny-ty);}
+        @Override protected void onSizeChanged(int w,int h,int ow,int oh){super.onSizeChanged(w,h,ow,oh);fit();}
+        @Override public void setImageBitmap(Bitmap b){super.setImageBitmap(b);post(this::fit);}
+        @Override public boolean onTouchEvent(MotionEvent e){gestureDetector.onTouchEvent(e);scaleDetector.onTouchEvent(e);switch(e.getActionMasked()){case MotionEvent.ACTION_DOWN:lastX=e.getX();lastY=e.getY();getParent().requestDisallowInterceptTouchEvent(userScale>1.01f);break;case MotionEvent.ACTION_POINTER_DOWN:getParent().requestDisallowInterceptTouchEvent(true);break;case MotionEvent.ACTION_MOVE:if(userScale>1.01f&&!scaleDetector.isInProgress()&&e.getPointerCount()==1){float x=e.getX(),y=e.getY();matrix.postTranslate(x-lastX,y-lastY);lastX=x;lastY=y;clamp();setImageMatrix(matrix);getParent().requestDisallowInterceptTouchEvent(true);}break;case MotionEvent.ACTION_UP:case MotionEvent.ACTION_CANCEL:if(userScale<=1.01f)getParent().requestDisallowInterceptTouchEvent(false);break;}return true;}
+    }
+}
+JAVA
+
+      - name: Compile viewer dex
+        shell: bash
+        run: |
+          set -euxo pipefail
+          javac -source 17 -target 17 \
+            -cp "$ANDROID_HOME/platforms/android-35/android.jar" \
+            -d /tmp/classes \
+            /tmp/src/tw/ajo/travelnotebook/AttachmentViewerActivitX.java
+          jar cf /tmp/viewer.jar -C /tmp/classes .
+          "$ANDROID_HOME/build-tools/35.0.0/d8" \
+            --lib "$ANDROID_HOME/platforms/android-35/android.jar" \
+            --min-api 26 \
+            --output /tmp/dex \
+            /tmp/viewer.jar
+          test -s /tmp/dex/classes.dex
+
+      - name: Upload viewer dex
+        uses: actions/upload-artifact@v4
+        with:
+          name: viewer154-dex
+          path: /tmp/dex/classes.dex
+          if-no-files-found: error
