@@ -1,0 +1,78 @@
+name: Build Travel Notebook v1.0.54
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - '.github/workflows/build-travel-v154.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout build branch
+        uses: actions/checkout@v4
+        with:
+          ref: travel-notebook-build
+
+      - name: Restore v1.0.54 source
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cat travel_build/v154src/part*.b64 | base64 -d > /tmp/v154.tar.xz
+          mkdir -p /tmp/v154
+          tar -xJf /tmp/v154.tar.xz -C /tmp/v154
+          mv /tmp/v154/v154buildminimal /tmp/appsrc
+          grep -q "versionCode 154" /tmp/appsrc/app/build.gradle
+          grep -q "versionName '1.0.54'" /tmp/appsrc/app/build.gradle
+          grep -q "onDoubleTap" /tmp/appsrc/app/src/main/java/tw/ajo/travelnotebook/AttachmentViewerActivity.java
+          grep -q "postTranslate" /tmp/appsrc/app/src/main/java/tw/ajo/travelnotebook/AttachmentViewerActivity.java
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install SDK packages
+        shell: bash
+        run: |
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager "platforms;android-35" "build-tools;35.0.0"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: Build release APK
+        working-directory: /tmp/appsrc
+        run: gradle :app:assembleRelease --no-daemon
+
+      - name: Sign with original AOSP test key
+        shell: bash
+        run: |
+          set -euxo pipefail
+          curl -fsSL -o /tmp/testkey.pk8 https://raw.githubusercontent.com/aosp-mirror/platform_build/main/target/product/security/testkey.pk8
+          curl -fsSL -o /tmp/testkey.x509.pem https://raw.githubusercontent.com/aosp-mirror/platform_build/main/target/product/security/testkey.x509.pem
+          BT="$ANDROID_HOME/build-tools/35.0.0"
+          UNSIGNED=/tmp/appsrc/app/build/outputs/apk/release/app-release-unsigned.apk
+          "$BT/zipalign" -f -p 4 "$UNSIGNED" /tmp/aligned.apk
+          openssl pkcs8 -inform DER -nocrypt -in /tmp/testkey.pk8 -out /tmp/testkey.pem
+          openssl pkcs12 -export -in /tmp/testkey.x509.pem -inkey /tmp/testkey.pem -out /tmp/testkey.p12 -name androiddebugkey -passout pass:android
+          "$BT/apksigner" sign --ks /tmp/testkey.p12 --ks-type PKCS12 --ks-key-alias androiddebugkey --ks-pass pass:android --key-pass pass:android --out /tmp/ajo-travel-notebook-v1.0.54.apk /tmp/aligned.apk
+          "$BT/apksigner" verify --verbose --print-certs /tmp/ajo-travel-notebook-v1.0.54.apk
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: ajo-travel-notebook-v1.0.54
+          path: /tmp/ajo-travel-notebook-v1.0.54.apk
+          if-no-files-found: error
