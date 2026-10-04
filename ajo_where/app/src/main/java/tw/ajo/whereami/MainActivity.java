@@ -2,6 +2,7 @@ package tw.ajo.whereami;
 
 import android.Manifest;
 import android.app.Activity;
+import android.app.AlarmManager;
 import android.app.AlertDialog;
 import android.content.BroadcastReceiver;
 import android.content.ClipData;
@@ -41,6 +42,7 @@ public class MainActivity extends Activity {
 
     private TextView statusText;
     private TextView lastText;
+    private TextView healthText;
     private TextView codeText;
     private Button startStopButton;
     private boolean receiverRegistered = false;
@@ -79,6 +81,7 @@ public class MainActivity extends Activity {
     protected void onResume() {
         super.onResume();
         autoRestartIssued = false;
+        if (Prefs.running(this)) RecoveryScheduler.schedule(this, RecoveryScheduler.NORMAL_DELAY_MS);
         ensureSharingAlive();
         refresh();
     }
@@ -120,8 +123,11 @@ public class MainActivity extends Activity {
         statusText = text("", 19, true, Color.rgb(28,58,92));
         lastText = text("", 15, false, Color.rgb(87,105,126));
         lastText.setPadding(0, dp(8), 0, 0);
+        healthText = text("", 13, false, Color.rgb(76,96,120));
+        healthText.setPadding(0, dp(10), 0, 0);
         card.addView(statusText);
         card.addView(lastText);
+        card.addView(healthText);
         root.addView(card);
 
         TextView freq = text("位置更新頻率", 15, true, Color.rgb(54,74,98));
@@ -137,6 +143,9 @@ public class MainActivity extends Activity {
             @Override public void onItemSelected(android.widget.AdapterView<?> p, View v, int pos, long id) {
                 int[] values = {1,3,5,10};
                 Prefs.setIntervalMin(MainActivity.this, values[pos]);
+                if (Prefs.running(MainActivity.this)) {
+                    RecoveryScheduler.schedule(MainActivity.this, RecoveryScheduler.NORMAL_DELAY_MS);
+                }
             }
             @Override public void onNothingSelected(android.widget.AdapterView<?> p) {}
         });
@@ -151,9 +160,15 @@ public class MainActivity extends Activity {
             else startSharingFlow();
         });
 
+        Button recovery = secondary("背景自動恢復設定（重要）");
+        LinearLayout.LayoutParams pr = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(52));
+        pr.topMargin = dp(12);
+        root.addView(recovery, pr);
+        recovery.setOnClickListener(v -> configureBackgroundRecovery());
+
         Button copy = secondary("複製給人類的查看網址");
         LinearLayout.LayoutParams p2 = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(52));
-        p2.topMargin = dp(12);
+        p2.topMargin = dp(10);
         root.addView(copy, p2);
         copy.setOnClickListener(v -> copyViewerUrl());
 
@@ -163,11 +178,11 @@ public class MainActivity extends Activity {
         root.addView(battery, p3);
         battery.setOnClickListener(v -> requestBatteryExemption());
 
-        Button settings = secondary("開啟 App 系統設定");
+        Button settings = secondary("開啟 OPPO App 系統設定");
         LinearLayout.LayoutParams p4 = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(52));
         p4.topMargin = dp(10);
         root.addView(settings, p4);
-        settings.setOnClickListener(v -> startActivity(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + getPackageName()))));
+        settings.setOnClickListener(v -> showOppoSettingsHelp());
 
         TextView label = text("私人代碼", 15, true, Color.rgb(54,74,98));
         label.setPadding(0, dp(22), 0, dp(6));
@@ -195,7 +210,7 @@ public class MainActivity extends Activity {
                     Toast.makeText(this, "已產生新的私人代碼", Toast.LENGTH_SHORT).show();
                 }).show());
 
-        TextView note = text("隱私說明：這一版只傳送最新位置、更新時間與手機電量，不建立完整歷史軌跡。定位資料會經由 ntfy.sh 暫存轉送；請不要把查看網址給其他人。", 13, false, Color.rgb(104,119,138));
+        TextView note = text("隱私說明：只傳送最新位置、更新時間與手機電量，不建立完整歷史軌跡。定位資料會經由 ntfy.sh 暫存轉送；請不要把查看網址給其他人。", 13, false, Color.rgb(104,119,138));
         note.setPadding(0, dp(18), 0, 0);
         root.addView(note);
 
@@ -281,12 +296,31 @@ public class MainActivity extends Activity {
                 checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED;
     }
 
+    private boolean hasBackgroundLocation() {
+        if (Build.VERSION.SDK_INT < 29) return true;
+        return checkSelfPermission(Manifest.permission.ACCESS_BACKGROUND_LOCATION) == PackageManager.PERMISSION_GRANTED;
+    }
+
+    private boolean batteryExempt() {
+        if (Build.VERSION.SDK_INT < 23) return true;
+        PowerManager pm = (PowerManager) getSystemService(POWER_SERVICE);
+        return pm != null && pm.isIgnoringBatteryOptimizations(getPackageName());
+    }
+
     private void startSharingFlow() {
         if (!hasLocationPermission()) {
             requestPermissions(new String[]{Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION}, REQ_LOCATION);
             return;
         }
         startSharing(false);
+        if (!hasBackgroundLocation()) {
+            new AlertDialog.Builder(this)
+                    .setTitle("還差一個重要設定")
+                    .setMessage("要讓 OPPO 在妳沒有開啟 App 時也能自動恢復定位，請把「位置」設成「永遠允許」。\n\n按「去設定」後：權限 → 位置 → 永遠允許。")
+                    .setNegativeButton("稍後", null)
+                    .setPositiveButton("去設定", (d,w) -> openAppDetails())
+                    .show();
+        }
     }
 
     private void startSharing(boolean automaticRecovery) {
@@ -295,6 +329,7 @@ public class MainActivity extends Activity {
             if (Build.VERSION.SDK_INT >= 26) startForegroundService(i);
             else startService(i);
             Prefs.setRunning(this, true);
+            RecoveryScheduler.schedule(this, RecoveryScheduler.NORMAL_DELAY_MS);
             if (automaticRecovery) {
                 Toast.makeText(this, "背景定位已自動重新啟動", Toast.LENGTH_SHORT).show();
             }
@@ -321,6 +356,7 @@ public class MainActivity extends Activity {
         catch (Exception e) { stopService(new Intent(this, LocationService.class)); }
         Prefs.setRunning(this, false);
         Prefs.setHeartbeat(this, 0L);
+        RecoveryScheduler.cancel(this);
         refresh();
     }
 
@@ -342,10 +378,59 @@ public class MainActivity extends Activity {
         }
     }
 
+    private void configureBackgroundRecovery() {
+        if (!hasLocationPermission()) {
+            startSharingFlow();
+            return;
+        }
+
+        if (!hasBackgroundLocation()) {
+            new AlertDialog.Builder(this)
+                    .setTitle("① 允許永遠定位")
+                    .setMessage("請在 OPPO 的 App 權限中把「位置」改成「永遠允許」。這樣 App 被系統關掉後，才能從背景重新啟動定位。")
+                    .setNegativeButton("取消", null)
+                    .setPositiveButton("去設定", (d,w) -> openAppDetails())
+                    .show();
+            return;
+        }
+
+        if (Build.VERSION.SDK_INT >= 31 && !RecoveryScheduler.canScheduleExact(this)) {
+            new AlertDialog.Builder(this)
+                    .setTitle("② 允許自動喚醒")
+                    .setMessage("請允許「鬧鐘與提醒」。這只用來在背景定位被 OPPO 關掉時，定期檢查並自動恢復。")
+                    .setNegativeButton("取消", null)
+                    .setPositiveButton("去設定", (d,w) -> {
+                        try {
+                            Intent i = new Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM,
+                                    Uri.parse("package:" + getPackageName()));
+                            startActivity(i);
+                        } catch (Exception e) {
+                            startActivity(new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+                                    Uri.parse("package:" + getPackageName())));
+                        }
+                    })
+                    .show();
+            return;
+        }
+
+        if (!batteryExempt()) {
+            requestBatteryExemption();
+            return;
+        }
+
+        RecoveryScheduler.schedule(this, 60_000L);
+        new AlertDialog.Builder(this)
+                .setTitle("背景自動恢復已準備好")
+                .setMessage("Android 需要的三個條件都完成了。\n\n另外請在 OPPO 系統設定確認「自動啟動／允許背景活動」也有開啟，這是 ColorOS 自己的額外限制。")
+                .setNegativeButton("完成", null)
+                .setPositiveButton("開 OPPO 設定", (d,w) -> openAppDetails())
+                .show();
+    }
+
     private void requestBatteryExemption() {
         try {
             PowerManager pm = (PowerManager) getSystemService(POWER_SERVICE);
-            if (Build.VERSION.SDK_INT >= 23 && !pm.isIgnoringBatteryOptimizations(getPackageName())) {
+            if (Build.VERSION.SDK_INT >= 23 && pm != null && !pm.isIgnoringBatteryOptimizations(getPackageName())) {
                 startActivity(new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:" + getPackageName())));
             } else {
                 Toast.makeText(this, "目前已允許背景執行", Toast.LENGTH_SHORT).show();
@@ -353,6 +438,20 @@ public class MainActivity extends Activity {
         } catch (Exception e) {
             startActivity(new Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS));
         }
+    }
+
+    private void showOppoSettingsHelp() {
+        new AlertDialog.Builder(this)
+                .setTitle("OPPO 需要確認這三項")
+                .setMessage("進入 App 系統設定後，請確認：\n\n1. 權限 → 位置 → 永遠允許\n2. 電池使用／背景活動 → 允許\n3. 自動啟動 → 允許\n\n不同 ColorOS 版本名稱可能稍有不同。")
+                .setNegativeButton("取消", null)
+                .setPositiveButton("開啟設定", (d,w) -> openAppDetails())
+                .show();
+    }
+
+    private void openAppDetails() {
+        startActivity(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                Uri.parse("package:" + getPackageName())));
     }
 
     private void copyViewerUrl() {
@@ -389,6 +488,13 @@ public class MainActivity extends Activity {
             String acc = Prefs.lastAccuracy(this) > 0 ? "　精度約 " + Math.round(Prefs.lastAccuracy(this)) + " m" : "";
             lastText.setText("最後定位：" + time + "\n" + Prefs.lastLat(this) + ", " + Prefs.lastLon(this) + acc);
         }
+
+        String bg = hasBackgroundLocation() ? "✓ 永遠定位" : "⚠ 永遠定位未允許";
+        String alarm = RecoveryScheduler.canScheduleExact(this) ? "✓ 自動喚醒" : "⚠ 自動喚醒未允許";
+        String batt = batteryExempt() ? "✓ 背景執行" : "⚠ 電池限制未排除";
+        String recovery = Prefs.lastRecoveryMessage(this);
+        healthText.setText(bg + "　" + alarm + "\n" + batt +
+                (TextUtils.isEmpty(recovery) ? "" : "\n最近自動恢復：" + recovery));
 
         if (codeText != null) codeText.setText(Prefs.topic(this));
     }

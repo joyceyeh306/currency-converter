@@ -40,7 +40,6 @@ public class LocationService extends Service implements LocationListener {
     private static final String CHANNEL_ID = "ajo_location_sharing";
     private static final int NOTIFICATION_ID = 306;
     private static final long WATCHDOG_MS = 60_000L;
-    private static final long HEARTBEAT_STALE_MS = 150_000L;
     private static final long RETRY_GAP_MS = 45_000L;
 
     private LocationManager lm;
@@ -58,20 +57,17 @@ public class LocationService extends Service implements LocationListener {
                 if (Prefs.running(LocationService.this)) {
                     long now = System.currentTimeMillis();
                     Prefs.setHeartbeat(LocationService.this, now);
+                    RecoveryScheduler.schedule(LocationService.this, RecoveryScheduler.NORMAL_DELAY_MS);
 
                     long callbackAt = Prefs.lastLocationCallback(LocationService.this);
                     long callbackStaleMs = Math.max(150_000L, Prefs.intervalMin(LocationService.this) * 2L * 60_000L);
 
-                    // If Android/ColorOS stopped delivering fixes while the service still lives,
-                    // re-register both providers instead of silently staying "running".
                     if (!registered || callbackAt <= 0 || now - callbackAt > callbackStaleMs) {
                         restartUpdates();
                         notifyText("正在恢復定位…");
                         status("定位中斷，正在自動恢復");
                     }
 
-                    // Even if the phone is stationary, upload on the selected cadence.
-                    // minDistance is 0 m in v1.0.10, but this is an extra safety net.
                     long minGap = Prefs.intervalMin(LocationService.this) * 60_000L;
                     if (Prefs.lastUpload(LocationService.this) <= 0 ||
                             now - Prefs.lastUpload(LocationService.this) > minGap + 30_000L) {
@@ -99,6 +95,7 @@ public class LocationService extends Service implements LocationListener {
         lm = (LocationManager) getSystemService(LOCATION_SERVICE);
         lastSentAt = Prefs.lastUpload(this);
         Prefs.setHeartbeat(this, System.currentTimeMillis());
+        RecoveryScheduler.schedule(this, RecoveryScheduler.NORMAL_DELAY_MS);
         watchdog.postDelayed(watchdogTask, WATCHDOG_MS);
     }
 
@@ -110,6 +107,7 @@ public class LocationService extends Service implements LocationListener {
         }
         Prefs.setRunning(this, true);
         Prefs.setHeartbeat(this, System.currentTimeMillis());
+        RecoveryScheduler.schedule(this, RecoveryScheduler.NORMAL_DELAY_MS);
         startUpdates();
         return START_STICKY;
     }
@@ -125,6 +123,7 @@ public class LocationService extends Service implements LocationListener {
             status("沒有定位權限");
             Prefs.setRunning(this, false);
             Prefs.setHeartbeat(this, 0L);
+            RecoveryScheduler.cancel(this);
             stopSelf();
             return;
         }
@@ -132,8 +131,6 @@ public class LocationService extends Service implements LocationListener {
         boolean any = false;
         try {
             if (lm.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
-                // v1.0.9 used 10 m here. That can stop callbacks while the phone is
-                // stationary, making it look as if sharing had been turned off.
                 lm.requestLocationUpdates(LocationManager.GPS_PROVIDER, 30_000L, 0f, this);
                 any = true;
             }
@@ -151,8 +148,6 @@ public class LocationService extends Service implements LocationListener {
         Location last = bestLastKnown();
         if (last != null) {
             lastLocation = new Location(last);
-            // Upload it, but the payload carries the fix's own timestamp, so an old
-            // cached fix will correctly appear as old on the viewer.
             maybeSend(last, true);
         }
     }
@@ -312,6 +307,7 @@ public class LocationService extends Service implements LocationListener {
         Prefs.setRunning(this, false);
         Prefs.setHeartbeat(this, 0L);
         Prefs.setLastLocationCallback(this, 0L);
+        RecoveryScheduler.cancel(this);
         watchdog.removeCallbacks(watchdogTask);
         if (lm != null && registered) {
             try { lm.removeUpdates(this); } catch (Exception ignored) {}
@@ -323,9 +319,22 @@ public class LocationService extends Service implements LocationListener {
     }
 
     @Override
+    public void onTaskRemoved(Intent rootIntent) {
+        if (Prefs.running(this)) {
+            Prefs.setRecoveryStatus(this, System.currentTimeMillis(), "App 被清除，已排程自動恢復");
+            RecoveryScheduler.schedule(this, 60_000L);
+        }
+        super.onTaskRemoved(rootIntent);
+    }
+
+    @Override
     public void onDestroy() {
         watchdog.removeCallbacks(watchdogTask);
         Prefs.setHeartbeat(this, 0L);
+        if (Prefs.running(this)) {
+            Prefs.setRecoveryStatus(this, System.currentTimeMillis(), "背景服務被停止，已排程自動恢復");
+            RecoveryScheduler.schedule(this, 60_000L);
+        }
         if (lm != null && registered) {
             try { lm.removeUpdates(this); } catch (Exception ignored) {}
         }
