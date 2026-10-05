@@ -15,11 +15,13 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
-      ISSUE_NUMBER: "3"
+      ISSUE_NUMBER: "5"
       EXPECTED_ZIP_SHA256: "4ee872309f1b5cb6880d2cde38b86555ade12731f60eee51dfd37f3bcc425d58"
       EXPECTED_TREE_SHA256: "fb6fbeb27195e95a6502d5c0633c99f1c8cff170343b19bfe310d2b4d35a76e5"
       EXPECTED_CERT_SHA256: "a40da80a59d170caa950cf15c18c454d47a39b26989d8b640ecd745ba71bf5dc"
       PROJECT_DIR: "/tmp/work/ajo-travel-notebook-v1.0.57-source"
+      ANDROID_SDK_ROOT: "/usr/local/lib/android/sdk"
+      ANDROID_HOME: "/usr/local/lib/android/sdk"
     steps:
       - name: Checkout PR trigger
         uses: actions/checkout@v4
@@ -81,15 +83,14 @@ jobs:
           gradle-version: "8.9"
           cache-disabled: true
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
 
       - name: Install Android SDK packages
         shell: bash
         run: |
           set -euo pipefail
-          yes | sdkmanager --licenses >/dev/null || true
-          sdkmanager "platforms;android-35" "build-tools;35.0.0" "platform-tools"
+          SDKMANAGER="/usr/local/lib/android/sdk/cmdline-tools/16.0/bin/sdkmanager"
+          yes | "$SDKMANAGER" --licenses >/dev/null || true
+          "$SDKMANAGER" "platforms;android-35" "build-tools;35.0.0" "platform-tools"
 
       - name: True clean build from source
         shell: bash
