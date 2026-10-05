@@ -50,10 +50,10 @@ jobs:
       - name: Apply v1.8 state and system-bar fixes
         run: python3 video-compressor/ci_patch_v18.py
 
-      - name: Install exact selected launcher artwork
+      - name: Install selected pixel launcher artwork
         run: |
-          python3 video-compressor/ci_icon_v22.py
-          EXPECTED='193da67e825bb528facde86d8a89dc6f9de53b8d70bdc7172d821a5177282136'
+          python3 video-compressor/ci_icon_v23.py
+          EXPECTED='a15f1e47ae2178035a41737c6cb4dbc0bd8a77a54dda57344058e4fbc3fef6ae'
           grep -q 'android:icon="@mipmap/ic_launcher"' video-compressor/app/src/main/AndroidManifest.xml
           grep -q 'android:roundIcon="@mipmap/ic_launcher_round"' video-compressor/app/src/main/AndroidManifest.xml
           test ! -e video-compressor/app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml
@@ -61,11 +61,11 @@ jobs:
           test ! -e video-compressor/app/src/main/res/drawable/ic_launcher_foreground.xml
           test ! -e video-compressor/app/src/main/res/drawable/ic_launcher_background.xml
           for d in mdpi hdpi xhdpi xxhdpi xxxhdpi; do
-            P="video-compressor/app/src/main/res/mipmap-$d/ic_launcher.jpg"
-            R="video-compressor/app/src/main/res/mipmap-$d/ic_launcher_round.jpg"
+            P="video-compressor/app/src/main/res/mipmap-$d/ic_launcher.png"
+            R="video-compressor/app/src/main/res/mipmap-$d/ic_launcher_round.png"
             test "$(sha256sum "$P" | cut -d' ' -f1)" = "$EXPECTED"
             test "$(sha256sum "$R" | cut -d' ' -f1)" = "$EXPECTED"
-            file "$P" | grep -q '256x256'
+            file "$P" | grep -q '192 x 192'
           done
 
       - name: Add LAME native libraries
@@ -97,7 +97,8 @@ jobs:
           echo "Packaged icon path: $ICON_PATH"
           unzip -p "$APK" "$ICON_PATH" > /tmp/packaged-launcher-icon
           test "$(stat -c%s /tmp/packaged-launcher-icon)" -gt 5000
-          file /tmp/packaged-launcher-icon | grep -E 'JPEG|PNG'
+          file /tmp/packaged-launcher-icon | grep -q 'PNG image data'
+          test "$(sha256sum /tmp/packaged-launcher-icon | cut -d' ' -f1)" = 'a15f1e47ae2178035a41737c6cb4dbc0bd8a77a54dda57344058e4fbc3fef6ae'
           "$BT/aapt2" dump resources "$APK" | grep -A 18 'mipmap/ic_launcher' | head -80
 
       - name: Sign APK with stable key
@@ -106,12 +107,12 @@ jobs:
           curl -fsSL 'https://android.googlesource.com/platform/build/+/refs/heads/main/target/product/security/testkey.x509.pem?format=TEXT' | base64 -d > /tmp/testkey.x509.pem
           BT="$ANDROID_HOME/build-tools/35.0.0"
           "$BT/zipalign" -f -P 16 4 video-compressor/app/build/outputs/apk/release/app-release-unsigned.apk /tmp/video-compressor-aligned.apk
-          "$BT/apksigner" sign --key /tmp/testkey.pk8 --cert /tmp/testkey.x509.pem --out /tmp/video-compressor-v2.2.apk /tmp/video-compressor-aligned.apk
-          "$BT/apksigner" verify --verbose --print-certs /tmp/video-compressor-v2.2.apk
+          "$BT/apksigner" sign --key /tmp/testkey.pk8 --cert /tmp/testkey.x509.pem --out /tmp/video-compressor-v2.3.apk /tmp/video-compressor-aligned.apk
+          "$BT/apksigner" verify --verbose --print-certs /tmp/video-compressor-v2.3.apk
 
       - name: Upload signed APK
         uses: actions/upload-artifact@v4
         with:
-          name: video-compressor-v2.2-signed
-          path: /tmp/video-compressor-v2.2.apk
+          name: video-compressor-v2.3-pixel-icon
+          path: /tmp/video-compressor-v2.3.apk
           if-no-files-found: error
