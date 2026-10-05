@@ -1,0 +1,35 @@
+name: Package Video Compressor Source
+
+on:
+  push:
+    branches: [ video-compressor-build ]
+    paths:
+      - '.github/workflows/package-video-source.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Package v2.3 source
+        run: |
+          mkdir -p /tmp/影片瘦身_v2.3_母版
+          cp -R video-compressor /tmp/影片瘦身_v2.3_母版/
+          mkdir -p /tmp/影片瘦身_v2.3_母版/.github/workflows
+          cp .github/workflows/build-video-compressor.yml /tmp/影片瘦身_v2.3_母版/.github/workflows/
+          printf '%s\n'             '影片瘦身 v2.3 母版程式'             'Branch: video-compressor-build'             '包含 Android 專案、v1.4-v1.8 修正腳本、v2.3 像素圖示腳本與 APK 建置流程。'             > /tmp/影片瘦身_v2.3_母版/README_母版.txt
+          cd /tmp
+          zip -qr 影片瘦身_v2.3_完整母版程式.zip 影片瘦身_v2.3_母版
+
+      - name: Upload source ZIP
+        uses: actions/upload-artifact@v4
+        with:
+          name: video-compressor-v2.3-source
+          path: /tmp/影片瘦身_v2.3_完整母版程式.zip
+          if-no-files-found: error
