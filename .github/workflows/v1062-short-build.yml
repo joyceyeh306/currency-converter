@@ -15,7 +15,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
-      ISSUE_NUMBER: "19"
+      ISSUE_NUMBER: "21"
       SOURCE_BLOB_SHA: "f472204756a619ba84421842b2b225bc1d91fb95"
       EXPECTED_ZIP_SHA256: "00402cdee943310a50cd6e2a78afc343bfef11fa7706e87b8fd3127abe412375"
       EXPECTED_TREE_SHA256: "8e190d517988bbfdfa8ea438a0c228bde71f8f486e2f5720c668811d5eeb70cf"
@@ -72,7 +72,14 @@ jobs:
           grep -q "versionName '1.0.62'" app/build.gradle
           grep -q "v1.0.62" SOURCE_MASTER_README.txt
           grep -q "const daySticky=route.tab==='trips'&&(route.tripId||route.dayId)?' day-sticky':'';" app.js
-          if grep -q "topbar(t.name,true)+\`<main class=\\\"content\\\">\${contextTools(t.id)}" app.js; then echo "trip duplicate shortcuts still present"; exit 1; fi
+          python3 - <<'PY2'
+          from pathlib import Path
+          s=Path('app.js').read_text()
+          if "topbar(t.name,true)+\`<main class=\"content\">\${contextTools(t.id)}" in s:
+              raise SystemExit('trip duplicate shortcuts still present')
+          if "const daySticky=route.tab==='trips'&&(route.tripId||route.dayId)?' day-sticky':'';" not in s:
+              raise SystemExit('trip sticky topbar marker missing')
+          PY2
           grep -q "static class BackIconView" app/src/main/java/tw/ajo/travelnotebook/AttachmentViewerActivity.java
           grep -q "async function countAttachments" app/src/main/assets/index.html
           grep -q "static class DocumentZoomView" app/src/main/java/tw/ajo/travelnotebook/AttachmentViewerActivity.java
