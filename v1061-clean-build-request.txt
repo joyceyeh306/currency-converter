@@ -1,1 +1,2 @@
 Trigger encrypted clean build for ajo-travel-notebook v1.0.61.
+Retry after correcting versionName verification.
