@@ -15,7 +15,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
-      ISSUE_NUMBER: "15"
+      ISSUE_NUMBER: "17"
       SOURCE_BLOB_SHA: "04c44e1810593bbb974bf4ff6216c1df188acaba"
       EXPECTED_ZIP_SHA256: "7b4a9f5c1ccf9dc2cd46b40c1f443fac089a6cf1615d1e6c27ad04eaddacb2a0"
       EXPECTED_TREE_SHA256: "c81877468d29887c4988250198df370a7879dbb098807530bb5528fe79a603cc"
@@ -69,7 +69,7 @@ jobs:
           test "$TREE_SHA" = "${EXPECTED_TREE_SHA256}"
 
           grep -q "versionCode 161" app/build.gradle
-          grep -q "versionName '1.0.60'" app/build.gradle
+          grep -q "versionName '1.0.61'" app/build.gradle
           grep -q "v1.0.61" SOURCE_MASTER_README.txt
           grep -q "contextTools(t.id)" app.js
           if grep -q "contextTools(t.id,d.id)" app.js; then echo "daily duplicate shortcuts still present"; exit 1; fi
@@ -143,7 +143,7 @@ jobs:
           CERT_SHA=$(sed -n 's/^Signer #1 certificate SHA-256 digest: //p' "${GITHUB_WORKSPACE}/out/signature.txt" | head -1 | tr 'A-F' 'a-f' | tr -d ':[:space:]')
           test "$CERT_SHA" = "${EXPECTED_CERT_SHA256}"
           "${BT}/aapt" dump badging "${GITHUB_WORKSPACE}/out/ajo-travel-notebook-v1.0.61.apk" | tee "${GITHUB_WORKSPACE}/out/badging.txt"
-          grep -q "package: name='tw.ajo.travelnotebook' versionCode='161' versionName='1.0.60'" "${GITHUB_WORKSPACE}/out/badging.txt"
+          grep -q "package: name='tw.ajo.travelnotebook' versionCode='161' versionName='1.0.61'" "${GITHUB_WORKSPACE}/out/badging.txt"
           unzip -p "${GITHUB_WORKSPACE}/out/ajo-travel-notebook-v1.0.61.apk" classes.dex > /tmp/classes-signed.dex
           cmp /tmp/classes-unsigned.dex /tmp/classes-signed.dex
           DEX_SHA=$(sha256sum /tmp/classes-signed.dex | awk '{print $1}')
