@@ -1,0 +1,3 @@
+Trigger encrypted clean build for ajo-travel-notebook v1.0.58. No app source is stored in plaintext in this branch.
+Retry using encrypted Git blob transfer.
+Final build uploads immediately after signature verification.
