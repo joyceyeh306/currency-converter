@@ -1,0 +1,105 @@
+name: Build Travel Notebook v1.0.56 Final
+
+on:
+  push:
+    branches: [ travel-v156-ui-restore-build ]
+    paths:
+      - '.github/workflows/build-travel-v156-final.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout build branch
+        uses: actions/checkout@v4
+        with:
+          ref: travel-v156-ui-restore-build
+
+      - name: Restore exact v1.0.56 source
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cat travel_build/v156finalsrc/part*.b64 | base64 -d > /tmp/v156-noicon.tar.xz
+          echo "9b285a425f1c7cacff7c9f9f8fdc42aa33e32b4a32e6a783c8266826bf7cde44  /tmp/v156-noicon.tar.xz" | sha256sum -c -
+          mkdir -p /tmp/v156
+          tar -xJf /tmp/v156-noicon.tar.xz -C /tmp/v156
+          mv /tmp/v156/v156-noicon /tmp/appsrc
+
+      - name: Restore unchanged launcher image
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cat travel_build/v154src/part*.b64 | base64 -d > /tmp/v154.tar.xz
+          mkdir -p /tmp/v154
+          tar -xJf /tmp/v154.tar.xz -C /tmp/v154
+          mkdir -p /tmp/appsrc/app/src/main/res/drawable-nodpi
+          cp /tmp/v154/v154buildminimal/app/src/main/res/drawable-nodpi/ic_launcher_foreground_png.png /tmp/appsrc/app/src/main/res/drawable-nodpi/ic_launcher_foreground_png.png
+          echo "c8072ba0d5c08c8d601009b71469b3f00eb00a732fdc296b0946e235a5a0dab3  /tmp/appsrc/app/src/main/res/drawable-nodpi/ic_launcher_foreground_png.png" | sha256sum -c -
+
+      - name: Verify source identity
+        shell: bash
+        run: |
+          set -euxo pipefail
+          grep -q "applicationId 'tw.ajo.travelnotebook'" /tmp/appsrc/app/build.gradle
+          grep -q "versionCode 156" /tmp/appsrc/app/build.gradle
+          grep -q "versionName '1.0.56'" /tmp/appsrc/app/build.gradle
+          grep -q "旅程" /tmp/appsrc/app/src/main/assets/index.html
+          grep -q "備選" /tmp/appsrc/app/src/main/assets/index.html
+          grep -q "備忘" /tmp/appsrc/app/src/main/assets/index.html
+          grep -q "提醒" /tmp/appsrc/app/src/main/assets/index.html
+          grep -q "附件" /tmp/appsrc/app/src/main/assets/index.html
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install SDK packages
+        shell: bash
+        run: |
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager "platforms;android-35" "build-tools;35.0.0"
+
+      - name: Set up Gradle 8.9
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: Build release APK
+        working-directory: /tmp/appsrc
+        run: gradle :app:assembleRelease --no-daemon
+
+      - name: Sign with original AOSP test key
+        shell: bash
+        run: |
+          set -euxo pipefail
+          curl -fsSL -o /tmp/testkey.pk8 https://raw.githubusercontent.com/aosp-mirror/platform_build/main/target/product/security/testkey.pk8
+          curl -fsSL -o /tmp/testkey.x509.pem https://raw.githubusercontent.com/aosp-mirror/platform_build/main/target/product/security/testkey.x509.pem
+          BT="$ANDROID_HOME/build-tools/35.0.0"
+          UNSIGNED=/tmp/appsrc/app/build/outputs/apk/release/app-release-unsigned.apk
+          "$BT/zipalign" -f -p 4 "$UNSIGNED" /tmp/aligned.apk
+          openssl pkcs8 -inform DER -nocrypt -in /tmp/testkey.pk8 -out /tmp/testkey.pem
+          openssl pkcs12 -export -in /tmp/testkey.x509.pem -inkey /tmp/testkey.pem -out /tmp/testkey.p12 -name androiddebugkey -passout pass:android
+          "$BT/apksigner" sign --ks /tmp/testkey.p12 --ks-type PKCS12 --ks-key-alias androiddebugkey --ks-pass pass:android --key-pass pass:android --out /tmp/ajo-travel-notebook-v1.0.56.apk /tmp/aligned.apk
+          "$BT/apksigner" verify --verbose --print-certs /tmp/ajo-travel-notebook-v1.0.56.apk | tee /tmp/signature.txt
+          "$BT/aapt" dump badging /tmp/ajo-travel-notebook-v1.0.56.apk | head -30 | tee /tmp/badging.txt
+          sha256sum /tmp/ajo-travel-notebook-v1.0.56.apk | tee /tmp/apk-sha256.txt
+
+      - name: Upload APK and verification reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: ajo-travel-notebook-v1.0.56
+          path: |
+            /tmp/ajo-travel-notebook-v1.0.56.apk
+            /tmp/signature.txt
+            /tmp/badging.txt
+            /tmp/apk-sha256.txt
+          if-no-files-found: error
