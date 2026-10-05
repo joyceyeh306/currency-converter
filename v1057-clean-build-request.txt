@@ -1,2 +1,3 @@
 Trigger encrypted clean build for ajo-travel-notebook v1.0.57. No app source is stored in plaintext in this branch.
 Retry using preinstalled Android SDK.
+Retry 2 using setup-android v4.
