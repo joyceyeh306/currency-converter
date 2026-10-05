@@ -103,3 +103,5 @@ jobs:
             /tmp/badging.txt
             /tmp/apk-sha256.txt
           if-no-files-found: error
+
+# retrigger after exact source chunks completed
