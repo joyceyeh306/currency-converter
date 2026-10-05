@@ -1,4 +1,4 @@
-name: v1.0.58 encrypted clean build
+name: v1.0.59 encrypted clean build
 
 on:
   pull_request:
@@ -15,12 +15,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
-      ISSUE_NUMBER: "10"
-      SOURCE_BLOB_SHA: "188b8685b3c52cf0bb11791e71ed47667ae3d7cc"
-      EXPECTED_ZIP_SHA256: "2a211495a12ff170551e6d535e666b8a81262174822d052ec9e8f36ee6d21b6b"
-      EXPECTED_TREE_SHA256: "5b0aa5e1a452dbc683bf3fe1fffbe2b211b7497026bb1a22d6da286223c6fde0"
+      ISSUE_NUMBER: "11"
+      SOURCE_BLOB_SHA: "ded88b30fcb3d4a9f472350bb7ba198053748787"
+      EXPECTED_ZIP_SHA256: "4d209d08a6940e8fcb100b2332f422a8ac6121e1ca45aa57707c6ae87b986d5f"
+      EXPECTED_TREE_SHA256: "7c879cac8c2405b4eebb0a1744370fa71fe7a3088eb9d72fb0ffbba7a73ffdcc"
       EXPECTED_CERT_SHA256: "a40da80a59d170caa950cf15c18c454d47a39b26989d8b640ecd745ba71bf5dc"
-      PROJECT_DIR: "/tmp/work/ajo-travel-notebook-v1.0.58-source"
+      PROJECT_DIR: "/tmp/work/ajo-travel-notebook-v1.0.59-source"
     steps:
       - name: Checkout trigger
         uses: actions/checkout@v4
@@ -117,22 +117,22 @@ jobs:
           curl -fsSL https://raw.githubusercontent.com/aosp-mirror/platform_build/master/target/product/security/testkey.pk8 -o /tmp/testkey.pk8
           curl -fsSL https://raw.githubusercontent.com/aosp-mirror/platform_build/master/target/product/security/testkey.x509.pem -o /tmp/testkey.x509.pem
           "${BT}/zipalign" -f -p 4 "${PROJECT_DIR}/app/build/outputs/apk/release/app-release-unsigned.apk" "${GITHUB_WORKSPACE}/out/aligned.apk"
-          "${BT}/apksigner" sign --key /tmp/testkey.pk8 --cert /tmp/testkey.x509.pem --out "${GITHUB_WORKSPACE}/out/ajo-travel-notebook-v1.0.58.apk" "${GITHUB_WORKSPACE}/out/aligned.apk"
-          "${BT}/apksigner" verify --verbose --print-certs "${GITHUB_WORKSPACE}/out/ajo-travel-notebook-v1.0.58.apk" | tee "${GITHUB_WORKSPACE}/out/signature.txt"
+          "${BT}/apksigner" sign --key /tmp/testkey.pk8 --cert /tmp/testkey.x509.pem --out "${GITHUB_WORKSPACE}/out/ajo-travel-notebook-v1.0.59.apk" "${GITHUB_WORKSPACE}/out/aligned.apk"
+          "${BT}/apksigner" verify --verbose --print-certs "${GITHUB_WORKSPACE}/out/ajo-travel-notebook-v1.0.59.apk" | tee "${GITHUB_WORKSPACE}/out/signature.txt"
           CERT_SHA=$(sed -n 's/^Signer #1 certificate SHA-256 digest: //p' "${GITHUB_WORKSPACE}/out/signature.txt" | head -1 | tr 'A-F' 'a-f' | tr -d ':[:space:]')
           test "$CERT_SHA" = "${EXPECTED_CERT_SHA256}"
-          "${BT}/aapt" dump badging "${GITHUB_WORKSPACE}/out/ajo-travel-notebook-v1.0.58.apk" | tee "${GITHUB_WORKSPACE}/out/badging.txt"
-          grep -q "package: name='tw.ajo.travelnotebook' versionCode='158' versionName='1.0.58'" "${GITHUB_WORKSPACE}/out/badging.txt"
-          unzip -p "${GITHUB_WORKSPACE}/out/ajo-travel-notebook-v1.0.58.apk" classes.dex > /tmp/classes-signed.dex
+          "${BT}/aapt" dump badging "${GITHUB_WORKSPACE}/out/ajo-travel-notebook-v1.0.59.apk" | tee "${GITHUB_WORKSPACE}/out/badging.txt"
+          grep -q "package: name='tw.ajo.travelnotebook' versionCode='159' versionName='1.0.59'" "${GITHUB_WORKSPACE}/out/badging.txt"
+          unzip -p "${GITHUB_WORKSPACE}/out/ajo-travel-notebook-v1.0.59.apk" classes.dex > /tmp/classes-signed.dex
           cmp /tmp/classes-unsigned.dex /tmp/classes-signed.dex
           DEX_SHA=$(sha256sum /tmp/classes-signed.dex | awk '{print $1}')
-          unzip -t "${GITHUB_WORKSPACE}/out/ajo-travel-notebook-v1.0.58.apk" >/dev/null
+          unzip -t "${GITHUB_WORKSPACE}/out/ajo-travel-notebook-v1.0.59.apk" >/dev/null
           {
             echo "SOURCE_ZIP_SHA256=${EXPECTED_ZIP_SHA256}"
             echo "SOURCE_TREE_SHA256=${EXPECTED_TREE_SHA256}"
             echo "PACKAGE=tw.ajo.travelnotebook"
-            echo "VERSION_NAME=1.0.58"
-            echo "VERSION_CODE=158"
+            echo "VERSION_NAME=1.0.59"
+            echo "VERSION_CODE=159"
             echo "SIGNER_CERT_SHA256=$CERT_SHA"
             echo "CLASSES_DEX_SHA256=$DEX_SHA"
             echo "CLEAN_BUILD=PASS"
@@ -143,7 +143,7 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ajo-travel-notebook-v1.0.58-clean-build
+          name: ajo-travel-notebook-v1.0.59-clean-build
           path: out/
           if-no-files-found: error
           retention-days: 1
