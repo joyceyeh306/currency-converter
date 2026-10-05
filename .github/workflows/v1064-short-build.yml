@@ -15,7 +15,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
-      ISSUE_NUMBER: "25"
+      ISSUE_NUMBER: "27"
       SOURCE_BLOB_SHA: "14c7ccb40e2d074c55b560d8fc49e32dafc62032"
       EXPECTED_ZIP_SHA256: "fa81914ec01140802d397eb7919d920c7769009e33404bb5c97436c9db8eb761"
       EXPECTED_TREE_SHA256: "e828e56f1aff9e902048f8374c57a33a8ff420d98b83db0de289cbb8f389cb1e"
@@ -73,23 +73,25 @@ jobs:
           grep -q "item-detail-actions" app/src/main/assets/index.html
           grep -q -- "-webkit-line-clamp:2" app/src/main/assets/index.html
           grep -q "async function viewItem" app.js
-          if grep -Fq "event.stopPropagation();editItem('${it.id}')" app.js; then
-            echo "Old per-row ellipsis action still present"
-            exit 1
-          fi
-          if grep -Fq "openItemMap('${it.id}')" app.js; then
-            echo "Old per-row map shortcut still present"
-            exit 1
-          fi
-
           python3 - <<'PY'
           from pathlib import Path
           import re
+          js=Path('app.js').read_text()
+          if "event.stopPropagation();editItem('${it.id}')" in js:
+              raise SystemExit('old per-row ellipsis action still present')
+          # Only the itinerary list shortcut is removed; the helper function may still exist elsewhere.
+          render_match=re.search(r'async function renderDay\(\)\{.*?\nfunction costSection',js,re.S)
+          if not render_match:
+              raise SystemExit('renderDay not found')
+          render=render_match.group(0)
+          if "openItemMap('${it.id}')" in render:
+              raise SystemExit('old per-row map shortcut still present')
           s=Path('app/src/main/assets/index.html').read_text()
           m=re.search(r'<script>\n(.*)\n</script>',s,re.S)
-          if not m: raise SystemExit('inline script not found')
+          if not m:
+              raise SystemExit('inline script not found')
           Path('/tmp/index.js').write_text(m.group(1))
-          if m.group(1).rstrip() != Path('app.js').read_text().rstrip():
+          if m.group(1).rstrip() != js.rstrip():
               raise SystemExit('app.js and inline script differ')
           PY
           node --check /tmp/index.js
