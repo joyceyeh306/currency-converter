@@ -15,7 +15,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
-      ISSUE_NUMBER: "7"
+      ISSUE_NUMBER: "9"
+      SOURCE_BLOB_SHA: "188b8685b3c52cf0bb11791e71ed47667ae3d7cc"
       EXPECTED_ZIP_SHA256: "2a211495a12ff170551e6d535e666b8a81262174822d052ec9e8f36ee6d21b6b"
       EXPECTED_TREE_SHA256: "5b0aa5e1a452dbc683bf3fe1fffbe2b211b7497026bb1a22d6da286223c6fde0"
       EXPECTED_CERT_SHA256: "a40da80a59d170caa950cf15c18c454d47a39b26989d8b640ecd745ba71bf5dc"
@@ -40,7 +41,7 @@ jobs:
           } > /tmp/public-message.txt
           gh api repos/${GITHUB_REPOSITORY}/issues/${ISSUE_NUMBER}/comments -f body="$(cat /tmp/public-message.txt)"
 
-      - name: Receive and verify encrypted source
+      - name: Receive encrypted key and verify source
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
@@ -48,16 +49,18 @@ jobs:
           set -euo pipefail
           ready=0
           for i in $(seq 1 360); do
-            if gh api --paginate repos/${GITHUB_REPOSITORY}/issues/${ISSUE_NUMBER}/comments --jq '.[].body' | grep -qx 'PAYLOAD_READY'; then ready=1; break; fi
+            if gh api --paginate repos/${GITHUB_REPOSITORY}/issues/${ISSUE_NUMBER}/comments --jq '.[].body' | grep -q '^KEY:'; then ready=1; break; fi
             sleep 5
           done
           test "$ready" = "1"
-          gh api --paginate repos/${GITHUB_REPOSITORY}/issues/${ISSUE_NUMBER}/comments --jq '.[].body' > /tmp/all-comments.txt
-          awk '/^KEY:/{sub(/^KEY:/,""); print; exit}' /tmp/all-comments.txt | base64 -d > /tmp/pass.enc
+
+          gh api --paginate repos/${GITHUB_REPOSITORY}/issues/${ISSUE_NUMBER}/comments --jq '.[].body' | awk '/^KEY:/{sub(/^KEY:/,""); print; exit}' | base64 -d > /tmp/pass.enc
           openssl pkeyutl -decrypt -inkey /tmp/build-private.pem -in /tmp/pass.enc -out /tmp/pass.txt -pkeyopt rsa_padding_mode:oaep -pkeyopt rsa_oaep_md:sha256
-          grep '^CHUNK[0-9][0-9][0-9][0-9]:' /tmp/all-comments.txt | sort | sed 's/^CHUNK[0-9][0-9][0-9][0-9]://' | tr -d '\n\r' | base64 -d > /tmp/source.zip.enc
+
+          gh api repos/${GITHUB_REPOSITORY}/git/blobs/${SOURCE_BLOB_SHA} --jq .content | tr -d '\n\r' | base64 -d > /tmp/source.zip.enc
           openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -in /tmp/source.zip.enc -out /tmp/source.zip -pass file:/tmp/pass.txt
           echo "${EXPECTED_ZIP_SHA256}  /tmp/source.zip" | sha256sum -c -
+
           rm -rf /tmp/work && mkdir -p /tmp/work
           unzip -q /tmp/source.zip -d /tmp/work
           cd "${PROJECT_DIR}"
