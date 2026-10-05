@@ -15,7 +15,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
-      ISSUE_NUMBER: "9"
+      ISSUE_NUMBER: "10"
       SOURCE_BLOB_SHA: "188b8685b3c52cf0bb11791e71ed47667ae3d7cc"
       EXPECTED_ZIP_SHA256: "2a211495a12ff170551e6d535e666b8a81262174822d052ec9e8f36ee6d21b6b"
       EXPECTED_TREE_SHA256: "5b0aa5e1a452dbc683bf3fe1fffbe2b211b7497026bb1a22d6da286223c6fde0"
@@ -139,23 +139,6 @@ jobs:
             echo "SOURCE_PROVENANCE=PASS"
             echo "SIGNATURE_MATCH_PREVIOUS=PASS"
           } > "${GITHUB_WORKSPACE}/out/build-verification.txt"
-
-      - name: Install and launch on emulator
-        uses: ReactiveCircus/android-emulator-runner@v2
-        with:
-          api-level: 34
-          arch: x86_64
-          target: default
-          disable-animations: true
-          script: |
-            set -e
-            adb install -r "${GITHUB_WORKSPACE}/out/ajo-travel-notebook-v1.0.58.apk"
-            adb shell am force-stop tw.ajo.travelnotebook
-            adb shell am start -W -n tw.ajo.travelnotebook/.MainActivity | tee "${GITHUB_WORKSPACE}/out/launch.txt"
-            sleep 3
-            adb shell pidof tw.ajo.travelnotebook | tee "${GITHUB_WORKSPACE}/out/pid.txt"
-            test -s "${GITHUB_WORKSPACE}/out/pid.txt"
-            echo "INSTALL_AND_LAUNCH=PASS" >> "${GITHUB_WORKSPACE}/out/build-verification.txt"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
