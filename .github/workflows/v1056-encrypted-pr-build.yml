@@ -1,4 +1,4 @@
-name: v1.0.56 encrypted PR clean build
+name: v1.0.57 encrypted clean build
 
 on:
   pull_request:
@@ -15,16 +15,16 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
-      ISSUE_NUMBER: "1"
-      EXPECTED_ZIP_SHA256: "cd188f3ce101b01e864c75b6dfe361375e7cc1280b2de0023be9c17f3dcd3c99"
-      EXPECTED_TREE_SHA256: "c9bcd737799815f2cb416b9f7aded21ce8de6124f8df819d74b3d78689df2959"
+      ISSUE_NUMBER: "3"
+      EXPECTED_ZIP_SHA256: "4ee872309f1b5cb6880d2cde38b86555ade12731f60eee51dfd37f3bcc425d58"
+      EXPECTED_TREE_SHA256: "fb6fbeb27195e95a6502d5c0633c99f1c8cff170343b19bfe310d2b4d35a76e5"
       EXPECTED_CERT_SHA256: "a40da80a59d170caa950cf15c18c454d47a39b26989d8b640ecd745ba71bf5dc"
-      PROJECT_DIR: "/tmp/work/ajo-travel-notebook-v1.0.56-source"
+      PROJECT_DIR: "/tmp/work/ajo-travel-notebook-v1.0.57-source"
     steps:
       - name: Checkout PR trigger
         uses: actions/checkout@v4
 
-      - name: Publish ephemeral RSA public key and run id
+      - name: Publish ephemeral RSA public key
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
@@ -33,14 +33,14 @@ jobs:
           openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:4096 -out /tmp/build-private.pem
           openssl pkey -in /tmp/build-private.pem -pubout -out /tmp/build-public.pem
           {
-            echo 'RUN_ID='${GITHUB_RUN_ID}
-            echo 'PUBLIC_KEY_BEGIN'
+            echo "RUN_ID=${GITHUB_RUN_ID}"
+            echo "PUBLIC_KEY_BEGIN"
             cat /tmp/build-public.pem
-            echo 'PUBLIC_KEY_END'
+            echo "PUBLIC_KEY_END"
           } > /tmp/public-message.txt
           gh api repos/${GITHUB_REPOSITORY}/issues/${ISSUE_NUMBER}/comments -f body="$(cat /tmp/public-message.txt)"
 
-      - name: Wait for encrypted source payload
+      - name: Receive and verify encrypted source
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
@@ -62,20 +62,27 @@ jobs:
           unzip -q /tmp/source.zip -d /tmp/work
           cd "${PROJECT_DIR}"
           TREE_SHA=$(find app app.js build.gradle gradle.properties settings.gradle SOURCE_MASTER_README.txt -type f -print0 | sort -z | xargs -0 sha256sum | sha256sum | awk '{print $1}')
+          echo "TREE_SHA=$TREE_SHA"
           test "$TREE_SHA" = "${EXPECTED_TREE_SHA256}"
-          if find . \( -name '*.apk' -o -name 'classes.dex' \) -print | grep -q .; then exit 1; fi
+          if find . \( -name '*.apk' -o -name 'classes.dex' \) -print | grep -q .; then
+            echo "Source unexpectedly contains prebuilt APK/dex"
+            exit 1
+          fi
 
-      - uses: actions/setup-java@v4
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "17"
 
-      - uses: gradle/actions/setup-gradle@v4
+      - name: Set up Gradle 8.9
+        uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "8.9"
           cache-disabled: true
 
-      - uses: android-actions/setup-android@v3
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
 
       - name: Install Android SDK packages
         shell: bash
@@ -84,7 +91,7 @@ jobs:
           yes | sdkmanager --licenses >/dev/null || true
           sdkmanager "platforms;android-35" "build-tools;35.0.0" "platform-tools"
 
-      - name: Clean compile from source
+      - name: True clean build from source
         shell: bash
         run: |
           set -euo pipefail
@@ -94,8 +101,9 @@ jobs:
           test -f app/build/outputs/apk/release/app-release-unsigned.apk
           unzip -p app/build/outputs/apk/release/app-release-unsigned.apk classes.dex > /tmp/classes-unsigned.dex
           test -s /tmp/classes-unsigned.dex
+          sha256sum /tmp/classes-unsigned.dex
 
-      - name: Sign and verify
+      - name: Sign and verify APK
         shell: bash
         run: |
           set -euo pipefail
@@ -104,30 +112,30 @@ jobs:
           curl -fsSL https://raw.githubusercontent.com/aosp-mirror/platform_build/master/target/product/security/testkey.pk8 -o /tmp/testkey.pk8
           curl -fsSL https://raw.githubusercontent.com/aosp-mirror/platform_build/master/target/product/security/testkey.x509.pem -o /tmp/testkey.x509.pem
           "${BT}/zipalign" -f -p 4 "${PROJECT_DIR}/app/build/outputs/apk/release/app-release-unsigned.apk" "${GITHUB_WORKSPACE}/out/aligned.apk"
-          "${BT}/apksigner" sign --key /tmp/testkey.pk8 --cert /tmp/testkey.x509.pem --out "${GITHUB_WORKSPACE}/out/ajo-travel-notebook-v1.0.56.apk" "${GITHUB_WORKSPACE}/out/aligned.apk"
-          "${BT}/apksigner" verify --verbose --print-certs "${GITHUB_WORKSPACE}/out/ajo-travel-notebook-v1.0.56.apk" | tee "${GITHUB_WORKSPACE}/out/signature.txt"
+          "${BT}/apksigner" sign --key /tmp/testkey.pk8 --cert /tmp/testkey.x509.pem --out "${GITHUB_WORKSPACE}/out/ajo-travel-notebook-v1.0.57.apk" "${GITHUB_WORKSPACE}/out/aligned.apk"
+          "${BT}/apksigner" verify --verbose --print-certs "${GITHUB_WORKSPACE}/out/ajo-travel-notebook-v1.0.57.apk" | tee "${GITHUB_WORKSPACE}/out/signature.txt"
           CERT_SHA=$(sed -n 's/^Signer #1 certificate SHA-256 digest: //p' "${GITHUB_WORKSPACE}/out/signature.txt" | head -1 | tr 'A-F' 'a-f' | tr -d ':[:space:]')
           test "$CERT_SHA" = "${EXPECTED_CERT_SHA256}"
-          "${BT}/aapt" dump badging "${GITHUB_WORKSPACE}/out/ajo-travel-notebook-v1.0.56.apk" | tee "${GITHUB_WORKSPACE}/out/badging.txt"
-          grep -q "package: name='tw.ajo.travelnotebook' versionCode='156' versionName='1.0.56'" "${GITHUB_WORKSPACE}/out/badging.txt"
-          unzip -p "${GITHUB_WORKSPACE}/out/ajo-travel-notebook-v1.0.56.apk" classes.dex > /tmp/classes-signed.dex
+          "${BT}/aapt" dump badging "${GITHUB_WORKSPACE}/out/ajo-travel-notebook-v1.0.57.apk" | tee "${GITHUB_WORKSPACE}/out/badging.txt"
+          grep -q "package: name='tw.ajo.travelnotebook' versionCode='157' versionName='1.0.57'" "${GITHUB_WORKSPACE}/out/badging.txt"
+          unzip -p "${GITHUB_WORKSPACE}/out/ajo-travel-notebook-v1.0.57.apk" classes.dex > /tmp/classes-signed.dex
           cmp /tmp/classes-unsigned.dex /tmp/classes-signed.dex
           DEX_SHA=$(sha256sum /tmp/classes-signed.dex | awk '{print $1}')
-          unzip -t "${GITHUB_WORKSPACE}/out/ajo-travel-notebook-v1.0.56.apk" >/dev/null
+          unzip -t "${GITHUB_WORKSPACE}/out/ajo-travel-notebook-v1.0.57.apk" >/dev/null
           {
             echo "SOURCE_ZIP_SHA256=${EXPECTED_ZIP_SHA256}"
             echo "SOURCE_TREE_SHA256=${EXPECTED_TREE_SHA256}"
             echo "PACKAGE=tw.ajo.travelnotebook"
-            echo "VERSION_NAME=1.0.56"
-            echo "VERSION_CODE=156"
+            echo "VERSION_NAME=1.0.57"
+            echo "VERSION_CODE=157"
             echo "SIGNER_CERT_SHA256=$CERT_SHA"
             echo "CLASSES_DEX_SHA256=$DEX_SHA"
             echo "CLEAN_BUILD=PASS"
             echo "SOURCE_PROVENANCE=PASS"
-            echo "SIGNATURE_MATCH_EXPECTED_V1.0.55=PASS"
+            echo "SIGNATURE_MATCH_V1.0.55=PASS"
           } > "${GITHUB_WORKSPACE}/out/build-verification.txt"
 
-      - name: Install and launch in emulator
+      - name: Install and launch on emulator
         uses: ReactiveCircus/android-emulator-runner@v2
         with:
           api-level: 34
@@ -136,7 +144,7 @@ jobs:
           disable-animations: true
           script: |
             set -e
-            adb install -r "${GITHUB_WORKSPACE}/out/ajo-travel-notebook-v1.0.56.apk"
+            adb install -r "${GITHUB_WORKSPACE}/out/ajo-travel-notebook-v1.0.57.apk"
             adb shell am force-stop tw.ajo.travelnotebook
             adb shell am start -W -n tw.ajo.travelnotebook/.MainActivity | tee "${GITHUB_WORKSPACE}/out/launch.txt"
             sleep 3
@@ -144,9 +152,10 @@ jobs:
             test -s "${GITHUB_WORKSPACE}/out/pid.txt"
             echo "INSTALL_AND_LAUNCH=PASS" >> "${GITHUB_WORKSPACE}/out/build-verification.txt"
 
-      - uses: actions/upload-artifact@v4
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
         with:
-          name: ajo-travel-notebook-v1.0.56-clean-build
+          name: ajo-travel-notebook-v1.0.57-clean-build
           path: out/
           if-no-files-found: error
           retention-days: 1
