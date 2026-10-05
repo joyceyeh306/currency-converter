@@ -69,7 +69,7 @@ jobs:
           test "$TREE_SHA" = "${EXPECTED_TREE_SHA256}"
 
           grep -q "versionCode 162" app/build.gradle
-          grep -q "versionName '1.0.61'" app/build.gradle
+          grep -q "versionName '1.0.62'" app/build.gradle
           grep -q "v1.0.62" SOURCE_MASTER_README.txt
           grep -q "const daySticky=route.tab==='trips'&&(route.tripId||route.dayId)?' day-sticky':'';" app.js
           if grep -q "topbar(t.name,true)+\`<main class=\\\"content\\\">\${contextTools(t.id)}" app.js; then echo "trip duplicate shortcuts still present"; exit 1; fi
@@ -143,7 +143,7 @@ jobs:
           CERT_SHA=$(sed -n 's/^Signer #1 certificate SHA-256 digest: //p' "${GITHUB_WORKSPACE}/out/signature.txt" | head -1 | tr 'A-F' 'a-f' | tr -d ':[:space:]')
           test "$CERT_SHA" = "${EXPECTED_CERT_SHA256}"
           "${BT}/aapt" dump badging "${GITHUB_WORKSPACE}/out/ajo-travel-notebook-v1.0.62.apk" | tee "${GITHUB_WORKSPACE}/out/badging.txt"
-          grep -q "package: name='tw.ajo.travelnotebook' versionCode='162' versionName='1.0.61'" "${GITHUB_WORKSPACE}/out/badging.txt"
+          grep -q "package: name='tw.ajo.travelnotebook' versionCode='162' versionName='1.0.62'" "${GITHUB_WORKSPACE}/out/badging.txt"
           unzip -p "${GITHUB_WORKSPACE}/out/ajo-travel-notebook-v1.0.62.apk" classes.dex > /tmp/classes-signed.dex
           cmp /tmp/classes-unsigned.dex /tmp/classes-signed.dex
           DEX_SHA=$(sha256sum /tmp/classes-signed.dex | awk '{print $1}')
@@ -152,7 +152,7 @@ jobs:
             echo "SOURCE_ZIP_SHA256=${EXPECTED_ZIP_SHA256}"
             echo "SOURCE_TREE_SHA256=${EXPECTED_TREE_SHA256}"
             echo "PACKAGE=tw.ajo.travelnotebook"
-            echo "VERSION_NAME=1.0.60"
+            echo "VERSION_NAME=1.0.62"
             echo "VERSION_CODE=162"
             echo "SIGNER_CERT_SHA256=$CERT_SHA"
             echo "CLASSES_DEX_SHA256=$DEX_SHA"
