@@ -15,7 +15,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
-      ISSUE_NUMBER: "34"
+      ISSUE_NUMBER: "36"
       SOURCE_BLOB_SHA: "149bc8956d279ed0a4a9447184b22094ae87bfb6"
       EXPECTED_ZIP_SHA256: "fd6ecaf2960d9cc713752ee9085611dd3685ba2ea312cdba2258f1bf9eb06477"
       EXPECTED_TREE_SHA256: "8f61605891f3665e9dfdcb8c41d820f3dac84465746491615c0073bb09c5b5fb"
@@ -68,7 +68,7 @@ jobs:
           test "$TREE_SHA" = "${EXPECTED_TREE_SHA256}"
 
           grep -q "versionCode 168" app/build.gradle
-          grep -q "versionName '1.0.67'" app/build.gradle
+          grep -q "versionName '1.0.68'" app/build.gradle
           grep -q "stay-date-time-stack" app/src/main/assets/index.html
           grep -q "async function viewAlt" app.js
           grep -q "function duplicateAlt" app.js
@@ -143,13 +143,13 @@ jobs:
           CERT_SHA=$(sed -n 's/^Signer #1 certificate SHA-256 digest: //p' "${GITHUB_WORKSPACE}/out/signature.txt" | head -1 | tr 'A-F' 'a-f' | tr -d ':[:space:]')
           test "$CERT_SHA" = "${EXPECTED_CERT_SHA256}"
           "${BT}/aapt" dump badging "${GITHUB_WORKSPACE}/out/ajo-travel-notebook-v1.0.68.apk" | tee "${GITHUB_WORKSPACE}/out/badging.txt"
-          grep -q "package: name='tw.ajo.travelnotebook' versionCode='168' versionName='1.0.67'" "${GITHUB_WORKSPACE}/out/badging.txt"
+          grep -q "package: name='tw.ajo.travelnotebook' versionCode='168' versionName='1.0.68'" "${GITHUB_WORKSPACE}/out/badging.txt"
           unzip -p "${GITHUB_WORKSPACE}/out/ajo-travel-notebook-v1.0.68.apk" classes.dex > /tmp/classes-signed.dex
           cmp /tmp/classes-unsigned.dex /tmp/classes-signed.dex
           unzip -t "${GITHUB_WORKSPACE}/out/ajo-travel-notebook-v1.0.68.apk" >/dev/null
           {
             echo "PACKAGE=tw.ajo.travelnotebook"
-            echo "VERSION_NAME=1.0.67"
+            echo "VERSION_NAME=1.0.68"
             echo "VERSION_CODE=168"
             echo "SIGNER_CERT_SHA256=$CERT_SHA"
             echo "CLEAN_BUILD=PASS"
