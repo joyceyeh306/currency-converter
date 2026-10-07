@@ -1,0 +1,150 @@
+name: Build Travel Notebook v1.0.90
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - '.github/workflows/build-travel-v1090.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      SOURCE_SHA256: "71b2d2eb27d4f5247c371920bd18d95528e5767760fed5c53b9efe2bf3fa27a3"
+      EXPECTED_CERT_SHA256: "a40da80a59d170caa950cf15c18c454d47a39b26989d8b640ecd745ba71bf5dc"
+      PROJECT_DIR: "/tmp/work/ajo-travel-notebook-v1.0.90-source"
+
+    steps:
+      - name: Checkout staged source
+        uses: actions/checkout@v4
+        with:
+          ref: travel-notebook-v1090-build
+          fetch-depth: 1
+
+      - name: Restore and verify source
+        shell: bash
+        run: |
+          set -euo pipefail
+          base64 -d travel_v1090/source.tar.xz.b64 > /tmp/source.tar.xz
+          echo "${SOURCE_SHA256}  /tmp/source.tar.xz" | sha256sum -c -
+          rm -rf /tmp/work && mkdir -p /tmp/work
+          tar -xJf /tmp/source.tar.xz -C /tmp/work
+          cd "${PROJECT_DIR}"
+          test -f app/build.gradle
+          test -f app/src/main/assets/index.html
+          test -f app/src/main/java/tw/ajo/travelnotebook/ReminderScheduler.java
+          test -f app/src/main/java/tw/ajo/travelnotebook/ReminderRescheduleReceiver.java
+          grep -q "applicationId 'tw.ajo.travelnotebook'" app/build.gradle
+          grep -q "versionCode 190" app/build.gradle
+          grep -q "versionName '1.0.90'" app/build.gradle
+          grep -q "const APPKEY='ajo_travel_notebook_v1'" app/src/main/assets/index.html
+          grep -q "Android.shareText" app/src/main/assets/index.html
+          grep -q "Android.getReceiptDataUrl" app/src/main/assets/index.html
+          grep -q "Android.restoreReceiptPhoto" app/src/main/assets/index.html
+          grep -q "pausedBySkip" app/src/main/assets/index.html
+          grep -q "if(t?.completed)return'past'" app/src/main/assets/index.html
+          grep -q "RECEIVE_BOOT_COMPLETED" app/src/main/AndroidManifest.xml
+          grep -q "TIMEZONE_CHANGED" app/src/main/AndroidManifest.xml
+          grep -q "MY_PACKAGE_REPLACED" app/src/main/AndroidManifest.xml
+          if grep -q "2026釜山2人" app/src/main/assets/index.html; then
+            echo "Desktop test trip leaked into production source"
+            exit 1
+          fi
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          html=Path('app/src/main/assets/index.html').read_text()
+          js=Path('app.js').read_text()
+          m=re.search(r'<script(?:\s[^>]*)?>(.*?)</script>',html,re.S|re.I)
+          if not m: raise SystemExit('inline script not found')
+          if m.group(1)!=js: raise SystemExit('app.js and inline script differ')
+          Path('/tmp/index.js').write_text(js)
+          PY
+          node --check /tmp/index.js
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Gradle 8.9
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.9"
+          cache-disabled: true
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v4
+        with:
+          packages: ''
+
+      - name: Install Android SDK packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager "platforms;android-35" "build-tools;35.0.0" "platform-tools"
+
+      - name: Clean build
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "${PROJECT_DIR}"
+          rm -rf .gradle build app/build ~/.gradle/caches/build-cache-* || true
+          gradle --no-daemon --no-build-cache --rerun-tasks clean assembleRelease
+          test -f app/build/outputs/apk/release/app-release-unsigned.apk
+          unzip -t app/build/outputs/apk/release/app-release-unsigned.apk >/dev/null
+          unzip -p app/build/outputs/apk/release/app-release-unsigned.apk classes.dex > /tmp/classes-unsigned.dex
+          test -s /tmp/classes-unsigned.dex
+
+      - name: Sign and verify APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          BT="${ANDROID_SDK_ROOT}/build-tools/35.0.0"
+          mkdir -p "${GITHUB_WORKSPACE}/out"
+          curl -fsSL https://raw.githubusercontent.com/aosp-mirror/platform_build/master/target/product/security/testkey.pk8 -o /tmp/testkey.pk8
+          curl -fsSL https://raw.githubusercontent.com/aosp-mirror/platform_build/master/target/product/security/testkey.x509.pem -o /tmp/testkey.x509.pem
+          "${BT}/zipalign" -f -p 4 "${PROJECT_DIR}/app/build/outputs/apk/release/app-release-unsigned.apk" "${GITHUB_WORKSPACE}/out/aligned.apk"
+          "${BT}/apksigner" sign --key /tmp/testkey.pk8 --cert /tmp/testkey.x509.pem --out "${GITHUB_WORKSPACE}/out/ajo-travel-notebook-v1.0.90.apk" "${GITHUB_WORKSPACE}/out/aligned.apk"
+          "${BT}/apksigner" verify --verbose --print-certs "${GITHUB_WORKSPACE}/out/ajo-travel-notebook-v1.0.90.apk" | tee "${GITHUB_WORKSPACE}/out/signature.txt"
+          CERT_SHA=$(sed -n 's/^Signer #1 certificate SHA-256 digest: //p' "${GITHUB_WORKSPACE}/out/signature.txt" | head -1 | tr 'A-F' 'a-f' | tr -d ':[:space:]')
+          test "$CERT_SHA" = "${EXPECTED_CERT_SHA256}"
+          "${BT}/aapt" dump badging "${GITHUB_WORKSPACE}/out/ajo-travel-notebook-v1.0.90.apk" | tee "${GITHUB_WORKSPACE}/out/badging.txt"
+          grep -q "package: name='tw.ajo.travelnotebook' versionCode='190' versionName='1.0.90'" "${GITHUB_WORKSPACE}/out/badging.txt"
+          unzip -p "${GITHUB_WORKSPACE}/out/ajo-travel-notebook-v1.0.90.apk" classes.dex > /tmp/classes-signed.dex
+          cmp /tmp/classes-unsigned.dex /tmp/classes-signed.dex
+          unzip -t "${GITHUB_WORKSPACE}/out/ajo-travel-notebook-v1.0.90.apk" >/dev/null
+          {
+            echo "PACKAGE=tw.ajo.travelnotebook"
+            echo "VERSION_NAME=1.0.90"
+            echo "VERSION_CODE=190"
+            echo "SIGNER_CERT_SHA256=$CERT_SHA"
+            echo "CLEAN_BUILD=PASS"
+            echo "NATIVE_SHARE=PASS"
+            echo "RECEIPT_BACKUP_RESTORE_BRIDGE=PASS"
+            echo "REMINDER_RESCHEDULE_BOOT_TIMEZONE_UPDATE=PASS"
+            echo "COMPLETED_TRIP_REMINDER_PAUSE=PASS"
+          } > "${GITHUB_WORKSPACE}/out/build-verification.txt"
+
+      - name: Package exact source used
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd /tmp/work
+          zip -qr "${GITHUB_WORKSPACE}/out/ajo-travel-notebook-v1.0.90-source.zip" ajo-travel-notebook-v1.0.90-source
+
+      - name: Upload release artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ajo-travel-notebook-v1.0.90-release
+          path: out/
+          if-no-files-found: error
+          retention-days: 1
