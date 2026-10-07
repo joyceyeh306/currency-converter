@@ -1,0 +1,14 @@
+name: Build Travel Notebook v1.0.93b
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - '.github/workflows/build-travel-v1093b.yml'
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo ready
