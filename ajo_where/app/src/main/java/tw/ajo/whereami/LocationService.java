@@ -17,6 +17,7 @@ import android.location.LocationManager;
 import android.os.BatteryManager;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.CancellationSignal;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
@@ -32,53 +33,50 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-public class LocationService extends Service implements LocationListener {
+public class LocationService extends Service {
     public static final String ACTION_STOP = "tw.ajo.whereami.STOP";
     public static final String ACTION_STATUS = "tw.ajo.whereami.STATUS";
     public static final String EXTRA_MESSAGE = "message";
 
     private static final String CHANNEL_ID = "ajo_location_sharing";
     private static final int NOTIFICATION_ID = 306;
-    private static final long WATCHDOG_MS = 60_000L;
+
+    // Lightweight heartbeat only; it does not turn on GPS.
+    private static final long HEARTBEAT_MS = 60_000L;
+
+    // Low-power one-shot location policy.
+    private static final long NETWORK_TIMEOUT_MS = 12_000L;
+    private static final long GPS_TIMEOUT_MS = 20_000L;
     private static final long RETRY_GAP_MS = 45_000L;
+    private static final float NETWORK_GOOD_ENOUGH_M = 120f;
+    private static final long MAX_ACCEPTABLE_NETWORK_AGE_MS = 2L * 60_000L;
 
     private LocationManager lm;
-    private boolean registered = false;
-    private long lastSentAt = 0L;
-    private long lastAttemptAt = 0L;
-    private Location lastLocation;
+    private final Handler main = new Handler(Looper.getMainLooper());
     private final AtomicBoolean sending = new AtomicBoolean(false);
     private final ExecutorService io = Executors.newSingleThreadExecutor();
-    private final Handler watchdog = new Handler(Looper.getMainLooper());
 
-    private final Runnable watchdogTask = new Runnable() {
+    private long lastAttemptAt = 0L;
+    private boolean cycleInProgress = false;
+    private CancellationSignal currentCancel;
+    private LocationListener legacyListener;
+    private Runnable requestTimeout;
+    private Location networkCandidate;
+
+    private final Runnable heartbeatTask = new Runnable() {
         @Override public void run() {
-            try {
-                if (Prefs.running(LocationService.this)) {
-                    long now = System.currentTimeMillis();
-                    Prefs.setHeartbeat(LocationService.this, now);
-                    RecoveryScheduler.schedule(LocationService.this, RecoveryScheduler.NORMAL_DELAY_MS);
-
-                    long callbackAt = Prefs.lastLocationCallback(LocationService.this);
-                    long callbackStaleMs = Math.max(150_000L, Prefs.intervalMin(LocationService.this) * 2L * 60_000L);
-
-                    if (!registered || callbackAt <= 0 || now - callbackAt > callbackStaleMs) {
-                        restartUpdates();
-                        notifyText("正在恢復定位…");
-                        status("定位中斷，正在自動恢復");
-                    }
-
-                    long minGap = Prefs.intervalMin(LocationService.this) * 60_000L;
-                    if (Prefs.lastUpload(LocationService.this) <= 0 ||
-                            now - Prefs.lastUpload(LocationService.this) > minGap + 30_000L) {
-                        Location candidate = lastLocation != null ? lastLocation : bestLastKnown();
-                        if (candidate != null) maybeSend(candidate, true);
-                    }
-                }
-            } catch (Exception ignored) {
-            } finally {
-                watchdog.postDelayed(this, WATCHDOG_MS);
+            if (Prefs.running(LocationService.this)) {
+                Prefs.setHeartbeat(LocationService.this, System.currentTimeMillis());
+                RecoveryScheduler.schedule(LocationService.this, RecoveryScheduler.NORMAL_DELAY_MS);
+                main.postDelayed(this, HEARTBEAT_MS);
             }
+        }
+    };
+
+    private final Runnable locationCycleTask = new Runnable() {
+        @Override public void run() {
+            if (!Prefs.running(LocationService.this)) return;
+            requestFreshLocation();
         }
     };
 
@@ -86,17 +84,19 @@ public class LocationService extends Service implements LocationListener {
     public void onCreate() {
         super.onCreate();
         createChannel();
-        Notification n = buildNotification("正在取得定位…");
+        Notification n = buildNotification("省電背景定位已啟動");
         if (Build.VERSION.SDK_INT >= 29) {
             startForeground(NOTIFICATION_ID, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION);
         } else {
             startForeground(NOTIFICATION_ID, n);
         }
+
         lm = (LocationManager) getSystemService(LOCATION_SERVICE);
-        lastSentAt = Prefs.lastUpload(this);
         Prefs.setHeartbeat(this, System.currentTimeMillis());
         RecoveryScheduler.schedule(this, RecoveryScheduler.NORMAL_DELAY_MS);
-        watchdog.postDelayed(watchdogTask, WATCHDOG_MS);
+
+        main.removeCallbacks(heartbeatTask);
+        main.postDelayed(heartbeatTask, HEARTBEAT_MS);
     }
 
     @Override
@@ -105,10 +105,14 @@ public class LocationService extends Service implements LocationListener {
             stopSharing();
             return START_NOT_STICKY;
         }
+
         Prefs.setRunning(this, true);
         Prefs.setHeartbeat(this, System.currentTimeMillis());
         RecoveryScheduler.schedule(this, RecoveryScheduler.NORMAL_DELAY_MS);
-        startUpdates();
+
+        // Take one fresh fix shortly after starting, then only on the selected cadence.
+        main.removeCallbacks(locationCycleTask);
+        main.post(locationCycleTask);
         return START_STICKY;
     }
 
@@ -117,8 +121,17 @@ public class LocationService extends Service implements LocationListener {
                 checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED;
     }
 
-    private void startUpdates() {
-        if (registered) return;
+    private boolean providerEnabled(String provider) {
+        try {
+            return lm != null && lm.isProviderEnabled(provider);
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    private void requestFreshLocation() {
+        if (cycleInProgress || !Prefs.running(this)) return;
+
         if (!hasLocationPermission()) {
             status("沒有定位權限");
             Prefs.setRunning(this, false);
@@ -128,63 +141,149 @@ public class LocationService extends Service implements LocationListener {
             return;
         }
 
-        boolean any = false;
-        try {
-            if (lm.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
-                lm.requestLocationUpdates(LocationManager.GPS_PROVIDER, 30_000L, 0f, this);
-                any = true;
-            }
-        } catch (Exception ignored) {}
+        cycleInProgress = true;
+        networkCandidate = null;
+        cancelCurrentRequest();
 
-        try {
-            if (lm.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) {
-                lm.requestLocationUpdates(LocationManager.NETWORK_PROVIDER, 30_000L, 0f, this);
-                any = true;
-            }
-        } catch (Exception ignored) {}
-
-        registered = any;
-
-        Location last = bestLastKnown();
-        if (last != null) {
-            lastLocation = new Location(last);
-            maybeSend(last, true);
+        if (providerEnabled(LocationManager.NETWORK_PROVIDER)) {
+            requestProvider(LocationManager.NETWORK_PROVIDER, NETWORK_TIMEOUT_MS, false);
+        } else if (providerEnabled(LocationManager.GPS_PROVIDER)) {
+            requestProvider(LocationManager.GPS_PROVIDER, GPS_TIMEOUT_MS, true);
+        } else {
+            finishCycle(bestLastKnown());
         }
     }
 
-    private void restartUpdates() {
-        if (lm != null && registered) {
-            try { lm.removeUpdates(this); } catch (Exception ignored) {}
-        }
-        registered = false;
-        startUpdates();
-    }
+    private void requestProvider(String provider, long timeoutMs, boolean gpsStage) {
+        cancelCurrentRequest();
 
-    private Location bestLastKnown() {
-        if (!hasLocationPermission()) return null;
-        Location best = null;
-        try {
-            for (String p : lm.getProviders(true)) {
-                Location x = lm.getLastKnownLocation(p);
-                if (x != null && (best == null || x.getTime() > best.getTime())) best = x;
+        requestTimeout = () -> {
+            if (!cycleInProgress) return;
+            if (gpsStage) {
+                finishCycle(networkCandidate != null ? networkCandidate : bestLastKnown());
+            } else {
+                Location last = bestLastKnown();
+                if (last != null) networkCandidate = last;
+                if (providerEnabled(LocationManager.GPS_PROVIDER)) {
+                    requestProvider(LocationManager.GPS_PROVIDER, GPS_TIMEOUT_MS, true);
+                } else {
+                    finishCycle(networkCandidate);
+                }
             }
-        } catch (Exception ignored) {}
-        return best;
+        };
+        main.postDelayed(requestTimeout, timeoutMs);
+
+        if (Build.VERSION.SDK_INT >= 30) {
+            currentCancel = new CancellationSignal();
+            try {
+                lm.getCurrentLocation(
+                        provider,
+                        currentCancel,
+                        getMainExecutor(),
+                        loc -> handleProviderResult(provider, loc, gpsStage)
+                );
+            } catch (Exception e) {
+                handleProviderResult(provider, null, gpsStage);
+            }
+        } else {
+            legacyListener = new LocationListener() {
+                @Override public void onLocationChanged(Location location) {
+                    handleProviderResult(provider, location, gpsStage);
+                }
+                @Override public void onProviderEnabled(String p) {}
+                @Override public void onProviderDisabled(String p) {}
+                @Override public void onStatusChanged(String p, int status, Bundle extras) {}
+            };
+
+            try {
+                @SuppressWarnings("deprecation")
+                boolean ignored = lm.isProviderEnabled(provider);
+                lm.requestSingleUpdate(provider, legacyListener, Looper.getMainLooper());
+            } catch (Exception e) {
+                handleProviderResult(provider, null, gpsStage);
+            }
+        }
     }
 
-    @Override
-    public void onLocationChanged(Location location) {
-        lastLocation = new Location(location);
+    private void handleProviderResult(String provider, Location loc, boolean gpsStage) {
+        if (!cycleInProgress) return;
+        clearRequestOnly();
+
         long now = System.currentTimeMillis();
-        Prefs.setLastLocationCallback(this, now);
-        Prefs.setHeartbeat(this, now);
-        maybeSend(location, false);
+
+        if (loc != null) {
+            Prefs.setLastLocationCallback(this, now);
+            Prefs.setHeartbeat(this, now);
+        }
+
+        if (!gpsStage) {
+            networkCandidate = loc != null ? new Location(loc) : bestLastKnown();
+
+            boolean freshEnough = networkCandidate != null &&
+                    networkCandidate.getTime() > 0 &&
+                    now - networkCandidate.getTime() <= MAX_ACCEPTABLE_NETWORK_AGE_MS;
+
+            boolean accurateEnough = networkCandidate != null &&
+                    (!networkCandidate.hasAccuracy() || networkCandidate.getAccuracy() <= NETWORK_GOOD_ENOUGH_M);
+
+            if (freshEnough && accurateEnough) {
+                finishCycle(networkCandidate);
+                return;
+            }
+
+            if (providerEnabled(LocationManager.GPS_PROVIDER)) {
+                requestProvider(LocationManager.GPS_PROVIDER, GPS_TIMEOUT_MS, true);
+            } else {
+                finishCycle(networkCandidate);
+            }
+            return;
+        }
+
+        Location chosen = chooseBetter(networkCandidate, loc);
+        finishCycle(chosen != null ? chosen : bestLastKnown());
     }
 
-    private void maybeSend(Location location, boolean force) {
+    private Location chooseBetter(Location a, Location b) {
+        if (a == null) return b == null ? null : new Location(b);
+        if (b == null) return new Location(a);
+
+        long timeDelta = b.getTime() - a.getTime();
+        boolean bMuchNewer = timeDelta > 60_000L;
+        boolean aMuchNewer = timeDelta < -60_000L;
+
+        if (bMuchNewer) return new Location(b);
+        if (aMuchNewer) return new Location(a);
+
+        if (a.hasAccuracy() && b.hasAccuracy()) {
+            return new Location(b.getAccuracy() < a.getAccuracy() ? b : a);
+        }
+
+        return new Location(b.getTime() >= a.getTime() ? b : a);
+    }
+
+    private void finishCycle(Location loc) {
+        clearRequestOnly();
+
+        if (loc != null) {
+            maybeSend(loc);
+        } else {
+            notifyText("暫時無法取得位置");
+            status("暫時無法取得位置，稍後再試");
+        }
+
+        cycleInProgress = false;
+        scheduleNextCycle();
+    }
+
+    private void scheduleNextCycle() {
+        if (!Prefs.running(this)) return;
+        long delay = Math.max(60_000L, Prefs.intervalMin(this) * 60_000L);
+        main.removeCallbacks(locationCycleTask);
+        main.postDelayed(locationCycleTask, delay);
+    }
+
+    private void maybeSend(Location location) {
         long now = System.currentTimeMillis();
-        long minGap = Prefs.intervalMin(this) * 60_000L;
-        if (!force && now - lastSentAt < minGap) return;
         if (now - lastAttemptAt < RETRY_GAP_MS) return;
         if (!sending.compareAndSet(false, true)) return;
 
@@ -192,9 +291,7 @@ public class LocationService extends Service implements LocationListener {
         Location copy = new Location(location);
         io.execute(() -> {
             try {
-                if (upload(copy)) {
-                    lastSentAt = System.currentTimeMillis();
-                }
+                upload(copy);
             } finally {
                 sending.set(false);
             }
@@ -248,6 +345,40 @@ public class LocationService extends Service implements LocationListener {
         }
     }
 
+    private Location bestLastKnown() {
+        if (!hasLocationPermission() || lm == null) return null;
+        Location best = null;
+        try {
+            for (String p : lm.getProviders(true)) {
+                Location x = lm.getLastKnownLocation(p);
+                if (x != null && (best == null || x.getTime() > best.getTime())) best = x;
+            }
+        } catch (Exception ignored) {}
+        return best == null ? null : new Location(best);
+    }
+
+    private void clearRequestOnly() {
+        if (requestTimeout != null) {
+            main.removeCallbacks(requestTimeout);
+            requestTimeout = null;
+        }
+
+        if (currentCancel != null) {
+            try { currentCancel.cancel(); } catch (Exception ignored) {}
+            currentCancel = null;
+        }
+
+        if (legacyListener != null && lm != null) {
+            try { lm.removeUpdates(legacyListener); } catch (Exception ignored) {}
+            legacyListener = null;
+        }
+    }
+
+    private void cancelCurrentRequest() {
+        clearRequestOnly();
+        networkCandidate = null;
+    }
+
     private int batteryPercent() {
         try {
             Intent b = registerReceiver(null, new IntentFilter(Intent.ACTION_BATTERY_CHANGED));
@@ -262,20 +393,33 @@ public class LocationService extends Service implements LocationListener {
 
     private void createChannel() {
         if (Build.VERSION.SDK_INT >= 26) {
-            NotificationChannel ch = new NotificationChannel(CHANNEL_ID, "ㄚ喬位置分享", NotificationManager.IMPORTANCE_LOW);
-            ch.setDescription("背景定位正在執行");
+            NotificationChannel ch = new NotificationChannel(
+                    CHANNEL_ID,
+                    "ㄚ喬位置分享",
+                    NotificationManager.IMPORTANCE_LOW
+            );
+            ch.setDescription("省電背景定位正在執行");
             ((NotificationManager) getSystemService(NOTIFICATION_SERVICE)).createNotificationChannel(ch);
         }
     }
 
     private Notification buildNotification(String text) {
         Intent open = new Intent(this, MainActivity.class);
-        PendingIntent openPi = PendingIntent.getActivity(this, 1, open, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+        PendingIntent openPi = PendingIntent.getActivity(
+                this, 1, open,
+                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
+        );
 
         Intent stop = new Intent(this, LocationService.class).setAction(ACTION_STOP);
-        PendingIntent stopPi = PendingIntent.getService(this, 2, stop, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+        PendingIntent stopPi = PendingIntent.getService(
+                this, 2, stop,
+                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
+        );
 
-        Notification.Builder b = Build.VERSION.SDK_INT >= 26 ? new Notification.Builder(this, CHANNEL_ID) : new Notification.Builder(this);
+        Notification.Builder b = Build.VERSION.SDK_INT >= 26
+                ? new Notification.Builder(this, CHANNEL_ID)
+                : new Notification.Builder(this);
+
         b.setSmallIcon(R.drawable.ic_location_notification)
                 .setContentTitle("ㄚ喬在哪裡")
                 .setContentText(text)
@@ -290,11 +434,13 @@ public class LocationService extends Service implements LocationListener {
                     stopPi
             ).build());
         }
+
         return b.build();
     }
 
     private void notifyText(String text) {
-        ((NotificationManager) getSystemService(NOTIFICATION_SERVICE)).notify(NOTIFICATION_ID, buildNotification(text));
+        ((NotificationManager) getSystemService(NOTIFICATION_SERVICE))
+                .notify(NOTIFICATION_ID, buildNotification(text));
     }
 
     private void status(String message) {
@@ -307,12 +453,13 @@ public class LocationService extends Service implements LocationListener {
         Prefs.setRunning(this, false);
         Prefs.setHeartbeat(this, 0L);
         Prefs.setLastLocationCallback(this, 0L);
+
         RecoveryScheduler.cancel(this);
-        watchdog.removeCallbacks(watchdogTask);
-        if (lm != null && registered) {
-            try { lm.removeUpdates(this); } catch (Exception ignored) {}
-        }
-        registered = false;
+        main.removeCallbacks(heartbeatTask);
+        main.removeCallbacks(locationCycleTask);
+        cancelCurrentRequest();
+        cycleInProgress = false;
+
         stopForeground(STOP_FOREGROUND_REMOVE);
         stopSelf();
         status("已停止分享位置");
@@ -329,21 +476,19 @@ public class LocationService extends Service implements LocationListener {
 
     @Override
     public void onDestroy() {
-        watchdog.removeCallbacks(watchdogTask);
+        main.removeCallbacks(heartbeatTask);
+        main.removeCallbacks(locationCycleTask);
+        cancelCurrentRequest();
         Prefs.setHeartbeat(this, 0L);
+
         if (Prefs.running(this)) {
             Prefs.setRecoveryStatus(this, System.currentTimeMillis(), "背景服務被停止，已排程自動恢復");
             RecoveryScheduler.schedule(this, 60_000L);
         }
-        if (lm != null && registered) {
-            try { lm.removeUpdates(this); } catch (Exception ignored) {}
-        }
+
         io.shutdownNow();
         super.onDestroy();
     }
 
     @Override public IBinder onBind(Intent intent) { return null; }
-    @Override public void onProviderEnabled(String provider) { restartUpdates(); }
-    @Override public void onProviderDisabled(String provider) { restartUpdates(); }
-    @Override public void onStatusChanged(String provider, int status, Bundle extras) {}
 }

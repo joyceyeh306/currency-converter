@@ -20,14 +20,14 @@ public class RecoveryReceiver extends BroadcastReceiver {
 
         long now = System.currentTimeMillis();
         long heartbeat = Prefs.heartbeat(context);
-        long lastUpload = Prefs.lastUpload(context);
+        long lastFixTime = Prefs.lastFixTime(context);
         long uploadStaleMs = Math.max(
                 10L * 60_000L,
                 Prefs.intervalMin(context) * 3L * 60_000L + 60_000L
         );
 
         boolean serviceStale = heartbeat <= 0 || now - heartbeat > 3L * 60_000L;
-        boolean uploadStale = lastUpload <= 0 || now - lastUpload > uploadStaleMs;
+        boolean uploadStale = lastFixTime <= 0 || now - lastFixTime > uploadStaleMs;
 
         if (!serviceStale && !uploadStale) return;
 
