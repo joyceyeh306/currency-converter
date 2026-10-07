@@ -5,6 +5,10 @@ on:
     branches: [ main ]
     paths:
       - '.github/workflows/build-travel-v1090.yml'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'travel_v1090/trigger.txt'
   workflow_dispatch:
 
 permissions:
