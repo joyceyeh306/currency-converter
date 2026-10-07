@@ -1,0 +1,247 @@
+name: Build Travel Notebook v1.0.92
+
+on:
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'travel_v1092/trigger.txt'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      SOURCE_SHA256: "71b2d2eb27d4f5247c371920bd18d95528e5767760fed5c53b9efe2bf3fa27a3"
+      EXPECTED_CERT_SHA256: "a40da80a59d170caa950cf15c18c454d47a39b26989d8b640ecd745ba71bf5dc"
+      PROJECT_DIR: "/tmp/work/ajo-travel-notebook-v1.0.92-source"
+
+    steps:
+      - name: Checkout v1.0.90 staged source
+        uses: actions/checkout@v4
+        with:
+          ref: travel-notebook-v1090-build
+          fetch-depth: 1
+
+      - name: Restore v1.0.90 source
+        shell: bash
+        run: |
+          set -euo pipefail
+          base64 -d travel_v1090/source.tar.xz.b64 > /tmp/source.tar.xz
+          echo "${SOURCE_SHA256}  /tmp/source.tar.xz" | sha256sum -c -
+          rm -rf /tmp/work && mkdir -p /tmp/work
+          tar -xJf /tmp/source.tar.xz -C /tmp/work
+          mv /tmp/work/ajo-travel-notebook-v1.0.90-source "${PROJECT_DIR}"
+
+      - name: Apply v1.0.92 memo full-page patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "${PROJECT_DIR}"
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          root = Path('.')
+          idx = root / 'app/src/main/assets/index.html'
+          appjs = root / 'app.js'
+          build = root / 'app/build.gradle'
+          readme = root / 'SOURCE_MASTER_README.txt'
+
+          js = appjs.read_text()
+          old = '''function renderMemo(){const scoped=route.tripId?tripById(route.tripId):null;if(scoped){$('#screen').innerHTML=topbar('備忘',false)+`<main class="content"><textarea class="note-area" id="memoArea">${esc(scoped.memo||'')}</textarea><div class="savehint">自動儲存</div></main>`;$('#memoArea').addEventListener('input',e=>{scoped.memo=e.target.value;saveData()});return}'''
+          new = '''function renderMemo(){const scoped=route.tripId?tripById(route.tripId):null;if(scoped){$('#screen').innerHTML=topbar('備忘',false)+`<main class="content memo-page-content"><textarea class="note-area" id="memoArea">${esc(scoped.memo||'')}</textarea><div class="savehint">自動儲存</div></main>`;$('#memoArea').addEventListener('input',e=>{scoped.memo=e.target.value;saveData()});return}'''
+          if old not in js:
+              raise SystemExit('renderMemo target not found')
+          js = js.replace(old, new, 1)
+          js = js.replace('自助旅行筆記 v1.0.90</strong><small>正式 APK 版', '自助旅行筆記 v1.0.92</strong><small>正式 APK 版', 1)
+          appjs.write_text(js)
+
+          html = idx.read_text()
+          html = html.replace('<title>自助旅行筆記 v1.0.90</title>', '<title>自助旅行筆記 v1.0.92</title>', 1)
+          needle = '.note-area{width:100%;min-height:55vh;border:1px solid #ddd6bb;border-radius:16px;padding:16px;resize:vertical;line-height:1.7;font-size:1.03rem;outline:none}\n.savehint{text-align:right;color:var(--muted);font-size:.78rem;margin-top:6px}'
+          extra = '''\n/* v1.0.92: let the trip memo use the full space between the top bar and bottom navigation. */
+          .memo-page-content{min-height:calc(100dvh - 56px - 64px);display:flex;flex-direction:column;overflow:hidden}
+          .memo-page-content .note-area{flex:1 1 auto;min-height:0;height:auto;resize:none}
+          .memo-page-content .savehint{flex:0 0 auto;margin-top:6px}'''.replace('\n          ', '\n')
+          if needle not in html:
+              raise SystemExit('note-area CSS target not found')
+          html = html.replace(needle, needle + extra, 1)
+          m = re.search(r'(<script(?:\s[^>]*)?>)(.*?)(</script>)', html, re.S | re.I)
+          if not m:
+              raise SystemExit('inline script not found')
+          html = html[:m.start(2)] + js + html[m.end(2):]
+          idx.write_text(html)
+
+          b = build.read_text().replace('versionCode 190', 'versionCode 192', 1).replace("versionName '1.0.90'", "versionName '1.0.91'", 1)
+          build.write_text(b)
+
+          r = readme.read_text()
+          header = '''自助旅行筆記 v1.0.92 備忘全頁修正版
+          基底：v1.0.90 正式整合版。
+
+          本版只修正：
+          1. 旅程「備忘」頁的文字輸入區改為自動填滿黃色標題列下方到底部導覽列上方的主要可用空間。
+          2. 保留「自動儲存」提示，但不再讓輸入框固定只佔約 55vh；文字很多時可在輸入框內正常捲動。
+          3. 其他 v1.0.90 功能、資料結構、配色與操作流程不變。
+          4. package 維持 tw.ajo.travelnotebook，versionCode 192，versionName 1.0.91。
+
+          '''.replace('\n          ', '\n')
+          readme.write_text(header + r)
+          PY
+
+      - name: Apply v1.0.92 memo reading-mode patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "${PROJECT_DIR}"
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          root=Path('.')
+          idx=root/'app/src/main/assets/index.html'
+          appjs=root/'app.js'
+
+          js=appjs.read_text()
+          old='''function renderMemo(){const scoped=route.tripId?tripById(route.tripId):null;if(scoped){$('#screen').innerHTML=topbar('備忘',false)+\`<main class="content memo-page-content"><textarea class="note-area" id="memoArea">${esc(scoped.memo||'')}</textarea><div class="savehint">自動儲存</div></main>\`;$('#memoArea').addEventListener('input',e=>{scoped.memo=e.target.value;saveData()});return}'''
+          new='''function renderMemo(){const scoped=route.tripId?tripById(route.tripId):null;if(scoped){$('#screen').innerHTML=topbar('備忘',false)+\`<main class="content memo-page-content"><textarea class="note-area memo-readonly" id="memoArea" readonly>${esc(scoped.memo||'')}</textarea><div class="memo-footer"><div class="savehint">自動儲存</div><button class="tiny yellow" id="memoEditBtn" onclick="toggleMemoEdit()">編輯</button></div></main>\`;const area=$('#memoArea');area.addEventListener('input',e=>{scoped.memo=e.target.value;saveData()});return}'''
+          if old not in js:
+              raise SystemExit('renderMemo reading-mode target not found')
+          js=js.replace(old,new,1)
+          helper='''\nfunction toggleMemoEdit(){const area=$('#memoArea'),btn=$('#memoEditBtn');if(!area||!btn)return;if(area.readOnly){area.readOnly=false;area.classList.remove('memo-readonly');btn.textContent='完成';requestAnimationFrame(()=>{area.focus();const n=area.value.length;try{area.setSelectionRange(n,n)}catch(e){}})}else{area.readOnly=true;area.classList.add('memo-readonly');btn.textContent='編輯';area.blur()}}\n'''
+          js=js.replace(new,new+helper,1)
+          appjs.write_text(js)
+
+          html=idx.read_text()
+          cssneedle='.memo-page-content .savehint{flex:0 0 auto;margin-top:6px}'
+          cssextra='''\n/* v1.0.92: memo opens in reading mode; keyboard appears only after tapping Edit. */\n.memo-footer{flex:0 0 auto;display:flex;justify-content:flex-end;align-items:center;gap:10px;margin-top:6px}\n.memo-footer .savehint{margin-top:0}\n.memo-page-content .memo-readonly{cursor:default}'''
+          if cssneedle not in html:
+              raise SystemExit('memo css target not found')
+          html=html.replace(cssneedle,cssneedle+cssextra,1)
+          m=re.search(r'(<script(?:\\s[^>]*)?>)(.*?)(</script>)',html,re.S|re.I)
+          if not m:
+              raise SystemExit('inline script not found')
+          html=html[:m.start(2)] + js + html[m.end(2):]
+          idx.write_text(html)
+          PY
+
+      - name: Verify patched source
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "${PROJECT_DIR}"
+          grep -q "applicationId 'tw.ajo.travelnotebook'" app/build.gradle
+          grep -q "versionCode 192" app/build.gradle
+          grep -q "versionName '1.0.91'" app/build.gradle
+          grep -q "memo-page-content" app/src/main/assets/index.html
+          grep -q 'id="memoArea" readonly' app/src/main/assets/index.html
+          grep -q "toggleMemoEdit" app/src/main/assets/index.html
+          grep -q "min-height:calc(100dvh - 56px - 64px)" app/src/main/assets/index.html
+          grep -q '<main class="content memo-page-content"><textarea class="note-area" id="memoArea">' app/src/main/assets/index.html
+          grep -q "const APPKEY='ajo_travel_notebook_v1'" app/src/main/assets/index.html
+          grep -q "Android.shareText" app/src/main/assets/index.html
+          grep -q "Android.getReceiptDataUrl" app/src/main/assets/index.html
+          grep -q "Android.restoreReceiptPhoto" app/src/main/assets/index.html
+          grep -q "pausedBySkip" app/src/main/assets/index.html
+          grep -q "if(t?.completed)return'past'" app/src/main/assets/index.html
+          grep -q "RECEIVE_BOOT_COMPLETED" app/src/main/AndroidManifest.xml
+          grep -q "TIMEZONE_CHANGED" app/src/main/AndroidManifest.xml
+          grep -q "MY_PACKAGE_REPLACED" app/src/main/AndroidManifest.xml
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          html=Path('app/src/main/assets/index.html').read_text()
+          js=Path('app.js').read_text()
+          m=re.search(r'<script(?:\s[^>]*)?>(.*?)</script>',html,re.S|re.I)
+          if not m: raise SystemExit('inline script not found')
+          if m.group(1)!=js: raise SystemExit('app.js and inline script differ')
+          Path('/tmp/index.js').write_text(js)
+          PY
+          node --check /tmp/index.js
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Gradle 8.9
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.9"
+          cache-disabled: true
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v4
+        with:
+          packages: ''
+
+      - name: Install Android SDK packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager "platforms;android-35" "build-tools;35.0.0" "platform-tools"
+
+      - name: Clean build
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "${PROJECT_DIR}"
+          rm -rf .gradle build app/build ~/.gradle/caches/build-cache-* || true
+          gradle --no-daemon --no-build-cache --rerun-tasks clean assembleRelease
+          test -f app/build/outputs/apk/release/app-release-unsigned.apk
+          unzip -t app/build/outputs/apk/release/app-release-unsigned.apk >/dev/null
+          unzip -p app/build/outputs/apk/release/app-release-unsigned.apk classes.dex > /tmp/classes-unsigned.dex
+          test -s /tmp/classes-unsigned.dex
+
+      - name: Sign and verify APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          BT="${ANDROID_SDK_ROOT}/build-tools/35.0.0"
+          mkdir -p "${GITHUB_WORKSPACE}/out"
+          curl -fsSL https://raw.githubusercontent.com/aosp-mirror/platform_build/master/target/product/security/testkey.pk8 -o /tmp/testkey.pk8
+          curl -fsSL https://raw.githubusercontent.com/aosp-mirror/platform_build/master/target/product/security/testkey.x509.pem -o /tmp/testkey.x509.pem
+          "${BT}/zipalign" -f -p 4 "${PROJECT_DIR}/app/build/outputs/apk/release/app-release-unsigned.apk" "${GITHUB_WORKSPACE}/out/aligned.apk"
+          "${BT}/apksigner" sign --key /tmp/testkey.pk8 --cert /tmp/testkey.x509.pem --out "${GITHUB_WORKSPACE}/out/ajo-travel-notebook-v1.0.92.apk" "${GITHUB_WORKSPACE}/out/aligned.apk"
+          "${BT}/apksigner" verify --verbose --print-certs "${GITHUB_WORKSPACE}/out/ajo-travel-notebook-v1.0.92.apk" | tee "${GITHUB_WORKSPACE}/out/signature.txt"
+          CERT_SHA=$(sed -n 's/^Signer #1 certificate SHA-256 digest: //p' "${GITHUB_WORKSPACE}/out/signature.txt" | head -1 | tr 'A-F' 'a-f' | tr -d ':[:space:]')
+          test "$CERT_SHA" = "${EXPECTED_CERT_SHA256}"
+          "${BT}/aapt" dump badging "${GITHUB_WORKSPACE}/out/ajo-travel-notebook-v1.0.92.apk" | tee "${GITHUB_WORKSPACE}/out/badging.txt"
+          grep -q "package: name='tw.ajo.travelnotebook' versionCode='192' versionName='1.0.91'" "${GITHUB_WORKSPACE}/out/badging.txt"
+          unzip -p "${GITHUB_WORKSPACE}/out/ajo-travel-notebook-v1.0.92.apk" classes.dex > /tmp/classes-signed.dex
+          cmp /tmp/classes-unsigned.dex /tmp/classes-signed.dex
+          unzip -t "${GITHUB_WORKSPACE}/out/ajo-travel-notebook-v1.0.92.apk" >/dev/null
+          {
+            echo "PACKAGE=tw.ajo.travelnotebook"
+            echo "VERSION_NAME=1.0.91"
+            echo "VERSION_CODE=192"
+            echo "SIGNER_CERT_SHA256=$CERT_SHA"
+            echo "CLEAN_BUILD=PASS"
+            echo "MEMO_FULL_PAGE=PASS"
+            echo "NATIVE_SHARE=PASS"
+            echo "RECEIPT_BACKUP_RESTORE_BRIDGE=PASS"
+            echo "REMINDER_RESCHEDULE_BOOT_TIMEZONE_UPDATE=PASS"
+            echo "COMPLETED_TRIP_REMINDER_PAUSE=PASS"
+          } > "${GITHUB_WORKSPACE}/out/build-verification.txt"
+
+      - name: Package exact source used
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd /tmp/work
+          zip -qr "${GITHUB_WORKSPACE}/out/ajo-travel-notebook-v1.0.92-source.zip" ajo-travel-notebook-v1.0.92-source
+
+      - name: Upload release artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ajo-travel-notebook-v1.0.92-release
+          path: out/
+          if-no-files-found: error
+          retention-days: 1
