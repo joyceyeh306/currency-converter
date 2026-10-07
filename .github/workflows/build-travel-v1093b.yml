@@ -106,15 +106,15 @@ jobs:
           html=html.replace('<title>自助旅行筆記 v1.0.92</title>','<title>自助旅行筆記 v1.0.93</title>',1)
           anchor='.memo-overview-card{background:#F5F1FA;border-color:#E3D9EF;border-left-color:#B7A1D3}'
           extra='''\n/* v1.0.93: global tabs are trip-level summaries; details open only after choosing a trip. */
-.global-summary-list{display:flex;flex-direction:column;gap:12px}
-.global-trip-summary{display:grid;grid-template-columns:minmax(0,1fr) auto auto;align-items:center;gap:12px;padding:14px 14px 14px 16px;cursor:pointer;border-left:7px solid var(--yellow);min-height:92px}
-.global-trip-summary-main{min-width:0}.global-trip-summary-name{font-size:1rem;line-height:1.35;margin-bottom:5px}.global-trip-summary-sub{font-size:.82rem;color:var(--muted);line-height:1.45;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.global-trip-summary-count{font-size:.8rem;color:var(--muted);white-space:nowrap}.global-trip-summary-arrow{font-size:1.55rem;line-height:1;color:#8a8475;margin-left:1px}.global-trip-summary:active{transform:scale(.995);filter:brightness(.992)}
-.global-trip-summary.summary-alt{background:#FFF9E7;border-color:#E8DFAF;border-left-color:#F0C84A}
-.global-trip-summary.summary-memo{background:#F5F1FA;border-color:#E3D9EF;border-left-color:#B7A1D3}
-.global-trip-summary.summary-reminder{background:#FFF6D6;border-color:#EADDA4;border-left-color:#E9C14B}
-.global-trip-summary.summary-attachment{background:#F1F8FB;border-color:#D9E9F0;border-left-color:#9BC7D9}
-.memo-summary-preview{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.attachment-orphan-list{display:grid;gap:9px}
-'''
+          .global-summary-list{display:flex;flex-direction:column;gap:12px}
+          .global-trip-summary{display:grid;grid-template-columns:minmax(0,1fr) auto auto;align-items:center;gap:12px;padding:14px 14px 14px 16px;cursor:pointer;border-left:7px solid var(--yellow);min-height:92px}
+          .global-trip-summary-main{min-width:0}.global-trip-summary-name{font-size:1rem;line-height:1.35;margin-bottom:5px}.global-trip-summary-sub{font-size:.82rem;color:var(--muted);line-height:1.45;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.global-trip-summary-count{font-size:.8rem;color:var(--muted);white-space:nowrap}.global-trip-summary-arrow{font-size:1.55rem;line-height:1;color:#8a8475;margin-left:1px}.global-trip-summary:active{transform:scale(.995);filter:brightness(.992)}
+          .global-trip-summary.summary-alt{background:#FFF9E7;border-color:#E8DFAF;border-left-color:#F0C84A}
+          .global-trip-summary.summary-memo{background:#F5F1FA;border-color:#E3D9EF;border-left-color:#B7A1D3}
+          .global-trip-summary.summary-reminder{background:#FFF6D6;border-color:#EADDA4;border-left-color:#E9C14B}
+          .global-trip-summary.summary-attachment{background:#F1F8FB;border-color:#D9E9F0;border-left-color:#9BC7D9}
+          .memo-summary-preview{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.attachment-orphan-list{display:grid;gap:9px}
+          '''.replace('\\n          ','\\n')
           if anchor not in html:
               raise SystemExit('CSS anchor missing')
           html=html.replace(anchor,anchor+extra,1)
@@ -125,17 +125,17 @@ jobs:
           idx.write_text(html)
 
           header='''自助旅行筆記 v1.0.93 總覽入口修正版
-基底：v1.0.92 正式版。
-
-本版只整合 2026-10-07 討論確認的總覽頁調整：
-1. 總備選：只顯示每趟旅程的備選總數，點旅程後進入該旅程的備選頁。
-2. 總提醒：只顯示每趟旅程的提醒總數，點旅程後進入該旅程的提醒頁。
-3. 總附件：只顯示每趟旅程的附件總數，點旅程後進入該旅程的附件頁；未分類附件另保留摘要入口。
-4. 總備忘：顯示各旅程備忘摘要，點擊後直接進入該旅程的完整備忘頁，不再跳小型編輯視窗。
-5. 旅程內頁功能與 v1.0.92 的備忘閱讀／編輯模式維持不變。
-6. package 維持 tw.ajo.travelnotebook，versionCode 193，versionName 1.0.93。
-
-'''
+          基底：v1.0.92 正式版。
+          
+          本版只整合 2026-10-07 討論確認的總覽頁調整：
+          1. 總備選：只顯示每趟旅程的備選總數，點旅程後進入該旅程的備選頁。
+          2. 總提醒：只顯示每趟旅程的提醒總數，點旅程後進入該旅程的提醒頁。
+          3. 總附件：只顯示每趟旅程的附件總數，點旅程後進入該旅程的附件頁；未分類附件另保留摘要入口。
+          4. 總備忘：顯示各旅程備忘摘要，點擊後直接進入該旅程的完整備忘頁，不再跳小型編輯視窗。
+          5. 旅程內頁功能與 v1.0.92 的備忘閱讀／編輯模式維持不變。
+          6. package 維持 tw.ajo.travelnotebook，versionCode 193，versionName 1.0.93。
+          
+          '''.replace('\\n          ','\\n')
           readme.write_text(header+readme.read_text())
           PY
 
