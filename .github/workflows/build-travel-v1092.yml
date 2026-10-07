@@ -77,7 +77,7 @@ jobs:
           html = html[:m.start(2)] + js + html[m.end(2):]
           idx.write_text(html)
 
-          b = build.read_text().replace('versionCode 190', 'versionCode 192', 1).replace("versionName '1.0.90'", "versionName '1.0.91'", 1)
+          b = build.read_text().replace('versionCode 190', 'versionCode 192', 1).replace("versionName '1.0.90'", "versionName '1.0.92'", 1)
           build.write_text(b)
 
           r = readme.read_text()
@@ -88,7 +88,7 @@ jobs:
           1. 旅程「備忘」頁的文字輸入區改為自動填滿黃色標題列下方到底部導覽列上方的主要可用空間。
           2. 保留「自動儲存」提示，但不再讓輸入框固定只佔約 55vh；文字很多時可在輸入框內正常捲動。
           3. 其他 v1.0.90 功能、資料結構、配色與操作流程不變。
-          4. package 維持 tw.ajo.travelnotebook，versionCode 192，versionName 1.0.91。
+          4. package 維持 tw.ajo.travelnotebook，versionCode 192，versionName 1.0.92。
 
           '''.replace('\n          ', '\n')
           readme.write_text(header + r)
@@ -108,8 +108,8 @@ jobs:
           appjs=root/'app.js'
 
           js=appjs.read_text()
-          old='''function renderMemo(){const scoped=route.tripId?tripById(route.tripId):null;if(scoped){$('#screen').innerHTML=topbar('備忘',false)+\`<main class="content memo-page-content"><textarea class="note-area" id="memoArea">${esc(scoped.memo||'')}</textarea><div class="savehint">自動儲存</div></main>\`;$('#memoArea').addEventListener('input',e=>{scoped.memo=e.target.value;saveData()});return}'''
-          new='''function renderMemo(){const scoped=route.tripId?tripById(route.tripId):null;if(scoped){$('#screen').innerHTML=topbar('備忘',false)+\`<main class="content memo-page-content"><textarea class="note-area memo-readonly" id="memoArea" readonly>${esc(scoped.memo||'')}</textarea><div class="memo-footer"><div class="savehint">自動儲存</div><button class="tiny yellow" id="memoEditBtn" onclick="toggleMemoEdit()">編輯</button></div></main>\`;const area=$('#memoArea');area.addEventListener('input',e=>{scoped.memo=e.target.value;saveData()});return}'''
+          old='''function renderMemo(){const scoped=route.tripId?tripById(route.tripId):null;if(scoped){$('#screen').innerHTML=topbar('備忘',false)+`<main class="content memo-page-content"><textarea class="note-area" id="memoArea">${esc(scoped.memo||'')}</textarea><div class="savehint">自動儲存</div></main>`;$('#memoArea').addEventListener('input',e=>{scoped.memo=e.target.value;saveData()});return}'''
+          new='''function renderMemo(){const scoped=route.tripId?tripById(route.tripId):null;if(scoped){$('#screen').innerHTML=topbar('備忘',false)+`<main class="content memo-page-content"><textarea class="note-area memo-readonly" id="memoArea" readonly>${esc(scoped.memo||'')}</textarea><div class="memo-footer"><div class="savehint">自動儲存</div><button class="tiny yellow" id="memoEditBtn" onclick="toggleMemoEdit()">編輯</button></div></main>`;const area=$('#memoArea');area.addEventListener('input',e=>{scoped.memo=e.target.value;saveData()});return}'''
           if old not in js:
               raise SystemExit('renderMemo reading-mode target not found')
           js=js.replace(old,new,1)
@@ -137,7 +137,7 @@ jobs:
           cd "${PROJECT_DIR}"
           grep -q "applicationId 'tw.ajo.travelnotebook'" app/build.gradle
           grep -q "versionCode 192" app/build.gradle
-          grep -q "versionName '1.0.91'" app/build.gradle
+          grep -q "versionName '1.0.92'" app/build.gradle
           grep -q "memo-page-content" app/src/main/assets/index.html
           grep -q 'id="memoArea" readonly' app/src/main/assets/index.html
           grep -q "toggleMemoEdit" app/src/main/assets/index.html
@@ -214,13 +214,13 @@ jobs:
           CERT_SHA=$(sed -n 's/^Signer #1 certificate SHA-256 digest: //p' "${GITHUB_WORKSPACE}/out/signature.txt" | head -1 | tr 'A-F' 'a-f' | tr -d ':[:space:]')
           test "$CERT_SHA" = "${EXPECTED_CERT_SHA256}"
           "${BT}/aapt" dump badging "${GITHUB_WORKSPACE}/out/ajo-travel-notebook-v1.0.92.apk" | tee "${GITHUB_WORKSPACE}/out/badging.txt"
-          grep -q "package: name='tw.ajo.travelnotebook' versionCode='192' versionName='1.0.91'" "${GITHUB_WORKSPACE}/out/badging.txt"
+          grep -q "package: name='tw.ajo.travelnotebook' versionCode='192' versionName='1.0.92'" "${GITHUB_WORKSPACE}/out/badging.txt"
           unzip -p "${GITHUB_WORKSPACE}/out/ajo-travel-notebook-v1.0.92.apk" classes.dex > /tmp/classes-signed.dex
           cmp /tmp/classes-unsigned.dex /tmp/classes-signed.dex
           unzip -t "${GITHUB_WORKSPACE}/out/ajo-travel-notebook-v1.0.92.apk" >/dev/null
           {
             echo "PACKAGE=tw.ajo.travelnotebook"
-            echo "VERSION_NAME=1.0.91"
+            echo "VERSION_NAME=1.0.92"
             echo "VERSION_CODE=192"
             echo "SIGNER_CERT_SHA256=$CERT_SHA"
             echo "CLEAN_BUILD=PASS"
