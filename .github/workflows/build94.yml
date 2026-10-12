@@ -19,7 +19,8 @@ jobs:
           unzip -q source.zip
           unzip -q baseline.zip -d baseline
           mkdir -p out
-          cp source.zip out/TravelNotebook_v1.0.94_source.zip
+          cp verification/SmokeInstrumentation.java travel-v1094/app/src/androidTest/java/tw/ajo/travelnotebook/SmokeInstrumentation.java
+          zip -qr out/TravelNotebook_v1.0.94_source.zip travel-v1094
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
@@ -93,6 +94,8 @@ jobs:
             adb shell pm grant tw.ajo.travelnotebook android.permission.POST_NOTIFICATIONS
             adb shell am instrument -w -e mode seed tw.ajo.travelnotebook.test/tw.ajo.travelnotebook.SmokeInstrumentation | tee out/emulator-seed.txt
             grep -q 'PASS seed Android 36' out/emulator-seed.txt
+            adb shell am instrument -w -e mode baselineCheck tw.ajo.travelnotebook.test/tw.ajo.travelnotebook.SmokeInstrumentation | tee out/emulator-baseline.txt
+            grep -q 'PASS baselineCheck Android 36' out/emulator-baseline.txt
             adb shell am force-stop tw.ajo.travelnotebook
             adb install -r out/TravelNotebook_v1.0.94.apk
             adb shell am instrument -w -e mode verify tw.ajo.travelnotebook.test/tw.ajo.travelnotebook.SmokeInstrumentation | tee out/emulator-upgrade.txt
