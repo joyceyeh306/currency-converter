@@ -1,0 +1,116 @@
+name: Travel Notebook v1.0.94 repair and upgrade verification
+on:
+  push:
+    branches: [travel-v1094-health-fixes]
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Restore exact source archives
+        run: |
+          set -euo pipefail
+          cat payload/source.* | base64 -d > source.zip
+          cat payload/baseline.* | base64 -d > baseline.zip
+          sha256sum -c payload/SHA256SUMS
+          unzip -q source.zip
+          unzip -q baseline.zip -d baseline
+          mkdir -p out
+          cp source.zip out/TravelNotebook_v1.0.94_source.zip
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: JavaScript regression tests
+        run: |
+          set -euo pipefail
+          cd travel-v1094
+          npm install --prefix tests --ignore-scripts --no-audit --no-fund fake-indexeddb@6.2.5
+          node --check app.js
+          node tests/regression.cjs
+          cp tests/results.json ../out/regression-results.json
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+          cache-disabled: true
+      - uses: android-actions/setup-android@v4
+        with:
+          packages: ''
+      - name: Install build SDK
+        run: sdkmanager 'platforms;android-35' 'build-tools;35.0.0' 'platform-tools'
+      - name: Clean source builds
+        run: |
+          set -euo pipefail
+          cd baseline/ajo-travel-notebook-v1.0.93-source
+          gradle --no-daemon --no-build-cache --rerun-tasks clean assembleRelease
+          cd ../../travel-v1094
+          gradle --no-daemon --no-build-cache --rerun-tasks clean assembleRelease assembleDebugAndroidTest
+      - name: Sign with existing certificate and verify exact APK assets
+        run: |
+          set -euo pipefail
+          BT="$ANDROID_SDK_ROOT/build-tools/35.0.0"
+          curl -fsSL https://raw.githubusercontent.com/aosp-mirror/platform_build/master/target/product/security/testkey.pk8 -o /tmp/testkey.pk8
+          curl -fsSL https://raw.githubusercontent.com/aosp-mirror/platform_build/master/target/product/security/testkey.x509.pem -o /tmp/testkey.pem
+          sign() {
+            "$BT/zipalign" -f -p 4 "$1" /tmp/aligned.apk
+            "$BT/apksigner" sign --key /tmp/testkey.pk8 --cert /tmp/testkey.pem --out "$2" /tmp/aligned.apk
+            "$BT/apksigner" verify --verbose --print-certs "$2" > "$2.signature.txt"
+            grep -q 'a40da80a59d170caa950cf15c18c454d47a39b26989d8b640ecd745ba71bf5dc' "$2.signature.txt"
+          }
+          sign baseline/ajo-travel-notebook-v1.0.93-source/app/build/outputs/apk/release/app-release-unsigned.apk /tmp/baseline.apk
+          sign travel-v1094/app/build/outputs/apk/release/app-release-unsigned.apk out/TravelNotebook_v1.0.94.apk
+          sign travel-v1094/app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk /tmp/smoke-test.apk
+          "$BT/aapt" dump badging out/TravelNotebook_v1.0.94.apk > out/badging.txt
+          grep -q "package: name='tw.ajo.travelnotebook' versionCode='194' versionName='1.0.94'" out/badging.txt
+          unzip -p out/TravelNotebook_v1.0.94.apk assets/index.html > /tmp/packaged-index.html
+          cmp /tmp/packaged-index.html travel-v1094/app/src/main/assets/index.html
+          unzip -p out/TravelNotebook_v1.0.94.apk classes.dex > /tmp/signed.dex
+          unzip -p travel-v1094/app/build/outputs/apk/release/app-release-unsigned.apk classes.dex > /tmp/unsigned.dex
+          cmp /tmp/signed.dex /tmp/unsigned.dex
+          sha256sum out/TravelNotebook_v1.0.94.apk out/TravelNotebook_v1.0.94_source.zip > out/SHA256SUMS
+      - name: Enable emulator acceleration
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Android 16 upgrade and WebView smoke test
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 36
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          disable-animations: true
+          script: |
+            adb install -r /tmp/baseline.apk
+            adb install -r /tmp/smoke-test.apk
+            adb shell pm grant tw.ajo.travelnotebook android.permission.POST_NOTIFICATIONS
+            adb shell am instrument -w -e mode seed tw.ajo.travelnotebook.test/tw.ajo.travelnotebook.SmokeInstrumentation | tee out/emulator-seed.txt
+            grep -q 'PASS seed Android 36' out/emulator-seed.txt
+            adb shell am force-stop tw.ajo.travelnotebook
+            adb install -r out/TravelNotebook_v1.0.94.apk
+            adb shell am instrument -w -e mode verify tw.ajo.travelnotebook.test/tw.ajo.travelnotebook.SmokeInstrumentation | tee out/emulator-upgrade.txt
+            grep -q 'PASS verify Android 36' out/emulator-upgrade.txt
+            adb logcat -d -s AndroidRuntime > out/android-runtime.txt
+      - name: Record build verification
+        run: |
+          python3 - <<'PY'
+          import json,pathlib
+          p=pathlib.Path('out')
+          t=json.loads((p/'regression-results.json').read_text())
+          assert all(x['status']=='PASS' for x in t['tests'])
+          (p/'build-verification.txt').write_text('PACKAGE=tw.ajo.travelnotebook\nVERSION_NAME=1.0.94\nVERSION_CODE=194\nCLEAN_SOURCE_BUILD=PASS\nAPK_ASSET_MATCH=PASS\nSIGNER_MATCH_V193=PASS\nJS_REGRESSION='+str(len(t['tests']))+' PASS\nANDROID_16_UPGRADE_SMOKE=PASS\nOPPO_PHYSICAL_DEVICE=NOT_TESTED\n')
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: travel-v1094-release
+          path: out/
+          retention-days: 30
+          if-no-files-found: error
