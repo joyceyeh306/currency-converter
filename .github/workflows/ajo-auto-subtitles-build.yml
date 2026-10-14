@@ -1,0 +1,16 @@
+name: Ajo Auto Subtitles Android Build
+on:
+  push:
+    branches: [ajo-auto-subtitles-build]
+  workflow_dispatch:
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test execution
+        run: echo test-ci-ok > verify.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: test-subtitle
+          path: verify.txt
