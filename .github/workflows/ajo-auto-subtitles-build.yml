@@ -33,11 +33,15 @@ jobs:
               tar.extractall(target, filter='data')
           print('Source archive rebuilt; files:', len(list(target.rglob('*'))))
           PY
-      - name: Install Android SDK 35
+      - name: Set compile SDK 36
+        run: |
+          sed -i 's/compileSdk 35/compileSdk 36/' subtitle-build-work/app/build.gradle
+          echo 'android.suppressUnsupportedCompileSdk=36' >> subtitle-build-work/gradle.properties
+      - name: Install Android SDK 36
         run: |
           SDKMANAGER=$(find "$ANDROID_HOME/cmdline-tools" -name sdkmanager -type f | sort -V | tail -1)
           echo "Using SDK Manager: $SDKMANAGER"
-          yes | "$SDKMANAGER" 'platforms;android-35' 'build-tools;35.0.0' || test "${PIPESTATUS[1]}" -eq 0
+          yes | "$SDKMANAGER" 'platforms;android-36' 'build-tools;35.0.0' || test "${PIPESTATUS[1]}" -eq 0
       - name: Assemble debug APK
         run: gradle -p subtitle-build-work :app:assembleDebug --stacktrace --no-daemon
       - name: Upload installable APK
