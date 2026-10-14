@@ -42,7 +42,7 @@ jobs:
           import base64,brotli,hashlib,pathlib
           encoded=pathlib.Path('subtitle-build-payload/v006patch.txt').read_text().strip()
           data=brotli.decompress(base64.b64decode(encoded,validate=True))
-          assert hashlib.sha256(data).hexdigest()=='bf653132f0e74f8c371fdb57197893fd62cd9d86c1fd176d0329b9418adedb6f'
+          assert hashlib.sha256(data).hexdigest()=='b58df0f91d38c1232eb23d5b63823ba5b82d4beb612d1a665ba167d94bbcd66d'
           pathlib.Path('v006.patch').write_bytes(data)
           PY
           cd subtitle-build-work
