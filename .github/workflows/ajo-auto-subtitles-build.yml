@@ -1,7 +1,7 @@
-name: Ajo Autosub 003 Installation Fix
+name: Ajo Autosub 004 Android Build
 on:
   push:
-    branches: [ajo-autosub-003-install-fix]
+    branches: [ajo-autosub-004-build]
   workflow_dispatch:
 permissions:
   contents: read
@@ -18,132 +18,54 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.11.1'
-      - name: Reconstruct exact source archive
+      - name: Reconstruct verified v004 source
         run: |
           python3 -m pip install brotli
           python3 - <<'PY'
-          import base64, brotli, hashlib, io, pathlib, tarfile
-          payload = ''.join(pathlib.Path(f'subtitle-build-payload/p{i:02d}.txt').read_text() for i in range(5))
-          data = brotli.decompress(base64.b64decode(payload, validate=True))
-          expected = '01ec58eec826db374424ee1498263c9d4029508f12bf47a16cfbe406a94ca6ca'
-          assert hashlib.sha256(base64.b64decode(payload)).hexdigest() == expected, "Payload SHA256 mismatch"
-          target = pathlib.Path('subtitle-build-work')
-          target.mkdir(exist_ok=True)
-          with tarfile.open(fileobj=io.BytesIO(data)) as tar:
-              tar.extractall(target, filter='data')
-          print('Source archive rebuilt; files:', len(list(target.rglob('*'))))
+          import base64,brotli,hashlib,io,pathlib,tarfile
+          payload=''.join(pathlib.Path(f'subtitle-build-payload/v004p{i}.txt').read_text() for i in range(3))
+          binary=brotli.decompress(base64.b64decode(payload,validate=True))
+          expected='493f16fcc7c764e2063dd775745b7aa3dba4f27cf2cf5d4756bb68778563ef7c'
+          assert hashlib.sha256(binary).hexdigest()==expected, 'v004 source archive digest mismatch'
+          target=pathlib.Path('subtitle-build-work')
+          target.mkdir()
+          with tarfile.open(fileobj=io.BytesIO(binary)) as t:
+              t.extractall(target,filter='data')
+          print('Verified v004 source tree')
           PY
-      - name: Set compile SDK 36
+      - name: Generate TEMPORARY signing key for compilation only
         run: |
-          sed -i 's/compileSdk 35/compileSdk 36/' subtitle-build-work/app/build.gradle
-          echo 'android.suppressUnsupportedCompileSdk=36' >> subtitle-build-work/gradle.properties
-      - name: Apply subtitles v002 changes
-        run: |
-          python3 - <<'PY'
-          import base64, brotli, hashlib, pathlib
-          encoded = ''.join(pathlib.Path(f'subtitle-build-payload/002delta{i}.txt').read_text() for i in range(2))
-          patch = brotli.decompress(base64.b64decode(encoded, validate=True))
-          assert hashlib.sha256(patch).hexdigest() == '0b30f557869276f6ff5ce61f2fa55b45a894f0ac99c58ef53081926b790b5d11', 'v002 patch digest mismatch'
-          pathlib.Path('002.patch').write_bytes(patch)
-          print('v002 patch verified:', len(patch), 'bytes')
-          PY
-          cd subtitle-build-work
-          git apply --check ../002.patch
-          git apply ../002.patch
-          grep -F "versionName '002'" app/build.gradle
-          grep -F 'preferOffline.setChecked(false)' app/src/main/java/tw/ajo/autosubtitles/MainActivity.java
-      - name: Make v003 installable alongside v001
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          root=Path('subtitle-build-work')
-          gradle=root/'app/build.gradle'
-          s=gradle.read_text()
-          changes={
-            "applicationId 'tw.ajo.autosubtitles'": "applicationId 'tw.ajo.autosubtitles.next'",
-            "versionCode 2": "versionCode 3",
-            "versionName '002'": "versionName '003'"
-          }
-          for old,new in changes.items():
-            assert s.count(old)==1, (old,s.count(old))
-            s=s.replace(old,new)
-          gradle.write_text(s)
-          manifest=root/'app/src/main/AndroidManifest.xml'
-          m=manifest.read_text()
-          assert m.count('android:label="ㄚ喬自動字幕"')==1
-          manifest.write_text(m.replace('android:label="ㄚ喬自動字幕"', 'android:label="ㄚ喬自動字幕 003"'))
-          (root/'README.md').write_text(
-            '# ㄚ喬自動字幕 003（安裝衝突修正版）\\n\\n'
-            '此版使用 tw.ajo.autosubtitles.next，避免與已安裝的 001 版發生不同簽章衝突。\\n'
-            '它是獨立 App，不會自動帶入原 App 的字幕資料。\\n'
-            '往後版號 004、005 必須保持相同 applicationId，並使用隨 ZIP 保留的 signing/ajo-autosub-signing.keystore 進行簽章，方能覆蓋更新。\\n'
-            '簽章備份屬私人金鑰，請勿公開上傳。此版為測試用途，尚待 OPPO 實機驗證。\\n',
-            encoding='utf-8')
-          print('applicationId=tw.ajo.autosubtitles.next versionCode=3 versionName=003')
-          PY
-      - name: Generate and preserve v003 signing certificate
-        run: |
-          mkdir -p "$HOME/.android" subtitle-build-work/signing
-          rm -f "$HOME/.android/debug.keystore"
-          keytool -genkeypair -keystore "$HOME/.android/debug.keystore" -storepass android -keypass android -alias androiddebugkey -keyalg RSA -keysize 3072 -validity 10000 -dname "CN=AjoAutosub003,O=Personal App,C=TW" -noprompt
-          cp "$HOME/.android/debug.keystore" subtitle-build-work/signing/ajo-autosub-signing.keystore
-          python3 - <<'PY'
-          from pathlib import Path
-          p=Path('subtitle-build-work/app/build.gradle')
-          text=p.read_text()
-          assert text.count('android {')==1
-          text=text.replace('android {', """android {
-              signingConfigs {
-                  debug {
-                      storeFile file('../signing/ajo-autosub-signing.keystore')
-                      storePassword 'android'
-                      keyAlias 'androiddebugkey'
-                      keyPassword 'android'
-                  }
-              }
-          """, 1)
-          p.write_text(text)
-          PY
-          cat > subtitle-build-work/signing/README.txt <<'TXT'
-          This is the PRIVATE Android signing key for ajo-autosub 003 and future updates.
-          Keep this file private. Do NOT upload it to a public GitHub repository.
-          Debug keystore alias: androiddebugkey
-          Debug keystore passwords: android / android
-          Android applicationId: tw.ajo.autosubtitles.next
-          TXT
-      - name: Compile subtitle core classes
+          mkdir -p subtitle-build-work/signing
+          keytool -genkeypair -keystore subtitle-build-work/signing/ajo-autosub-signing.keystore -storepass android -keypass android -alias androiddebugkey -keyalg RSA -keysize 3072 -validity 9000 -dname "CN=TemporaryBuild,O=Ajo,C=TW" -noprompt
+          echo 'NOTICE: The APK will be RESIGNED locally with the preserved private v003 keystore before delivery.'
+      - name: Test subtitle timing and quality
         run: |
           cd subtitle-build-work
-          mkdir -p build/verify
-          javac -encoding UTF-8 -d build/verify app/src/main/java/tw/ajo/autosubtitles/Caption.java app/src/main/java/tw/ajo/autosubtitles/SrtCodec.java app/src/main/java/tw/ajo/autosubtitles/CaptionSplitter.java
+          mkdir -p tests/build
+          javac -encoding UTF-8 -d tests/build app/src/main/java/tw/ajo/autosubtitles/Caption.java app/src/main/java/tw/ajo/autosubtitles/CaptionSplitter.java app/src/main/java/tw/ajo/autosubtitles/SpeechTiming.java app/src/main/java/tw/ajo/autosubtitles/ExportQuality.java app/src/main/java/tw/ajo/autosubtitles/SrtCodec.java tests/CoreTests.java
+          java -cp tests/build CoreTests
       - name: Install Android SDK 36
         run: |
           SDKMANAGER=$(find "$ANDROID_HOME/cmdline-tools" -name sdkmanager -type f | sort -V | tail -1)
-          echo "Using SDK Manager: $SDKMANAGER"
           yes | "$SDKMANAGER" 'platforms;android-36' 'build-tools;35.0.0' || test "${PIPESTATUS[1]}" -eq 0
-      - name: Assemble debug APK
+      - name: Build temporary debug APK
         run: gradle -p subtitle-build-work :app:assembleDebug --stacktrace --no-daemon
-      - name: Upload installable APK
+      - name: Upload APK for LOCAL re-signing
         uses: actions/upload-artifact@v4
         with:
-          name: ajo-autosub_003-apk
+          name: ajo-autosub_004-temporary-apk
           path: subtitle-build-work/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
-      - name: Verify signed APK and create complete source ZIP
+      - name: Package public Android APK signer tool
         run: |
-          APKSIGNER=$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort -V | tail -1)
-          "$APKSIGNER" verify --verbose --print-certs subtitle-build-work/app/build/outputs/apk/debug/app-debug.apk
-          keytool -exportcert -alias androiddebugkey -keystore subtitle-build-work/signing/ajo-autosub-signing.keystore -storepass android > signer.der
-          EXPECTED=$(openssl dgst -sha256 signer.der | awk '{print $2}')
-          ACTUAL=$("$APKSIGNER" verify --print-certs subtitle-build-work/app/build/outputs/apk/debug/app-debug.apk | grep 'certificate SHA-256 digest' | head -1 | sed -E 's/.*digest: //' | tr -d '\r\n')
-          echo "Keystore signer: $EXPECTED"
-          echo "APK signer: $ACTUAL"
-          test "$EXPECTED" = "$ACTUAL"
-          cd subtitle-build-work
-          zip -qr ../ajo-autosub_003.zip app/src app/build.gradle build.gradle settings.gradle gradle.properties .github README.md signing
-      - name: Upload complete source ZIP
+          mkdir -p android-apksigner-tool/lib
+          cp "$ANDROID_HOME/build-tools/35.0.0/apksigner" android-apksigner-tool/
+          cp "$ANDROID_HOME"/build-tools/35.0.0/lib/* android-apksigner-tool/lib/
+          chmod +x android-apksigner-tool/apksigner
+          echo 'Packaged apksigner without any private key'
+      - name: Upload signer utility
         uses: actions/upload-artifact@v4
         with:
-          name: ajo-autosub_003-source
-          path: ajo-autosub_003.zip
+          name: android-apksigner-tool
+          path: android-apksigner-tool/
           if-no-files-found: error
