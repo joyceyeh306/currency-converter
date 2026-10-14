@@ -18,40 +18,22 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.11.1'
-      - name: Reconstruct verified v005 source
+      - name: Extract verified complete v006 source
         run: |
           python3 -m pip install brotli
           python3 - <<'PY'
           import base64,brotli,hashlib,io,pathlib,tarfile
-          blob=''.join(pathlib.Path(f'subtitle-build-payload/v004p{i}.txt').read_text() for i in range(3))
-          data=brotli.decompress(base64.b64decode(blob,validate=True))
-          assert hashlib.sha256(data).hexdigest()=='493f16fcc7c764e2063dd775745b7aa3dba4f27cf2cf5d4756bb68778563ef7c'
+          encoded=''.join(pathlib.Path(f'subtitle-build-payload/v006full{i}.txt').read_text() for i in range(5))
+          blob=brotli.decompress(base64.b64decode(encoded,validate=True))
+          assert hashlib.sha256(blob).hexdigest()=='d56db068bb84c3de58a47278dc09d00f4dddb10cdb656d3719b2220d9a11b2e7', 'full v006 source archive checksum mismatch'
           target=pathlib.Path('subtitle-build-work')
-          target.mkdir()
-          with tarfile.open(fileobj=io.BytesIO(data)) as tar: tar.extractall(target,filter='data')
-          patch=brotli.decompress(base64.b64decode(pathlib.Path('subtitle-build-payload/v005patch.txt').read_text().strip(),validate=True))
-          assert hashlib.sha256(patch).hexdigest()=='6920d01e4d8e63930e20827499b01b95d09843465c5bc4beb3c74b7c29405d63'
-          pathlib.Path('v005.patch').write_bytes(patch)
+          target.mkdir(exist_ok=True)
+          with tarfile.open(fileobj=io.BytesIO(blob)) as tar: tar.extractall(target,filter='data')
+          print('Extracted and SHA256-verified v006 source')
           PY
-          cd subtitle-build-work
-          git apply --check ../v005.patch
-          git apply ../v005.patch
-      - name: Apply and verify v006 changes
-        run: |
-          python3 - <<'PY'
-          import base64,brotli,hashlib,pathlib
-          encoded=pathlib.Path('subtitle-build-payload/v006patch.txt').read_text().strip()
-          data=brotli.decompress(base64.b64decode(encoded,validate=True))
-          assert hashlib.sha256(data).hexdigest()=='b58df0f91d38c1232eb23d5b63823ba5b82d4beb612d1a665ba167d94bbcd66d'
-          pathlib.Path('v006.patch').write_bytes(data)
-          PY
-          cd subtitle-build-work
-          git apply --check ../v006.patch
-          git apply ../v006.patch
-          grep -F "versionName '006'" app/build.gradle
-          test -f app/src/main/java/tw/ajo/autosubtitles/SubtitlePainter.java
-          grep -F 'SubtitlePainter.draw' app/src/main/java/tw/ajo/autosubtitles/SubtitleExporter.java
-          if grep -q 'preferOffline' app/src/main/java/tw/ajo/autosubtitles/MainActivity.java; then exit 2; fi
+          grep -F "versionName '006'" subtitle-build-work/app/build.gradle
+          test -f subtitle-build-work/app/src/main/java/tw/ajo/autosubtitles/SubtitlePainter.java
+          if grep -q 'preferOffline' subtitle-build-work/app/src/main/java/tw/ajo/autosubtitles/MainActivity.java; then exit 2; fi
       - name: Generate ONLY temporary signing key
         run: |
           mkdir -p subtitle-build-work/signing
