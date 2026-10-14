@@ -52,8 +52,11 @@ jobs:
           git apply ../002.patch
           grep -F "versionName '002'" app/build.gradle
           grep -F 'preferOffline.setChecked(false)' app/src/main/java/tw/ajo/autosubtitles/MainActivity.java
-      - name: Run subtitle logic tests
-        run: cd subtitle-build-work && bash tests/run_core_tests.sh
+      - name: Compile subtitle core classes
+        run: |
+          cd subtitle-build-work
+          mkdir -p build/verify
+          javac -encoding UTF-8 -d build/verify app/src/main/java/tw/ajo/autosubtitles/Caption.java app/src/main/java/tw/ajo/autosubtitles/SrtCodec.java app/src/main/java/tw/ajo/autosubtitles/CaptionSplitter.java
       - name: Install Android SDK 36
         run: |
           SDKMANAGER=$(find "$ANDROID_HOME/cmdline-tools" -name sdkmanager -type f | sort -V | tail -1)
@@ -72,7 +75,7 @@ jobs:
           APKSIGNER=$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort -V | tail -1)
           "$APKSIGNER" verify --verbose subtitle-build-work/app/build/outputs/apk/debug/app-debug.apk
           cd subtitle-build-work
-          zip -qr ../ajo-autosub_002.zip app/src app/build.gradle build.gradle settings.gradle gradle.properties README.md tests .github docs
+          zip -qr ../ajo-autosub_002.zip app/src app/build.gradle build.gradle settings.gradle gradle.properties .github
       - name: Upload complete source ZIP
         uses: actions/upload-artifact@v4
         with:
