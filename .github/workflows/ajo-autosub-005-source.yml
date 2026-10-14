@@ -1,0 +1,44 @@
+name: Ajo Autosub 005 Source Archive
+on:
+  push:
+    branches: [ajo-autosub-005-build]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  source:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - name: Reconstruct exact 005 build source
+        run: |
+          python3 -m pip install brotli
+          python3 - <<'PY'
+          import base64,brotli,hashlib,io,pathlib,tarfile
+          blob=''.join(pathlib.Path(f'subtitle-build-payload/v004p{i}.txt').read_text() for i in range(3))
+          data=brotli.decompress(base64.b64decode(blob,validate=True))
+          assert hashlib.sha256(data).hexdigest()=='493f16fcc7c764e2063dd775745b7aa3dba4f27cf2cf5d4756bb68778563ef7c'
+          target=pathlib.Path('source')
+          target.mkdir()
+          with tarfile.open(fileobj=io.BytesIO(data)) as tar:
+              tar.extractall(target, filter='data')
+          patch=brotli.decompress(base64.b64decode(pathlib.Path('subtitle-build-payload/v005patch.txt').read_text().strip(),validate=True))
+          assert hashlib.sha256(patch).hexdigest()=='6920d01e4d8e63930e20827499b01b95d09843465c5bc4beb3c74b7c29405d63'
+          pathlib.Path('005.patch').write_bytes(patch)
+          PY
+          cd source
+          git apply --check ../005.patch
+          git apply ../005.patch
+          grep -F "versionName '005'" app/build.gradle
+      - name: Package exact build source without private key
+        run: |
+          cd source
+          zip -qr ../source005.zip app build.gradle settings.gradle gradle.properties tests README.md .github -x '*/build/*'
+          unzip -l ../source005.zip | tail -2
+      - name: Upload source archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: ajo-autosub_005-source-public
+          path: source005.zip
+          if-no-files-found: error
