@@ -31,6 +31,7 @@ jobs:
           with tarfile.open(fileobj=io.BytesIO(blob)) as tar: tar.extractall(target,filter='data')
           print('Extracted and SHA256-verified v006 source')
           PY
+          sed -i 's/this::syncPreviewOverlayBounds/MainActivity.this::syncPreviewOverlayBounds/g' subtitle-build-work/app/src/main/java/tw/ajo/autosubtitles/MainActivity.java
           grep -F "versionName '006'" subtitle-build-work/app/build.gradle
           test -f subtitle-build-work/app/src/main/java/tw/ajo/autosubtitles/SubtitlePainter.java
           if grep -q 'preferOffline' subtitle-build-work/app/src/main/java/tw/ajo/autosubtitles/MainActivity.java; then exit 2; fi
