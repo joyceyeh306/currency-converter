@@ -37,6 +37,23 @@ jobs:
         run: |
           sed -i 's/compileSdk 35/compileSdk 36/' subtitle-build-work/app/build.gradle
           echo 'android.suppressUnsupportedCompileSdk=36' >> subtitle-build-work/gradle.properties
+      - name: Apply subtitles v002 changes
+        run: |
+          python3 - <<'PY'
+          import base64, brotli, hashlib, pathlib
+          encoded = ''.join(pathlib.Path(f'subtitle-build-payload/002delta{i}.txt').read_text() for i in range(2))
+          patch = brotli.decompress(base64.b64decode(encoded, validate=True))
+          assert hashlib.sha256(patch).hexdigest() == '0b30f557869276f6ff5ce61f2fa55b45a894f0ac99c58ef53081926b790b5d11', 'v002 patch digest mismatch'
+          pathlib.Path('002.patch').write_bytes(patch)
+          print('v002 patch verified:', len(patch), 'bytes')
+          PY
+          cd subtitle-build-work
+          git apply --check ../002.patch
+          git apply ../002.patch
+          grep -F "versionName '002'" app/build.gradle
+          grep -F 'preferOffline.setChecked(false)' app/src/main/java/tw/ajo/autosubtitles/MainActivity.java
+      - name: Run subtitle logic tests
+        run: cd subtitle-build-work && bash tests/run_core_tests.sh
       - name: Install Android SDK 36
         run: |
           SDKMANAGER=$(find "$ANDROID_HOME/cmdline-tools" -name sdkmanager -type f | sort -V | tail -1)
@@ -47,6 +64,18 @@ jobs:
       - name: Upload installable APK
         uses: actions/upload-artifact@v4
         with:
-          name: ajo-auto-subtitles-v1.0.0-alpha01-apk
+          name: ajo-autosub_002-apk
           path: subtitle-build-work/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+      - name: Verify signed APK and create complete source ZIP
+        run: |
+          APKSIGNER=$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort -V | tail -1)
+          "$APKSIGNER" verify --verbose subtitle-build-work/app/build/outputs/apk/debug/app-debug.apk
+          cd subtitle-build-work
+          zip -qr ../ajo-autosub_002.zip app/src app/build.gradle build.gradle settings.gradle gradle.properties README.md tests .github docs
+      - name: Upload complete source ZIP
+        uses: actions/upload-artifact@v4
+        with:
+          name: ajo-autosub_002-source
+          path: ajo-autosub_002.zip
           if-no-files-found: error
