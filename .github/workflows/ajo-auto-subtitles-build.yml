@@ -1,7 +1,7 @@
-name: Ajo Auto Subtitles Android Build
+name: Ajo Autosub 003 Installation Fix
 on:
   push:
-    branches: [ajo-auto-subtitles-build]
+    branches: [ajo-autosub-003-install-fix]
   workflow_dispatch:
 permissions:
   contents: read
@@ -52,6 +52,48 @@ jobs:
           git apply ../002.patch
           grep -F "versionName '002'" app/build.gradle
           grep -F 'preferOffline.setChecked(false)' app/src/main/java/tw/ajo/autosubtitles/MainActivity.java
+      - name: Make v003 installable alongside v001
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          root=Path('subtitle-build-work')
+          gradle=root/'app/build.gradle'
+          s=gradle.read_text()
+          changes={
+            "applicationId 'tw.ajo.autosubtitles'": "applicationId 'tw.ajo.autosubtitles.next'",
+            "versionCode 2": "versionCode 3",
+            "versionName '002'": "versionName '003'"
+          }
+          for old,new in changes.items():
+            assert s.count(old)==1, (old,s.count(old))
+            s=s.replace(old,new)
+          gradle.write_text(s)
+          manifest=root/'app/src/main/AndroidManifest.xml'
+          m=manifest.read_text()
+          assert m.count('android:label="ㄚ喬自動字幕"')==1
+          manifest.write_text(m.replace('android:label="ㄚ喬自動字幕"', 'android:label="ㄚ喬自動字幕 003"'))
+          (root/'README.md').write_text(
+            '# ㄚ喬自動字幕 003（安裝衝突修正版）\\n\\n'
+            '此版使用 tw.ajo.autosubtitles.next，避免與已安裝的 001 版發生不同簽章衝突。\\n'
+            '它是獨立 App，不會自動帶入原 App 的字幕資料。\\n'
+            '往後版號 004、005 必須保持相同 applicationId，並使用隨 ZIP 保留的 signing/ajo-autosub-signing.keystore 進行簽章，方能覆蓋更新。\\n'
+            '簽章備份屬私人金鑰，請勿公開上傳。此版為測試用途，尚待 OPPO 實機驗證。\\n',
+            encoding='utf-8')
+          print('applicationId=tw.ajo.autosubtitles.next versionCode=3 versionName=003')
+          PY
+      - name: Generate and preserve v003 signing certificate
+        run: |
+          mkdir -p "$HOME/.android" subtitle-build-work/signing
+          rm -f "$HOME/.android/debug.keystore"
+          keytool -genkeypair -keystore "$HOME/.android/debug.keystore" -storepass android -keypass android -alias androiddebugkey -keyalg RSA -keysize 3072 -validity 10000 -dname "CN=AjoAutosub003,O=Personal App,C=TW" -noprompt
+          cp "$HOME/.android/debug.keystore" subtitle-build-work/signing/ajo-autosub-signing.keystore
+          cat > subtitle-build-work/signing/README.txt <<'TXT'
+          This is the PRIVATE Android signing key for ajo-autosub 003 and future updates.
+          Keep this file private. Do NOT upload it to a public GitHub repository.
+          Debug keystore alias: androiddebugkey
+          Debug keystore passwords: android / android
+          Android applicationId: tw.ajo.autosubtitles.next
+          TXT
       - name: Compile subtitle core classes
         run: |
           cd subtitle-build-work
@@ -67,18 +109,18 @@ jobs:
       - name: Upload installable APK
         uses: actions/upload-artifact@v4
         with:
-          name: ajo-autosub_002-apk
+          name: ajo-autosub_003-apk
           path: subtitle-build-work/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
       - name: Verify signed APK and create complete source ZIP
         run: |
           APKSIGNER=$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort -V | tail -1)
-          "$APKSIGNER" verify --verbose subtitle-build-work/app/build/outputs/apk/debug/app-debug.apk
+          "$APKSIGNER" verify --verbose --print-certs subtitle-build-work/app/build/outputs/apk/debug/app-debug.apk
           cd subtitle-build-work
-          zip -qr ../ajo-autosub_002.zip app/src app/build.gradle build.gradle settings.gradle gradle.properties .github
+          zip -qr ../ajo-autosub_003.zip app/src app/build.gradle build.gradle settings.gradle gradle.properties .github README.md signing
       - name: Upload complete source ZIP
         uses: actions/upload-artifact@v4
         with:
-          name: ajo-autosub_002-source
+          name: ajo-autosub_003-source
           path: ajo-autosub_002.zip
           if-no-files-found: error
