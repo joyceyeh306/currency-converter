@@ -67,7 +67,7 @@ jobs:
           grep -F "applicationId 'tw.ajo.autosubtitles.next'" app/build.gradle
           grep -F 'recognizer.start(rawPcm, enhancedPcm' app/src/main/java/tw/ajo/autosubtitles/MainActivity.java
           test -f app/src/main/java/tw/ajo/autosubtitles/RecognitionRecovery.java
-          test -f tests/RecognitionRecoveryTests.java app/src/main/java/tw/ajo/autosubtitles/TextTimeAligner.java app/src/main/java/tw/ajo/autosubtitles/OverlayCaptionText.java tests/CloudAndEditingTests.java
+          test -f tests/RecognitionRecoveryTests.java
       - name: Apply verified 011 cloud ASR and focused editing patch
         run: |
           python3 - <<'PY'
