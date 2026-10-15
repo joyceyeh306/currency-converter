@@ -80,6 +80,15 @@ jobs:
           cd subtitle-build-work
           patch --dry-run --batch -p1 < ../v011.patch
           patch --batch -p1 < ../v011.patch
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path("app/src/main/java/tw/ajo/autosubtitles/CloudTranscriber.java")
+          s=p.read_text()
+          a='upload(wav,secret,"gpt-4o-transcribe",language,false)'
+          b='upload(wav,secret,"whisper-1",language,true)'
+          assert s.count(a)==1 and s.count(b)==1
+          p.write_text(s.replace(a,'upload(wav,secret,language,false)').replace(b,'upload(wav,secret,language,true)'))
+          PY
           grep -F "versionName '011'" app/build.gradle
           grep -F 'versionCode 11' app/build.gradle
           grep -F 'tw.ajo.autosubtitles.next' app/build.gradle
