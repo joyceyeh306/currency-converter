@@ -95,7 +95,7 @@ jobs:
         run: |
           cd subtitle-build-work
           mkdir -p tests/build
-          javac -encoding UTF-8 -d tests/build app/src/main/java/tw/ajo/autosubtitles/Caption.java app/src/main/java/tw/ajo/autosubtitles/CaptionSplitter.java app/src/main/java/tw/ajo/autosubtitles/SpeechTiming.java app/src/main/java/tw/ajo/autosubtitles/ExportQuality.java app/src/main/java/tw/ajo/autosubtitles/SrtCodec.java app/src/main/java/tw/ajo/autosubtitles/SubtitleGeometry.java app/src/main/java/tw/ajo/autosubtitles/NoiseReducer.java app/src/main/java/tw/ajo/autosubtitles/RecognitionRecovery.java tests/CoreTests.java tests/NoiseAndGeometryTests.java tests/RecognitionRecoveryTests.java
+          javac -encoding UTF-8 -d tests/build app/src/main/java/tw/ajo/autosubtitles/Caption.java app/src/main/java/tw/ajo/autosubtitles/CaptionSplitter.java app/src/main/java/tw/ajo/autosubtitles/SpeechTiming.java app/src/main/java/tw/ajo/autosubtitles/ExportQuality.java app/src/main/java/tw/ajo/autosubtitles/SrtCodec.java app/src/main/java/tw/ajo/autosubtitles/SubtitleGeometry.java app/src/main/java/tw/ajo/autosubtitles/NoiseReducer.java app/src/main/java/tw/ajo/autosubtitles/RecognitionRecovery.java app/src/main/java/tw/ajo/autosubtitles/TextTimeAligner.java app/src/main/java/tw/ajo/autosubtitles/OverlayCaptionText.java tests/CoreTests.java tests/NoiseAndGeometryTests.java tests/RecognitionRecoveryTests.java tests/CloudAndEditingTests.java
           java -cp tests/build CoreTests
           java -cp tests/build NoiseAndGeometryTests
           java -cp tests/build RecognitionRecoveryTests
