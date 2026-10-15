@@ -112,7 +112,7 @@ jobs:
           grep -F 'versionCode 12' app/build.gradle
           grep -F 'tw.ajo.autosubtitles.next' app/build.gradle
           test -f app/src/main/java/tw/ajo/autosubtitles/CaptionPunctuation.java
-          test -f tests/Version012Tests.java tests/Version013Tests.java
+          test -f tests/Version012Tests.java
       - name: Apply verified 013 diarization and timestamp fix
         run: |
           python3 - <<'PY'
