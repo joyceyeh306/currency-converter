@@ -42,8 +42,8 @@ jobs:
           pathlib.Path('v009.patch').write_bytes(delta)
           PY
           cd subtitle-build-work
-          git apply --check ../v009.patch
-          git apply ../v009.patch
+          patch --dry-run --batch -p1 < ../v009.patch
+          patch --batch -p1 < ../v009.patch
           grep -F "versionName '009'" app/build.gradle
           grep -F "versionCode 9" app/build.gradle
           grep -F "applicationId 'tw.ajo.autosubtitles.next'" app/build.gradle
