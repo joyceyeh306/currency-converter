@@ -120,6 +120,8 @@ jobs:
           encoded=''.join(pathlib.Path(f'subtitle-build-payload/v013part{i}.txt').read_text().strip() for i in range(3))
           delta=brotli.decompress(base64.b64decode(encoded,validate=True))
           assert hashlib.sha256(delta).hexdigest()=='19384611fda575d177c7a8bc807c012c0b03de528cf8c1091aeefea546b46f63'
+          # README differs between the release ZIP and the layered CI patches; only apply program sources.
+          delta=delta[delta.index(b'\ndiff -ruN',1)+1:]
           pathlib.Path('v013.patch').write_bytes(delta)
           PY
           cd subtitle-build-work
