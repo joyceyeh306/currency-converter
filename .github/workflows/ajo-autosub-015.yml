@@ -157,6 +157,7 @@ jobs:
           encoded=''.join(pathlib.Path(f'subtitle-build-payload/v015part{i}.txt').read_text().strip() for i in range(4))
           delta=brotli.decompress(base64.b64decode(encoded,validate=True))
           assert hashlib.sha256(delta).hexdigest()=='7c2f672e769ad3a0ef62362afd0a9684dc121d9f52318a4385c3276586d1740b', 'bad v015 patch'
+          delta=delta[delta.index(b'\ndiff -ruN old/app/')+1:]  # release ZIP README differs from layered CI README
           pathlib.Path('v015.patch').write_bytes(delta)
           PY
           cd subtitle-build-work
@@ -184,7 +185,7 @@ jobs:
         run: |
           cd subtitle-build-work
           mkdir -p tests/build
-          javac -encoding UTF-8 -d tests/build app/src/main/java/tw/ajo/autosubtitles/Caption.java app/src/main/java/tw/ajo/autosubtitles/CaptionSplitter.java app/src/main/java/tw/ajo/autosubtitles/SpeechTiming.java app/src/main/java/tw/ajo/autosubtitles/ExportQuality.java app/src/main/java/tw/ajo/autosubtitles/SrtCodec.java app/src/main/java/tw/ajo/autosubtitles/SubtitleGeometry.java app/src/main/java/tw/ajo/autosubtitles/NoiseReducer.java app/src/main/java/tw/ajo/autosubtitles/RecognitionRecovery.java app/src/main/java/tw/ajo/autosubtitles/TextTimeAligner.java app/src/main/java/tw/ajo/autosubtitles/OverlayCaptionText.java app/src/main/java/tw/ajo/autosubtitles/CaptionPunctuation.java app/src/main/java/tw/ajo/autosubtitles/SpeakerCaptionizer.java app/src/main/java/tw/ajo/autosubtitles/FreeRecognitionPlan.java app/src/main/java/tw/ajo/autosubtitles/WhisperModel.java app/src/main/java/tw/ajo/autosubtitles/WhisperSegments.java app/src/main/java/tw/ajo/autosubtitles/WhisperNative.java tests/CoreTests.java tests/NoiseAndGeometryTests.java tests/RecognitionRecoveryTests.java tests/CloudAndEditingTests.java tests/Version012Tests.java tests/Version013Tests.java tests/Version014Tests.java
+          javac -encoding UTF-8 -d tests/build app/src/main/java/tw/ajo/autosubtitles/Caption.java app/src/main/java/tw/ajo/autosubtitles/CaptionSplitter.java app/src/main/java/tw/ajo/autosubtitles/SpeechTiming.java app/src/main/java/tw/ajo/autosubtitles/ExportQuality.java app/src/main/java/tw/ajo/autosubtitles/SrtCodec.java app/src/main/java/tw/ajo/autosubtitles/SubtitleGeometry.java app/src/main/java/tw/ajo/autosubtitles/NoiseReducer.java app/src/main/java/tw/ajo/autosubtitles/RecognitionRecovery.java app/src/main/java/tw/ajo/autosubtitles/TextTimeAligner.java app/src/main/java/tw/ajo/autosubtitles/OverlayCaptionText.java app/src/main/java/tw/ajo/autosubtitles/CaptionPunctuation.java app/src/main/java/tw/ajo/autosubtitles/SpeakerCaptionizer.java app/src/main/java/tw/ajo/autosubtitles/FreeRecognitionPlan.java app/src/main/java/tw/ajo/autosubtitles/WhisperModel.java app/src/main/java/tw/ajo/autosubtitles/WhisperSegments.java app/src/main/java/tw/ajo/autosubtitles/WhisperNative.java tests/CoreTests.java tests/NoiseAndGeometryTests.java tests/RecognitionRecoveryTests.java tests/CloudAndEditingTests.java tests/Version012Tests.java tests/Version013Tests.java tests/Version014Tests.java tests/Version015Tests.java
           java -cp tests/build CoreTests
           java -cp tests/build NoiseAndGeometryTests
           java -cp tests/build RecognitionRecoveryTests
