@@ -148,7 +148,7 @@ jobs:
           grep -F 'versionCode 14' app/build.gradle
           grep -F 'applicationId' app/build.gradle | grep -F 'tw.ajo.autosubtitles.next'
           test -f app/src/main/java/tw/ajo/autosubtitles/FreeRecognitionPlan.java
-          test -f tests/Version014Tests.java tests/Version015Tests.java
+          test -f tests/Version014Tests.java
           ! grep -Fq '吵雜環境辨識' app/src/main/java/tw/ajo/autosubtitles/MainActivity.java
       - name: Apply verified v015 real Whisper integration
         run: |
