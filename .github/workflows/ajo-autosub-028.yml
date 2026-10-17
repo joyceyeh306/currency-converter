@@ -407,6 +407,15 @@ jobs:
           cp ../subtitle-build-v028/CHANGELOG_028.md CHANGELOG_028.md
           python3 -c 'from pathlib import Path; p=Path("app/src/main/java/tw/ajo/autosubtitles/MainActivity.java"); s=p.read_text(); s=s.replace("    @Override protected void onPause() {\n        saveCaptionsNow();\n        super.onPause();\n    }\n\n","",1); s=s.replace("    @Override protected void onPause() {\n        playbackStopAtMs = -1L;","    @Override protected void onPause() {\n        saveCaptionsNow();\n        playbackStopAtMs = -1L;"); p.write_text(s)'
           sed -i 's/Files.readString(src.toPath(),StandardCharsets.UTF_8)/new String(Files.readAllBytes(src.toPath()),StandardCharsets.UTF_8)/' app/src/main/java/tw/ajo/autosubtitles/SubtitleDraftStore.java
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('app/src/main/java/tw/ajo/autosubtitles/MainActivity.java')
+          s=p.read_text()
+          s=s.replace('    private boolean restoreSavedCaptions() {\n        if(videoDraftKey==null)return false;', '    private boolean restoreSavedCaptions() {\n        replacingSavedDraft=false;\n        if(videoDraftKey==null)return false;')
+          s=s.replace('if (!captions.isEmpty()) {replacingSavedDraft=false;saveCaptionsNow();}\n                else if (!good) restoreSavedCaptions();','if (!captions.isEmpty() || good) {replacingSavedDraft=false;saveCaptionsNow();}\n                else restoreSavedCaptions();')
+          s=s.replace('if (!captions.isEmpty()) {replacingSavedDraft=false;saveCaptionsNow();}\n                        else if(!ok) restoreSavedCaptions();','if (!captions.isEmpty() || ok) {replacingSavedDraft=false;saveCaptionsNow();}\n                        else restoreSavedCaptions();')
+          p.write_text(s)
+          PY
           python3 -c 'from pathlib import Path; p=Path("tests/Version027Tests.java"); s=p.read_text().replace("versionCode 27","versionCode 28").replace(chr(39)+"027"+chr(39),chr(39)+"028"+chr(39)); p.write_text(s)'
           printf '\\n\\n## 028 Auto saved captions\\nPer-video stored captions, accurate timings, reuse without re-recognition; see CHANGELOG_028.md.\\n' >> README.md
           grep -F "versionName '028'" app/build.gradle
