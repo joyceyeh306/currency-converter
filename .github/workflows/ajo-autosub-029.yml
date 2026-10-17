@@ -449,6 +449,17 @@ jobs:
           PY
           cp ../subtitle-build-v029/Version029Tests.java tests/Version029Tests.java
           cp ../subtitle-build-v029/CHANGELOG_029.md CHANGELOG_029.md
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('app/src/main/java/tw/ajo/autosubtitles/MainActivity.java')
+          s=p.read_text()
+          duplicate='    @Override protected void onDestroy() {\\n        if(isFinishing() && !busy) {\\n            new Thread(WhisperNative::releaseCachedModel,"ajo-whisper-release").start();\\n        }\\n        super.onDestroy();\\n    }\\n'
+          existing='        if (preview != null) preview.stopPlayback();\\n        super.onDestroy();'
+          assert s.count(duplicate)==1 and s.count(existing)==1
+          s=s.replace(duplicate,'')
+          s=s.replace(existing,'        if (preview != null) preview.stopPlayback();\\n        if(isFinishing()) new Thread(WhisperNative::releaseCachedModel,"ajo-whisper-release").start();\\n        super.onDestroy();')
+          p.write_text(s)
+          PY
           printf '\n\n## 029 Whisper CPU model reuse + notifications\nSee CHANGELOG_029.md; needs OPPO real-device confirmation.\n' >> README.md
           grep -F "versionName '029'" app/build.gradle
           grep -F "versionCode 29" app/build.gradle
