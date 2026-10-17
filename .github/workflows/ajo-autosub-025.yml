@@ -401,6 +401,17 @@ jobs:
           test -s "$APK"
           "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose "$APK"
           "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK" | grep -E "package:|application-label:"
+      - name: Export official Android APK signer for private local signing
+        run: |
+          mkdir -p apk-signing-tools
+          cp "$ANDROID_HOME/build-tools/35.0.0/lib/apksigner.jar" apk-signing-tools/apksigner.jar
+          test -s apk-signing-tools/apksigner.jar
+      - name: Upload APK signing utility (without signing credential)
+        uses: actions/upload-artifact@v4
+        with:
+          name: ajo-autosub_025-apksigner-tool
+          path: apk-signing-tools/apksigner.jar
+          if-no-files-found: error
       - name: Upload APK to be locally signed using preserved v008 credential
         uses: actions/upload-artifact@v4
         with:
