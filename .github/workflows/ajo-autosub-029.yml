@@ -411,9 +411,19 @@ jobs:
           from pathlib import Path
           p=Path('app/src/main/java/tw/ajo/autosubtitles/MainActivity.java')
           s=p.read_text()
-          s=s.replace('    private boolean restoreSavedCaptions() {\n        if(videoDraftKey==null)return false;', '    private boolean restoreSavedCaptions() {\n        replacingSavedDraft=false;\n        if(videoDraftKey==null)return false;')
-          s=s.replace('if (!captions.isEmpty()) {replacingSavedDraft=false;saveCaptionsNow();}\n                else if (!good) restoreSavedCaptions();','if (!captions.isEmpty() || good) {replacingSavedDraft=false;saveCaptionsNow();}\n                else restoreSavedCaptions();')
-          s=s.replace('if (!captions.isEmpty()) {replacingSavedDraft=false;saveCaptionsNow();}\n                        else if(!ok) restoreSavedCaptions();','if (!captions.isEmpty() || ok) {replacingSavedDraft=false;saveCaptionsNow();}\n                        else restoreSavedCaptions();')
+          header='    @Override protected void onDestroy() {'
+          assert s.count(header)==2, 'unexpected Activity lifecycle'
+          first=s.index(header)
+          end=s.index('    @Override protected void onPause()',first)
+          assert 'WhisperNative::releaseCachedModel' in s[first:end]
+          s=s[:first]+s[end:]
+          pos=s.index(header)
+          tail=s[pos:]
+          anchor='        super.onDestroy();'
+          assert tail.count(anchor)==1
+          tail=tail.replace(anchor,'        if(isFinishing()) new Thread(WhisperNative::releaseCachedModel,"ajo-whisper-release").start();\\n'+anchor)
+          s=s[:pos]+tail
+          assert s.count(header)==1
           p.write_text(s)
           PY
           python3 -c 'from pathlib import Path; p=Path("tests/Version027Tests.java"); s=p.read_text().replace("versionCode 27","versionCode 28").replace(chr(39)+"027"+chr(39),chr(39)+"028"+chr(39)); p.write_text(s)'
