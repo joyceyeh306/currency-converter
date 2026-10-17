@@ -1,0 +1,131 @@
+--- a/app/src/main/java/tw/ajo/autosubtitles/SubtitleExporter.java
++++ b/app/src/main/java/tw/ajo/autosubtitles/SubtitleExporter.java
+@@ -16,10 +16,8 @@
+ import androidx.media3.common.util.UnstableApi;
+ import androidx.media3.effect.CanvasOverlay;
+ import androidx.media3.effect.OverlayEffect;
+ import androidx.media3.effect.Presentation;
+-import androidx.media3.effect.FrameDropEffect;
+-import androidx.media3.effect.HslAdjustment;
+ import androidx.media3.transformer.Composition;
+ import androidx.media3.transformer.DefaultEncoderFactory;
+ import androidx.media3.transformer.EditedMediaItem;
+ import androidx.media3.transformer.Effects;
+@@ -93,33 +91,28 @@
+             cropToFill?Presentation.LAYOUT_SCALE_TO_FIT_WITH_CROP:Presentation.LAYOUT_SCALE_TO_FIT));
+         int[] target=ExportQuality.outputSize(sourceWidth,sourceHeight,quality);
+         if(fallback){
+             // If OPPO's encoder cannot process 60 fps Dolby Vision at full size,
+-            // reduce output to a commonly supported 720-pixel short side.
++            // retry at 720-pixel short side WITHOUT discarding source frames.
+             int shorter=sourceWidth>0&&sourceHeight>0?Math.min(sourceWidth,sourceHeight):720;
+             if(shorter>720)videoEffects.add(Presentation.createForShortSide(720));
+         }
+         if(!fallback && quality!=ExportQuality.ORIGINAL && sourceWidth>0 && sourceHeight>0 &&
+             (target[0]<sourceWidth || target[1]<sourceHeight)) {
+             videoEffects.add(Presentation.createForShortSide(Math.min(target[0],target[1])));
+         }
+-        // Some Android HDR hardware decoders produce uneven visual cadence at 60fps
+-        // during HDR tone mapping + subtitle compositing. 60 -> 30 uses every
+-        // second input frame at a consistent interval rather than arbitrary drops.
+-        if (ExportTuning.stableThirtyFps(inputHdr, sourceFps)) {
+-            videoEffects.add(FrameDropEffect.createSimpleFrameDropEffect(60f, 30f));
+-        }
+-        // Subtle SDR finishing after the actual hardware HDR->SDR tone mapping.
+-        // Do not reinterpret HDR as SDR or apply this grade to normal SDR clips.
+-        if (inputHdr) {
+-            videoEffects.add(new HslAdjustment.Builder()
+-                .adjustSaturation(ExportTuning.saturationAdjustment(true))
+-                .adjustLightness(ExportTuning.lightnessAdjustment(true)).build());
+-        }
++        // 027: Keep all source presentation frames (including iPhone 60 fps HDR).
++        // The old FrameDropEffect intentionally halved the motion cadence.
++        // Do not add HSL finishing: the hardware HDR->SDR tone-map below already
++        // performs colour conversion, and extra saturation/lightness created a cast.
++        // This does not promise identical HDR/SDR appearance on every device.
+         videoEffects.add(new OverlayEffect(Collections.singletonList(canvasOverlay)));
+         Effects effects=new Effects(Collections.emptyList(),videoEffects);
+         EditedMediaItem item=new EditedMediaItem.Builder(MediaItem.fromUri(video)).setEffects(effects).build();
+-        int bitrate=ExportQuality.bitrate(sourceWidth,sourceHeight,sourceFps,quality,sourceBitrate);
++        int bitrate=fallback
++            ? ExportQuality.bitrate(Math.max(1,Math.min(sourceWidth,720)),Math.max(1,Math.min(sourceHeight,720)),sourceFps,
++                ExportQuality.ORIGINAL,sourceBitrate)
++            : ExportQuality.bitrate(sourceWidth,sourceHeight,sourceFps,quality,sourceBitrate);
+         // Codec support varies; fallback can choose a different bitrate/resolution.
+         DefaultEncoderFactory encoderFactory=new DefaultEncoderFactory.Builder(context)
+             .setRequestedVideoEncoderSettings(new VideoEncoderSettings.Builder().setBitrate(bitrate).build())
+             .setEnableFallback(true).build();
+@@ -134,19 +127,18 @@
+                 }
+                 @Override public void onError(Composition composition,ExportResult result,ExportException ex){
+                     if(cancelled)return;
+                     String error=ex.getMessage()==null?ex.toString():ex.getMessage();
+-                    if(inputHdr){
+-                        callback.error("HDR 色彩轉換失敗（"+error+"）。為避免輸出螢光偏色的影片，已停止匯出；原影片與字幕不變。");
+-                    } else if(!fallback){
++                    if(!fallback){
+                         try {
+                             exportAttempt(context,video,captions,color,sizePercent,darkBackground,outputAspect,cropToFill,
+                                 normalizedX,normalizedY,scale,rotation,quality,sourceWidth,sourceHeight,sourceFps,
+                                 sourceBitrate,inputHdr,output,callback,true);
+                         }catch(Exception retryError){
+                             callback.error("相容模式無法啟動："+retryError.getMessage());
+                         }
+-                    }else callback.error("已嘗試相容模式仍失敗："+error);
++                    }else callback.error((inputHdr?"HDR 色彩轉換及 720p 相容模式均失敗；":"影片相容模式失敗；")
++                        +"未強制降成 30 fps，原影片與字幕不變。原因："+error);
+                 }
+             }).build();
+         EditedMediaItemSequence sequence=new EditedMediaItemSequence.Builder(
+             new HashSet<>(Arrays.asList(C.TRACK_TYPE_AUDIO,C.TRACK_TYPE_VIDEO))).addItem(item).build();
+--- a/app/src/main/java/tw/ajo/autosubtitles/MainActivity.java
++++ b/app/src/main/java/tw/ajo/autosubtitles/MainActivity.java
+@@ -1576,9 +1576,9 @@
+         if(sourceWidth<=0 || sourceHeight<=0) {outputResolution.setText("來源解析度未知；實際輸出大小由轉檔器決定。");return;}
+         int quality=exportQuality.getSelectedItemPosition();
+         int[] size=ExportQuality.outputSize(sourceWidth,sourceHeight,quality);
+         String suffix=quality==0?"（盡量保留原解析度）":quality==1?"（短邊最多約 1080 畫素）":"（短邊最多約 720 畫素）";
+-        if(ExportTuning.stableThirtyFps(sourceHdr,sourceFps))suffix += "；HDR 60 fps 轉 30 fps";
++        if(sourceFps>=15 && sourceFps<=120)suffix += "；目標維持原片約 "+sourceFps+" fps";
+         outputResolution.setText("原始："+sourceWidth+"×"+sourceHeight+"  → 預計："+size[0]+"×"+size[1]+"  "+suffix+(sourceHdr?"；HDR 自動轉成相容 SDR":"")+
+             (outputAspect!=null && outputAspect.getSelectedItemPosition()>0 ? "；指定比例後解析度可能改變，預覽也會同步顯示" : ""));
+     }
+     /** Shared geometry rules for preview manipulations and final-video painting. */
+--- a/app/src/main/java/tw/ajo/autosubtitles/ExportTuning.java
++++ b/app/src/main/java/tw/ajo/autosubtitles/ExportTuning.java
+@@ -1,13 +1,16 @@
+ package tw.ajo.autosubtitles;
+-/** Predictable export settings for high frame-rate iPhone HDR sources. */
++/** Historical v016-v017 tuning values. These are intentionally NOT used by
++ * SubtitleExporter from 027 onward; kept only for previous-version test coverage. */
+ public final class ExportTuning {
+     private ExportTuning() {}
+-    /** A deterministic 60->30 cadence reduces stress on HDR tone mapping and encoding. */
++    /** @deprecated historical setting only. 027 preserves source presentation frames. */
++    @Deprecated
+     public static boolean stableThirtyFps(boolean hdr, int sourceFps) {
+         return hdr && sourceFps >= 59 && sourceFps <= 61;
+     }
+-    /** Lower finishing values than 016: prevent yellow/purple oversaturation while
+-     * retaining slightly more contrast than unadjusted hardware tone mapping. */
++    /** @deprecated historical only. No added saturation or lightness in 027. */
++    @Deprecated
+     public static float saturationAdjustment(boolean hdr) { return hdr ? 6f : 0f; }
++    @Deprecated
+     public static float lightnessAdjustment(boolean hdr) { return hdr ? -2f : 0f; }
+ }
+--- a/app/build.gradle
++++ b/app/build.gradle
+@@ -17,10 +17,10 @@
+     defaultConfig {
+         applicationId 'tw.ajo.autosubtitles.next'
+         minSdk 33
+         targetSdk 35
+-        versionCode 26
+-        versionName '026'
++        versionCode 27
++        versionName '027'
+     }
+     compileOptions {
+         sourceCompatibility JavaVersion.VERSION_17
+         targetCompatibility JavaVersion.VERSION_17
