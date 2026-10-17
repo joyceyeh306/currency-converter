@@ -453,11 +453,16 @@ jobs:
           from pathlib import Path
           p=Path('app/src/main/java/tw/ajo/autosubtitles/MainActivity.java')
           s=p.read_text()
-          duplicate='    @Override protected void onDestroy() {\\n        if(isFinishing() && !busy) {\\n            new Thread(WhisperNative::releaseCachedModel,"ajo-whisper-release").start();\\n        }\\n        super.onDestroy();\\n    }\\n'
-          existing='        if (preview != null) preview.stopPlayback();\\n        super.onDestroy();'
-          assert s.count(duplicate)==1 and s.count(existing)==1
-          s=s.replace(duplicate,'')
-          s=s.replace(existing,'        if (preview != null) preview.stopPlayback();\\n        if(isFinishing()) new Thread(WhisperNative::releaseCachedModel,"ajo-whisper-release").start();\\n        super.onDestroy();')
+          header='    @Override protected void onDestroy() {'
+          assert s.count(header)==2
+          i=s.index(header)
+          j=s.index('    @Override protected void onPause()',i)
+          assert 'WhisperNative::releaseCachedModel' in s[i:j]
+          s=s[:i]+s[j:]
+          assert s.count(header)==1
+          anchor='        super.onDestroy();'
+          assert s.count(anchor)==1
+          s=s.replace(anchor,'        if(isFinishing()) new Thread(WhisperNative::releaseCachedModel,"ajo-whisper-release").start();\\n'+anchor)
           p.write_text(s)
           PY
           printf '\n\n## 029 Whisper CPU model reuse + notifications\nSee CHANGELOG_029.md; needs OPPO real-device confirmation.\n' >> README.md
