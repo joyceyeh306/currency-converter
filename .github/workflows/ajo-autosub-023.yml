@@ -308,11 +308,16 @@ jobs:
           encoded=''.join((p/('v023patch'+str(i)+'.txt')).read_text().strip() for i in range(2))
           patch=brotli.decompress(base64.b64decode(encoded,validate=True))
           assert hashlib.sha256(patch).hexdigest()=='e51c8ec4115da2776b8f61cadb2257199010a1b18a572a4614cad8c5b5ec0b36','bad v023 patch'
-          pathlib.Path('v023.patch').write_bytes(patch)
+          # v022's generated README differs between local source and Actions reconstruction.
+          # The code/test/Gradle hunks stay SHA-verified; strip only the README prose hunk.
+          begin=patch.index(b'--- a/README.md\n+++ b/README.md\n')
+          end=patch.index(b'--- /dev/null\n+++ b/CHANGELOG_023.md',begin)
+          pathlib.Path('v023.patch').write_bytes(patch[:begin]+patch[end:])
           PY
           cd subtitle-build-work
           patch --dry-run --batch -p1 < ../v023.patch
           patch --batch -p1 < ../v023.patch
+          printf '\n\n## 023 Android 字幕時間修正\n詳見 CHANGELOG_023.md。字幕時間經合理性檢查，仍需要 OPPO 實機測試。\n' >> README.md
           grep -F "versionName '023'" app/build.gradle
           grep -F "versionCode 23" app/build.gradle
           grep -F 'AndroidCaptionTiming.repair(captions,voice,cursorMs,currentEndMs)' app/src/main/java/tw/ajo/autosubtitles/AudioRecognizer.java
