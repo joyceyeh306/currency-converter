@@ -462,7 +462,7 @@ jobs:
           assert s.count(header)==1
           anchor='        super.onDestroy();'
           assert s.count(anchor)==1
-          s=s.replace(anchor,'        if(isFinishing()) new Thread(WhisperNative::releaseCachedModel,"ajo-whisper-release").start();\\n'+anchor)
+          s=s.replace(anchor,'        if(isFinishing()) new Thread(WhisperNative::releaseCachedModel,"ajo-whisper-release").start();'+chr(10)+anchor)
           p.write_text(s)
           PY
           printf '\n\n## 029 Whisper CPU model reuse + notifications\nSee CHANGELOG_029.md; needs OPPO real-device confirmation.\n' >> README.md
