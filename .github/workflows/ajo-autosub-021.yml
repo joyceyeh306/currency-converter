@@ -1,0 +1,335 @@
+name: Ajo Autosub 021 Taiwan Mandarin Download Build
+on:
+  push:
+    branches: [ajo-autosub-021-build]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.11.1'
+      - name: Reconstruct audited version 008 source
+        run: |
+          python3 -m pip install brotli
+          python3 - <<'PY'
+          import pathlib,base64,brotli,hashlib,io,tarfile
+          encoded=''.join(pathlib.Path(f'subtitle-build-payload/v008full{i:02}.txt').read_text().strip() for i in range(9))
+          binary=brotli.decompress(base64.b64decode(encoded,validate=True))
+          assert hashlib.sha256(binary).hexdigest()=='b94527b71b71b0845c13c28cb698e3b66cc0b42fa2131fb0f6d2a478fec2c7c2'
+          target=pathlib.Path('subtitle-build-work')
+          target.mkdir(exist_ok=True)
+          with tarfile.open(fileobj=io.BytesIO(binary)) as archive:
+              archive.extractall(target,filter='data')
+          assert not (target/'signing/ajo-autosub-signing.keystore').exists()
+          PY
+      - name: Apply verified version 009 patch
+        run: |
+          python3 - <<'PY'
+          import pathlib,base64,brotli,hashlib
+          encoded=''.join(pathlib.Path(f'subtitle-build-payload/v009patch{i}.txt').read_text().strip() for i in range(2))
+          delta=brotli.decompress(base64.b64decode(encoded,validate=True))
+          assert hashlib.sha256(delta).hexdigest()=='7028c6c2fd9979e14d5f7e629bc9dea70198b9d5813c303820f65acbeee616e6'
+          pathlib.Path('v009.patch').write_bytes(delta)
+          PY
+          cd subtitle-build-work
+          patch --dry-run --batch -p1 < ../v009.patch
+          patch --batch -p1 < ../v009.patch
+          grep -F "versionName '009'" app/build.gradle
+          grep -F "versionCode 9" app/build.gradle
+          grep -F "applicationId 'tw.ajo.autosubtitles.next'" app/build.gradle
+          test -f app/src/main/java/tw/ajo/autosubtitles/NoiseReducer.java
+          test -f app/src/main/java/tw/ajo/autosubtitles/SubtitleGeometry.java
+          test -f app/src/main/res/drawable-nodpi/ic_launcher.webp
+      - name: Apply verified v010 speech recovery changes
+        run: |
+          python3 - <<'PY'
+          import pathlib,base64,brotli,hashlib
+          encoded=''.join(pathlib.Path(f'subtitle-build-payload/v010part{i}.txt').read_text().strip() for i in range(2))
+          delta=brotli.decompress(base64.b64decode(encoded,validate=True))
+          assert hashlib.sha256(delta).hexdigest()=='2fe08e102ef8768a07c7ab68c7c4676b29461c4ec40d5cea90b7fb3def151b31', 'v010 patch corrupted'
+          pathlib.Path('v010.patch').write_bytes(delta)
+          PY
+          cd subtitle-build-work
+          patch --dry-run --batch -p1 < ../v010.patch
+          patch --batch -p1 < ../v010.patch
+          grep -F "versionName '010'" app/build.gradle
+          grep -F "versionCode 10" app/build.gradle
+          grep -F "applicationId 'tw.ajo.autosubtitles.next'" app/build.gradle
+          grep -F 'recognizer.start(rawPcm, enhancedPcm' app/src/main/java/tw/ajo/autosubtitles/MainActivity.java
+          test -f app/src/main/java/tw/ajo/autosubtitles/RecognitionRecovery.java
+          test -f tests/RecognitionRecoveryTests.java
+      - name: Apply verified 011 cloud ASR and focused editing patch
+        run: |
+          python3 - <<'PY'
+          import pathlib,base64,brotli,hashlib
+          encoded=pathlib.Path('subtitle-build-payload/v011full.txt').read_text().strip()
+          delta=brotli.decompress(base64.b64decode(encoded,validate=True))
+          assert hashlib.sha256(delta).hexdigest()=='49da256b98526042c8cc10e61dd12b85303208a8526d043dcedaad45748c4a3b'
+          pathlib.Path('v011.patch').write_bytes(delta)
+          PY
+          cd subtitle-build-work
+          patch --dry-run --batch -p1 < ../v011.patch
+          patch --batch -p1 < ../v011.patch
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path("app/src/main/java/tw/ajo/autosubtitles/CloudTranscriber.java")
+          s=p.read_text()
+          a='upload(wav,secret,"gpt-4o-transcribe",language,false)'
+          b='upload(wav,secret,"whisper-1",language,true)'
+          assert s.count(a)==1 and s.count(b)==1
+          p.write_text(s.replace(a,'upload(wav,secret,language,false)').replace(b,'upload(wav,secret,language,true)'))
+          PY
+          grep -F "versionName '011'" app/build.gradle
+          grep -F 'versionCode 11' app/build.gradle
+          grep -F 'tw.ajo.autosubtitles.next' app/build.gradle
+          grep -F 'android.permission.INTERNET' app/src/main/AndroidManifest.xml
+          test -f app/src/main/java/tw/ajo/autosubtitles/CloudTranscriber.java
+          test -f app/src/main/java/tw/ajo/autosubtitles/CloudKeyStore.java
+          test ! -f signing/ajo-autosub-signing.keystore
+      - name: Apply audited v012 export, UI and punctuation improvements
+        run: |
+          python3 - <<'PY'
+          import pathlib,base64,brotli,hashlib
+          encoded=''.join(pathlib.Path(f'subtitle-build-payload/v012part{i}.txt').read_text().strip() for i in range(2))
+          delta=brotli.decompress(base64.b64decode(encoded,validate=True))
+          assert hashlib.sha256(delta).hexdigest()=='aee9852261ead215e41ff367142590c142a47dcd0d0b6fa72563250b993337a3'
+          pathlib.Path('v012.patch').write_bytes(delta)
+          PY
+          cd subtitle-build-work
+          patch --dry-run --batch -p1 < ../v012.patch
+          patch --batch -p1 < ../v012.patch
+          grep -F "versionName '012'" app/build.gradle
+          grep -F 'versionCode 12' app/build.gradle
+          grep -F 'tw.ajo.autosubtitles.next' app/build.gradle
+          test -f app/src/main/java/tw/ajo/autosubtitles/CaptionPunctuation.java
+          test -f tests/Version012Tests.java
+      - name: Apply verified 013 diarization and timestamp fix
+        run: |
+          python3 - <<'PY'
+          import pathlib,base64,brotli,hashlib
+          encoded=''.join(pathlib.Path(f'subtitle-build-payload/v013part{i}.txt').read_text().strip() for i in range(3))
+          delta=brotli.decompress(base64.b64decode(encoded,validate=True))
+          assert hashlib.sha256(delta).hexdigest()=='19384611fda575d177c7a8bc807c012c0b03de528cf8c1091aeefea546b46f63'
+          # README differs between the release ZIP and the layered CI patches; only apply program sources.
+          delta=delta[delta.index(b'\ndiff -ruN',1)+1:]
+          pathlib.Path('v013.patch').write_bytes(delta)
+          PY
+          cd subtitle-build-work
+          patch --dry-run --batch -p1 < ../v013.patch
+          patch --batch -p1 < ../v013.patch
+          grep -F "versionName '013'" app/build.gradle
+          grep -F 'versionCode 13' app/build.gradle
+          grep -F 'gpt-4o-transcribe-diarize' app/src/main/java/tw/ajo/autosubtitles/CloudTranscriber.java
+          test -f app/src/main/java/tw/ajo/autosubtitles/SpeakerCaptionizer.java
+          test -f tests/Version013Tests.java
+      - name: Apply verified v014 free recognition retry patch
+        run: |
+          python3 - <<'PY'
+          import pathlib,base64,brotli,hashlib
+          encoded=''.join(pathlib.Path(f'subtitle-build-payload/v014part{i}.txt').read_text().strip() for i in range(2))
+          delta=brotli.decompress(base64.b64decode(encoded,validate=True))
+          assert hashlib.sha256(delta).hexdigest()=='13d9efbc5e42d67b7ca5573b9044c20f8a23a2615ca784660e4f5109d0a8a50d'
+          pathlib.Path('v014.patch').write_bytes(delta)
+          PY
+          cd subtitle-build-work
+          patch --dry-run --batch -p1 < ../v014.patch
+          patch --batch -p1 < ../v014.patch
+          grep -F "versionName '014'" app/build.gradle
+          grep -F 'versionCode 14' app/build.gradle
+          grep -F 'applicationId' app/build.gradle | grep -F 'tw.ajo.autosubtitles.next'
+          test -f app/src/main/java/tw/ajo/autosubtitles/FreeRecognitionPlan.java
+          test -f tests/Version014Tests.java
+          ! grep -Fq '吵雜環境辨識' app/src/main/java/tw/ajo/autosubtitles/MainActivity.java
+      - name: Apply verified v015 real Whisper integration
+        run: |
+          python3 - <<'PY'
+          import pathlib,base64,brotli,hashlib
+          encoded=''.join(pathlib.Path(f'subtitle-build-payload/v015part{i}.txt').read_text().strip() for i in range(4))
+          delta=brotli.decompress(base64.b64decode(encoded,validate=True))
+          assert hashlib.sha256(delta).hexdigest()=='7c2f672e769ad3a0ef62362afd0a9684dc121d9f52318a4385c3276586d1740b', 'bad v015 patch'
+          delta=delta[delta.index(b'\ndiff -ruN old/app/')+1:]  # release ZIP README differs from layered CI README
+          pathlib.Path('v015.patch').write_bytes(delta)
+          PY
+          cd subtitle-build-work
+          patch --dry-run --batch -p1 < ../v015.patch
+          patch --batch -p1 < ../v015.patch
+          grep -F "versionName '015'" app/build.gradle
+          grep -F "versionCode 15" app/build.gradle
+          grep -F "applicationId 'tw.ajo.autosubtitles.next'" app/build.gradle
+          test -f app/src/main/cpp/ajo_whisper.cpp
+          test -f app/src/main/java/tw/ajo/autosubtitles/WhisperNative.java
+          grep -F "WhisperNative.run" app/src/main/java/tw/ajo/autosubtitles/MainActivity.java
+          ! grep -Fq '吵雜環境辨識' app/src/main/java/tw/ajo/autosubtitles/MainActivity.java
+          sed -i "/    compileSdk 36/a\\    ndkVersion '27.2.12479018'" app/build.gradle
+      - name: Fetch fixed upstream whisper.cpp source with MIT license
+        run: |
+          git clone --depth 1 --branch v1.9.4 --recurse-submodules https://github.com/ggml-org/whisper.cpp.git subtitle-build-work/app/src/main/cpp/whispercpp
+          test -f subtitle-build-work/app/src/main/cpp/whispercpp/include/whisper.h
+          test -f subtitle-build-work/app/src/main/cpp/whispercpp/LICENSE
+          rm -rf subtitle-build-work/app/src/main/cpp/whispercpp/.git
+      - name: Apply verified 016 video export and progress patch
+        run: |
+          python3 - <<'PY'
+          import pathlib,base64,brotli,hashlib
+          encoded=pathlib.Path('subtitle-build-payload/v016patch0.txt').read_text().strip()
+          patch=brotli.decompress(base64.b64decode(encoded,validate=True))
+          assert hashlib.sha256(patch).hexdigest()=='451056dc768b4b39933fec2f34744fba13fe88ddb2ce7d6dfe9ac7c521a0df43'
+          pathlib.Path('v016.patch').write_bytes(patch)
+          PY
+          cd subtitle-build-work
+          patch --dry-run --batch -p1 < ../v016.patch
+          patch --batch -p1 < ../v016.patch
+          grep -F "versionName '016'" app/build.gradle
+          grep -F "versionCode 16" app/build.gradle
+          grep -F "applicationId 'tw.ajo.autosubtitles.next'" app/build.gradle
+          grep -F 'FrameDropEffect' app/src/main/java/tw/ajo/autosubtitles/SubtitleExporter.java
+          grep -F 'showExportDialog' app/src/main/java/tw/ajo/autosubtitles/MainActivity.java
+          test -f tests/Version016Tests.java
+      - name: Apply verified 017 frame rate and HDR color patch
+        run: |
+          python3 - <<'PY'
+          import pathlib,base64,brotli,hashlib
+          encoded=pathlib.Path('subtitle-build-payload/v017patch0.txt').read_text().strip()
+          patch=brotli.decompress(base64.b64decode(encoded,validate=True))
+          assert hashlib.sha256(patch).hexdigest()=='f237207e55b0170fea479d9962e705390507606b130f23fe68504a7c7de50cff', 'bad v017 patch'
+          pathlib.Path('v017.patch').write_bytes(patch)
+          PY
+          cd subtitle-build-work
+          patch --dry-run --batch -p1 < ../v017.patch
+          patch --batch -p1 < ../v017.patch
+          grep -F "versionName '017'" app/build.gradle
+          grep -F "versionCode 17" app/build.gradle
+          grep -F 'detectPlaybackFrameRate' app/src/main/java/tw/ajo/autosubtitles/MainActivity.java
+          test -f app/src/main/java/tw/ajo/autosubtitles/VideoFrameRate.java
+          test -f tests/Version017Tests.java
+      - name: Apply verified 018 playback, keyboard, Whisper ARM patch
+        run: |
+          python3 - <<'PY'
+          import pathlib,base64,brotli,hashlib
+          encoded=pathlib.Path('subtitle-build-payload/v018patch0.txt').read_text().strip()
+          delta=brotli.decompress(base64.b64decode(encoded,validate=True))
+          assert hashlib.sha256(delta).hexdigest()=='8b8287c4d3917b2e2bbeb3a06bbd22e4c2fc2859a8d8487564229093bee8ed94', 'bad 018 patch'
+          pathlib.Path('v018.patch').write_bytes(delta)
+          PY
+          cd subtitle-build-work
+          patch --dry-run --batch -p1 < ../v018.patch
+          patch --batch -p1 < ../v018.patch
+          grep -F "versionName '018'" app/build.gradle
+          grep -F 'versionCode 18' app/build.gradle
+          grep -F 'set(GGML_CPU_KLEIDIAI ON' app/src/main/cpp/CMakeLists.txt
+          grep -F 'playCaptionRange' app/src/main/java/tw/ajo/autosubtitles/MainActivity.java
+          test -f tests/Version018Tests.java
+      - name: Apply verified 019 Android on-device recognition patch
+        run: |
+          python3 - <<'PY'
+          import pathlib,base64,brotli,hashlib
+          encoded=pathlib.Path('subtitle-build-payload/v019patch0.txt').read_text().strip()
+          patch=brotli.decompress(base64.b64decode(encoded,validate=True))
+          assert hashlib.sha256(patch).hexdigest()=='b37f6eb67b964c914f0d08fa791b577d65fcaf55ca9327690e743cbc7497a332', 'bad v019 patch'
+          pathlib.Path('v019.patch').write_bytes(patch)
+          PY
+          cd subtitle-build-work
+          patch --dry-run --batch -p1 < ../v019.patch
+          patch --batch -p1 < ../v019.patch
+          grep -F "versionName '019'" app/build.gradle
+          grep -F "versionCode 19" app/build.gradle
+          grep -F 'createOnDeviceSpeechRecognizer' app/src/main/java/tw/ajo/autosubtitles/AudioRecognizer.java
+          grep -F 'SpeechRecognizer.isOnDeviceRecognitionAvailable' app/src/main/java/tw/ajo/autosubtitles/MainActivity.java
+          test -f app/src/main/java/tw/ajo/autosubtitles/RecognitionModePolicy.java
+          test -f tests/Version019Tests.java
+      - name: Apply verified 020 Android language support preflight patch
+        run: |
+          python3 - <<'PY'
+          import pathlib,base64,brotli,hashlib
+          encoded=pathlib.Path('subtitle-build-payload/v020patch0.txt').read_text().strip()
+          patch=brotli.decompress(base64.b64decode(encoded,validate=True))
+          assert hashlib.sha256(patch).hexdigest()=='810a021784c752b0e35e51c7ec8d1fbb4ed2f012ede59b918339ab9973afdb9f', 'bad v020 patch'
+          pathlib.Path('v020.patch').write_bytes(patch)
+          PY
+          cd subtitle-build-work
+          patch --dry-run --batch -p1 < ../v020.patch
+          patch --batch -p1 < ../v020.patch
+          grep -F "versionName '020'" app/build.gradle
+          grep -F "versionCode 20" app/build.gradle
+          grep -F 'checkRecognitionSupport' app/src/main/java/tw/ajo/autosubtitles/OnDeviceLanguageProbe.java
+          grep -F 'triggerModelDownload' app/src/main/java/tw/ajo/autosubtitles/OnDeviceLanguageProbe.java
+          grep -F 'checkAndroidLanguageThenStart' app/src/main/java/tw/ajo/autosubtitles/MainActivity.java
+          test -f tests/Version020Tests.java
+      - name: Apply verified 021 Taiwanese Mandarin locale and model download patch
+        run: |
+          python3 - <<'PY'
+          import pathlib,base64,brotli,hashlib
+          encoded=pathlib.Path('subtitle-build-payload/v021patch0.txt').read_text().strip()
+          patch=brotli.decompress(base64.b64decode(encoded,validate=True))
+          assert hashlib.sha256(patch).hexdigest()=='080a637280174b4fe5fec3de9fcabcb87dbc7eb35f93be5e47fe9cb0a28e874b', 'bad v021 patch'
+          pathlib.Path('v021.patch').write_bytes(patch)
+          PY
+          cd subtitle-build-work
+          patch --dry-run --batch -p1 < ../v021.patch
+          patch --batch -p1 < ../v021.patch
+          grep -F "versionName '021'" app/build.gradle
+          grep -F "versionCode 21" app/build.gradle
+          grep -F 'androidModelDownloadTag=modelTag' app/src/main/java/tw/ajo/autosubtitles/MainActivity.java
+          test -f tests/Version021Tests.java
+      - name: Create disposable build key (PRIVATE production key never uploaded)
+        run: |
+          mkdir -p subtitle-build-work/signing
+          keytool -genkeypair -keystore subtitle-build-work/signing/ajo-autosub-signing.keystore -storepass android -keypass android -alias androiddebugkey -keyalg RSA -keysize 3072 -validity 10000 -dname "CN=Temporary009,O=Ajo,C=TW" -noprompt
+      - name: Run v021 Taiwan Mandarin locale and prior regression tests
+        run: |
+          cd subtitle-build-work
+          mkdir -p tests/build
+          javac -encoding UTF-8 -d tests/build app/src/main/java/tw/ajo/autosubtitles/Caption.java app/src/main/java/tw/ajo/autosubtitles/CaptionSplitter.java app/src/main/java/tw/ajo/autosubtitles/SpeechTiming.java app/src/main/java/tw/ajo/autosubtitles/ExportQuality.java app/src/main/java/tw/ajo/autosubtitles/SrtCodec.java app/src/main/java/tw/ajo/autosubtitles/SubtitleGeometry.java app/src/main/java/tw/ajo/autosubtitles/NoiseReducer.java app/src/main/java/tw/ajo/autosubtitles/RecognitionRecovery.java app/src/main/java/tw/ajo/autosubtitles/TextTimeAligner.java app/src/main/java/tw/ajo/autosubtitles/OverlayCaptionText.java app/src/main/java/tw/ajo/autosubtitles/CaptionPunctuation.java app/src/main/java/tw/ajo/autosubtitles/SpeakerCaptionizer.java app/src/main/java/tw/ajo/autosubtitles/FreeRecognitionPlan.java app/src/main/java/tw/ajo/autosubtitles/WhisperModel.java app/src/main/java/tw/ajo/autosubtitles/WhisperSegments.java app/src/main/java/tw/ajo/autosubtitles/WhisperNative.java app/src/main/java/tw/ajo/autosubtitles/ExportTuning.java app/src/main/java/tw/ajo/autosubtitles/VideoFrameRate.java app/src/main/java/tw/ajo/autosubtitles/CaptionPlaybackRange.java app/src/main/java/tw/ajo/autosubtitles/EditorKeyboardPolicy.java app/src/main/java/tw/ajo/autosubtitles/RecognitionModePolicy.java app/src/main/java/tw/ajo/autosubtitles/AndroidLanguagePolicy.java tests/CoreTests.java tests/NoiseAndGeometryTests.java tests/RecognitionRecoveryTests.java tests/CloudAndEditingTests.java tests/Version012Tests.java tests/Version013Tests.java tests/Version014Tests.java tests/Version015Tests.java tests/Version016Tests.java tests/Version017Tests.java tests/Version018Tests.java tests/Version019Tests.java tests/Version020Tests.java tests/Version021Tests.java
+          java -cp tests/build CoreTests
+          java -cp tests/build NoiseAndGeometryTests
+          java -cp tests/build RecognitionRecoveryTests
+          java -cp tests/build CloudAndEditingTests
+          java -cp tests/build Version012Tests
+          java -cp tests/build Version013Tests
+          java -cp tests/build Version014Tests
+          java -cp tests/build Version015Tests
+          java -cp tests/build Version016Tests
+          java -cp tests/build Version017Tests
+          java -cp tests/build Version018Tests
+          java -cp tests/build Version019Tests
+          java -cp tests/build Version020Tests
+          java -cp tests/build Version021Tests
+      - name: Install Android SDK 36
+        run: |
+          SDKMANAGER=$(find "$ANDROID_HOME/cmdline-tools" -name sdkmanager -type f | sort -V | tail -1)
+          yes | "$SDKMANAGER" 'platforms;android-36' 'build-tools;35.0.0' 'ndk;27.2.12479018' 'cmake;3.22.1' || test "${PIPESTATUS[1]}" -eq 0
+      - name: Compile version 021 installable APK
+        run: gradle -p subtitle-build-work :app:assembleDebug --stacktrace --no-daemon
+      - name: Verify APK package and temporary signing
+        run: |
+          APK=subtitle-build-work/app/build/outputs/apk/debug/app-debug.apk
+          test -s "$APK"
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose "$APK"
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK" | grep -E "package:|application-label:"
+      - name: Upload APK to be locally signed using preserved v008 credential
+        uses: actions/upload-artifact@v4
+        with:
+          name: ajo-autosub_021-temporary-apk
+          path: subtitle-build-work/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+      - name: Package exact source without any private keystore
+        run: |
+          cd subtitle-build-work
+          rm -rf tests/build signing
+          zip -qr ../ajo-autosub_021-source-public.zip app/src app/build.gradle build.gradle settings.gradle gradle.properties tests README.md
+      - name: Upload build source archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: ajo-autosub_021-source-public
+          path: ajo-autosub_021-source-public.zip
+          if-no-files-found: error
