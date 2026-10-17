@@ -427,8 +427,26 @@ jobs:
           mkdir -p subtitle-build-v029
           base64 --decode subtitle-build-payload/v029bundle.b64 | tar -xz -C subtitle-build-v029
           cd subtitle-build-work
+          # Version027Tests was rewritten by v028 CI; adapt its version assertion
+          # separately so the source-only v029 patch remains strictly auditable.
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('../subtitle-build-v029/v029.patch')
+          patch=p.read_text()
+          start=patch.index('--- a/tests/Version027Tests.java')
+          end=patch.index('--- a/tests/Version028Tests.java',start)
+          p.write_text(patch[:start]+patch[end:])
+          PY
           patch --dry-run --batch -p1 < ../subtitle-build-v029/v029.patch
           patch --batch -p1 < ../subtitle-build-v029/v029.patch
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('tests/Version027Tests.java')
+          s=p.read_text()
+          assert 'versionCode 28' in s and "versionName '028'" in s
+          s=s.replace('versionCode 28','versionCode 29').replace("versionName '028'","versionName '029'")
+          p.write_text(s)
+          PY
           cp ../subtitle-build-v029/Version029Tests.java tests/Version029Tests.java
           cp ../subtitle-build-v029/CHANGELOG_029.md CHANGELOG_029.md
           printf '\n\n## 029 Whisper CPU model reuse + notifications\nSee CHANGELOG_029.md; needs OPPO real-device confirmation.\n' >> README.md
