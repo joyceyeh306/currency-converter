@@ -1,0 +1,13 @@
+name: Ajo Autosub 030 ARM64 CPU Build
+on:
+  push:
+    branches: [ajo-autosub-030-build]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@v4
