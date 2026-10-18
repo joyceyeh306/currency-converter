@@ -11,3 +11,101 @@ jobs:
     timeout-minutes: 55
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.11.1'
+      - name: Rebuild audited 029 source from previous public workflow
+        run: |
+          python3 -m pip -q install pyyaml brotli
+          python3 - <<'PYBUILD'
+          import yaml, subprocess
+          from pathlib import Path
+          steps=yaml.safe_load(Path('.github/workflows/ajo-autosub-029.yml').read_text())['jobs']['build']['steps']
+          tests={'Run v026 CPU performance policy and full regression tests','Run 027 HDR output fidelity checks','Run 028 persistence tests','Test 029 independent Whisper state, CPU timing and notifications'}
+          for step in steps:
+              name=step.get('name','')
+              if name.startswith('Create disposable build key'): break
+              if 'run' in step:
+                  print('Rebuilding prior version:',name,flush=True)
+                  subprocess.run(['bash','-eo','pipefail','-c',step['run']],check=True)
+          for step in steps:
+              if step.get('name') in tests:
+                  print('Checking prior version:',step['name'],flush=True)
+                  subprocess.run(['bash','-eo','pipefail','-c',step['run']],check=True)
+          PYBUILD
+      - name: Apply 030 high-performance native CPU patch
+        run: |
+          mkdir -p subtitle-build-v030
+          base64 --decode subtitle-build-payload/v030bundle.b64 | tar -xz -C subtitle-build-v030
+          cd subtitle-build-work
+          patch --dry-run --batch -p1 < ../subtitle-build-v030/v030.patch
+          patch --batch -p1 < ../subtitle-build-v030/v030.patch
+          cp ../subtitle-build-v030/Version030Tests.java tests/Version030Tests.java
+          cp ../subtitle-build-v030/CHANGELOG_030.md CHANGELOG_030.md
+          grep -F "versionName '030'" app/build.gradle
+          grep -F 'versionCode 30' app/build.gradle
+          test ! -f signing/ajo-autosub-signing.keystore
+      - name: Retest 027 to 030 with updated version
+        run: |
+          cd subtitle-build-work
+          javac -encoding UTF-8 -cp tests/build -d tests/build tests/Version027Tests.java tests/Version028Tests.java tests/Version029Tests.java tests/Version030Tests.java
+          java -cp tests/build Version027Tests
+          java -cp tests/build Version028Tests
+          java -cp tests/build Version029Tests
+          java -cp tests/build Version030Tests
+      - name: Install Android SDK 36 and native toolchain
+        run: |
+          SDKMANAGER=$(find "$ANDROID_HOME/cmdline-tools" -name sdkmanager -type f | sort -V | tail -1)
+          yes | "$SDKMANAGER" 'platforms;android-36' 'build-tools;35.0.0' 'ndk;27.2.12479018' 'cmake;3.22.1' || test "${PIPESTATUS[1]}" -eq 0
+      - name: Create disposable temporary signing credential
+        run: |
+          mkdir -p subtitle-build-work/signing
+          keytool -genkeypair -keystore subtitle-build-work/signing/ajo-autosub-signing.keystore -storepass android -keypass android -alias androiddebugkey -keyalg RSA -keysize 3072 -validity 10000 -dname "CN=Temp030,O=Ajo,C=TW" -noprompt
+      - name: Compile 030 ARM64 Android APK
+        run: gradle -p subtitle-build-work :app:assembleDebug --stacktrace --no-daemon
+      - name: Confirm real ggml ARM64 compiler optimization flags
+        run: |
+          cd subtitle-build-work
+          python3 - <<'PYFLAGS'
+          import glob,json,shlex,re
+          paths=glob.glob('app/.cxx/**/compile_commands.json',recursive=True)
+          assert paths,'Missing native compile command database'
+          cpu=[]
+          for p in paths:
+              for c in json.load(open(p)):
+                  if '/ggml-cpu/' in c['file'] and c['file'].endswith(('ggml-cpu.cpp','quants.c')):
+                      cpu.append(c)
+          assert cpu,'No ggml CPU translation units found'
+          for c in cpu:
+              argv=shlex.split(c['command']) if 'command' in c else c['arguments']
+              opts=[v for v in argv if re.fullmatch(r'-O[0123s]',v)]
+              assert opts and opts[-1]=='-O3',(c['file'],opts)
+              assert '-march=armv8.2-a+fp16+dotprod' in argv,c['file']
+              print(c['file'].split('/')[-1],opts,'ARM dotprod / fp16 confirmed')
+          PYFLAGS
+      - name: Verify temporary APK package and signature
+        run: |
+          APK=subtitle-build-work/app/build/outputs/apk/debug/app-debug.apk
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose "$APK"
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK" | grep -E 'versionCode=.30.|versionName=.030.'
+      - name: Upload temporary APK for private local signing
+        uses: actions/upload-artifact@v4
+        with:
+          name: ajo-autosub_030-temporary-apk
+          path: subtitle-build-work/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+      - name: Package full source without private keystore
+        run: |
+          cd subtitle-build-work
+          rm -rf tests/build signing
+          zip -qr ../ajo-autosub_030-public-source.zip app/src app/build.gradle build.gradle settings.gradle gradle.properties tests README.md CHANGELOG_027.md CHANGELOG_028.md CHANGELOG_029.md CHANGELOG_030.md
+      - name: Upload 030 public source
+        uses: actions/upload-artifact@v4
+        with:
+          name: ajo-autosub_030-public-source
+          path: ajo-autosub_030-public-source.zip
+          if-no-files-found: error
