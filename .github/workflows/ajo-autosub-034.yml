@@ -272,12 +272,6 @@ jobs:
           name: ajo-autosub_034-temporary-apk
           path: subtitle-build-work/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
-      - name: Upload build-tools apksigner for offline private delivery signing
-        uses: actions/upload-artifact@v4
-        with:
-          name: ajo-autosub_034-apksigner-tool
-          path: ${{ env.ANDROID_HOME }}/build-tools/35.0.0/lib/apksigner.jar
-          if-no-files-found: error
       - name: Package full source without private keystore
         run: |
           cd subtitle-build-work
@@ -288,4 +282,25 @@ jobs:
         with:
           name: ajo-autosub_034-public-source
           path: ajo-autosub_034-public-source.zip
+          if-no-files-found: error
+  delivery-apksigner:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Prepare SDK apksigner jar without any private signing key
+        run: |
+          set -euo pipefail
+          JAR="$ANDROID_HOME/build-tools/35.0.0/lib/apksigner.jar"
+          if [ ! -s "$JAR" ]; then
+            SDKMANAGER=$(find "$ANDROID_HOME/cmdline-tools" -name sdkmanager -type f | sort -V | tail -1)
+            yes | "$SDKMANAGER" 'build-tools;35.0.0' || test "${PIPESTATUS[1]}" -eq 0
+          fi
+          test -s "$JAR"
+          mkdir -p signer-tool
+          cp "$JAR" signer-tool/apksigner.jar
+      - name: Upload Android signature tool
+        uses: actions/upload-artifact@v4
+        with:
+          name: ajo-autosub_034-apksigner-tool
+          path: signer-tool/apksigner.jar
           if-no-files-found: error
