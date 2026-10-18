@@ -103,6 +103,7 @@ jobs:
           assert cpu,'No ggml CPU translation units found'
           for c in cpu:
               argv=shlex.split(c['command']) if 'command' in c else c['arguments']
+              print('ARM compiler command:',c['file'].split('/')[-1], ' '.join(argv[-70:]),flush=True)
               opts=[v for v in argv if re.fullmatch(r'-O[0123s]',v)]
               assert opts and opts[-1]=='-O3',(c['file'],opts)
               assert '-march=armv8.2-a+fp16+dotprod' in argv,c['file']
