@@ -147,8 +147,19 @@ jobs:
           mkdir -p subtitle-build-v033
           base64 --decode subtitle-build-payload/v033bundle.b64 | tar -xz -C subtitle-build-v033
           cd subtitle-build-work
+          python3 - <<'PYREADME'
+          from pathlib import Path
+          p=Path('../subtitle-build-v033/v033.patch')
+          s=p.read_text()
+          tag='diff -ruN a/README.md b/README.md'
+          start=s.index(tag)
+          end=s.index('diff -ruN ',start+len(tag))
+          s=s[:start]+s[end:]
+          p.write_text(s)
+          PYREADME
           patch --dry-run --batch -p1 < ../subtitle-build-v033/v033.patch
           patch --batch -p1 < ../subtitle-build-v033/v033.patch
+          printf '\n\n## 033 字幕字型與校對流程\n詳見 CHANGELOG_033.md。\n' >> README.md
           mkdir -p app/src/main/assets/fonts app/src/main/assets/licenses
           curl -fL --retry 3 --connect-timeout 20 -o app/src/main/assets/fonts/iansui.ttf https://raw.githubusercontent.com/ButTaiwan/iansui/main/fonts/ttf/Iansui-Regular.ttf
           curl -fL --retry 3 --connect-timeout 20 -o app/src/main/assets/fonts/huninn.ttf https://github.com/justfont/open-huninn-font/releases/download/v2.1/jf-openhuninn-2.1.ttf
