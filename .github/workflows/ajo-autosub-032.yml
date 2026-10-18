@@ -192,5 +192,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ajo-autosub_032-public-source
-          path: ajo-autosub_031-public-source.zip
+          path: ajo-autosub_032-public-source.zip
           if-no-files-found: error
