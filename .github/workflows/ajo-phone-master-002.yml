@@ -1,0 +1,41 @@
+name: Ajo Phone Master 002 Build
+on:
+  push:
+    branches: [ajo-phone-master-002-build]
+    paths:
+      - 'ajo-phone-master/002/**'
+      - '.github/workflows/ajo-phone-master-002.yml'
+  workflow_dispatch:
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v4
+        with:
+          packages: ''
+      - run: |
+          yes | sdkmanager --licenses > /dev/null || true
+          sdkmanager 'platforms;android-36' 'build-tools;35.0.0'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.13'
+      - name: Extract Android project
+        run: |
+          mkdir -p ajo-phone-master/002/build
+          base64 --decode ajo-phone-master/002/source.tar.gz.b64 | tar -xz -C ajo-phone-master/002/build
+      - name: Compile APK
+        run: gradle --no-daemon --stacktrace -p ajo-phone-master/002/build :app:assembleDebug
+      - name: Export unsigned release candidate
+        run: |
+          cp ajo-phone-master/002/build/app/build/outputs/apk/debug/app-debug.apk ajo-phone-master_002-unsigned-candidate.apk
+          sha256sum ajo-phone-master_002-unsigned-candidate.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ajo-phone-master-002-unsigned-candidate
+          path: ajo-phone-master_002-unsigned-candidate.apk
+          retention-days: 30
