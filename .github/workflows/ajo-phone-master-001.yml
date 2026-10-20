@@ -37,6 +37,18 @@ jobs:
         run: |
           cp ajo-phone-master/001/build/app/build/outputs/apk/debug/app-debug.apk ajo-phone-master_001.apk
           sha256sum ajo-phone-master_001.apk
+      - name: Verify signature and APK manifest
+        run: |
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose ajo-phone-master_001.apk
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging ajo-phone-master_001.apk | head -n 3
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-apksigner-tools-001
+          path: |
+            /usr/local/lib/android/sdk/build-tools/35.0.0/lib/apksigner.jar
+            /usr/local/lib/android/sdk/build-tools/35.0.0/apksigner
+          if-no-files-found: error
+          retention-days: 1
       - uses: actions/upload-artifact@v4
         with:
           name: ajo-phone-master_001
