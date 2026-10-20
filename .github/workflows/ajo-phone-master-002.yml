@@ -3,9 +3,11 @@ on:
   push:
     branches: [ajo-phone-master-002-build]
     paths:
-      - 'ajo-phone-master/002/**'
+      - 'ajo-phone-master/002/source.tar.gz.b64'
       - '.github/workflows/ajo-phone-master-002.yml'
   workflow_dispatch:
+permissions:
+  contents: write
 jobs:
   android:
     runs-on: ubuntu-latest
@@ -18,24 +20,36 @@ jobs:
       - uses: android-actions/setup-android@v4
         with:
           packages: ''
-      - run: |
+      - name: Android SDK packages
+        run: |
           yes | sdkmanager --licenses > /dev/null || true
           sdkmanager 'platforms;android-36' 'build-tools;35.0.0'
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.13'
-      - name: Extract Android project
+      - name: Extract complete Android project
         run: |
           mkdir -p ajo-phone-master/002/build
           base64 --decode ajo-phone-master/002/source.tar.gz.b64 | tar -xz -C ajo-phone-master/002/build
       - name: Compile APK
         run: gradle --no-daemon --stacktrace -p ajo-phone-master/002/build :app:assembleDebug
-      - name: Export unsigned release candidate
+      - name: Export APK
         run: |
-          cp ajo-phone-master/002/build/app/build/outputs/apk/debug/app-debug.apk ajo-phone-master_002-unsigned-candidate.apk
-          sha256sum ajo-phone-master_002-unsigned-candidate.apk
+          cp ajo-phone-master/002/build/app/build/outputs/apk/debug/app-debug.apk ajo-phone-master_002-debug.apk
+          sha256sum ajo-phone-master_002-debug.apk
       - uses: actions/upload-artifact@v4
         with:
-          name: ajo-phone-master-002-unsigned-candidate
-          path: ajo-phone-master_002-unsigned-candidate.apk
+          name: ajo-phone-master-002-debug
+          path: ajo-phone-master_002-debug.apk
           retention-days: 30
+      - name: Publish build result for local signing
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p ajo-phone-master/002/output
+          base64 -w0 ajo-phone-master_002-debug.apk > ajo-phone-master/002/output/apk-debug.b64
+          git config user.name github-actions
+          git config user.email github-actions@users.noreply.github.com
+          git add ajo-phone-master/002/output/apk-debug.b64
+          git commit -m 'Publish 002 compiled APK for offline release signing'
+          git push
