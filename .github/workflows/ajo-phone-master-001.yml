@@ -17,7 +17,9 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - uses: android-actions/setup-android@v3
+      - uses: android-actions/setup-android@v4
+        with:
+          packages: ''
       - name: Android SDK packages
         run: |
           yes | sdkmanager --licenses > /dev/null || true
