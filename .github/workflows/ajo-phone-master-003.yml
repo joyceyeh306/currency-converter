@@ -4,6 +4,7 @@ on:
     branches: [ajo-phone-master-003-build]
     paths:
       - 'ajo-phone-master/003/source.tar.gz.b64'
+      - '.github/workflows/ajo-phone-master-003.yml'
   workflow_dispatch:
 permissions:
   contents: read
@@ -32,15 +33,15 @@ jobs:
           base64 --decode ajo-phone-master/003/source.tar.gz.b64 | tar -xz -C ajo-phone-master/003/build
           test -f ajo-phone-master/003/build/app/build.gradle
       - name: Build 003
-        run: gradle --no-daemon --stacktrace -p ajo-phone-master/003/build :app:assembleDebug
+        run: gradle --no-daemon --stacktrace -p ajo-phone-master/003/build :app:assembleRelease
       - name: Collect unsigned release candidate
         run: |
-          cp ajo-phone-master/003/build/app/build/outputs/apk/debug/app-debug.apk ajo-phone-master_003-debug.apk
-          sha256sum ajo-phone-master_003-debug.apk
-          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging ajo-phone-master_003-debug.apk | head -n 3
+          cp ajo-phone-master/003/build/app/build/outputs/apk/release/app-release-unsigned.apk ajo-phone-master_003-unsigned-release.apk
+          sha256sum ajo-phone-master_003-unsigned-release.apk
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging ajo-phone-master_003-unsigned-release.apk | head -n 3
       - uses: actions/upload-artifact@v4
         with:
-          name: ajo-phone-master-003-debug
-          path: ajo-phone-master_003-debug.apk
+          name: ajo-phone-master-003-unsigned-release
+          path: ajo-phone-master_003-unsigned-release.apk
           if-no-files-found: error
           retention-days: 30
