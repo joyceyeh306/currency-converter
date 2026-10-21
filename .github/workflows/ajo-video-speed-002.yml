@@ -1,0 +1,50 @@
+name: Ajo Video Speed 002 Build
+on:
+  push:
+    branches: [ajo-video-speed-002-build]
+    paths:
+      - 'ajo-video-speed/002/source.tar.gz.b64'
+      - '.github/workflows/ajo-video-speed-002.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v4
+        with:
+          packages: ''
+      - name: Install Android SDK 36
+        run: |
+          yes | sdkmanager --licenses > /dev/null || true
+          sdkmanager 'platforms;android-36' 'build-tools;36.0.0'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.13'
+      - name: Unpack version 002 Android project
+        run: |
+          mkdir -p ajo-video-speed/002/project
+          base64 -d ajo-video-speed/002/source.tar.gz.b64 | tar -xz -C ajo-video-speed/002/project
+          test -f ajo-video-speed/002/project/app/build.gradle
+      - name: Build unsigned version 002 APK
+        run: gradle --no-daemon --stacktrace -p ajo-video-speed/002/project :app:assembleRelease
+      - name: Verify unsigned package and collect signing tools
+        run: |
+          cp ajo-video-speed/002/project/app/build/outputs/apk/release/app-release-unsigned.apk ajo-video-speed_002-unsigned.apk
+          cp "$ANDROID_HOME/build-tools/36.0.0/lib/apksigner.jar" apksigner.jar
+          "$ANDROID_HOME/build-tools/36.0.0/aapt" dump badging ajo-video-speed_002-unsigned.apk | head -n 4
+          sha256sum ajo-video-speed_002-unsigned.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ajo-video-speed-002-unsigned-and-signing-tools
+          path: |
+            ajo-video-speed_002-unsigned.apk
+            apksigner.jar
+          if-no-files-found: error
+          retention-days: 30
