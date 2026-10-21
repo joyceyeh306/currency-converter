@@ -32,17 +32,19 @@ jobs:
           mkdir -p ajo-video-speed/001/project
           base64 -d ajo-video-speed/001/source.tar.gz.b64 | tar -xz -C ajo-video-speed/001/project
           test -f ajo-video-speed/001/project/app/build.gradle
-      - name: Compile installable debug APK
-        run: gradle --no-daemon --stacktrace -p ajo-video-speed/001/project :app:assembleDebug
-      - name: Validate outputs
+      - name: Compile unsigned release APK
+        run: gradle --no-daemon --stacktrace -p ajo-video-speed/001/project :app:assembleRelease
+      - name: Collect unsigned APK and local signing tools
         run: |
-          cp ajo-video-speed/001/project/app/build/outputs/apk/debug/app-debug.apk ajo-video-speed_001.apk
-          "$ANDROID_HOME/build-tools/36.0.0/aapt" dump badging ajo-video-speed_001.apk | head -n 4
-          "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose ajo-video-speed_001.apk
-          sha256sum ajo-video-speed_001.apk
+          cp ajo-video-speed/001/project/app/build/outputs/apk/release/app-release-unsigned.apk ajo-video-speed_001-unsigned.apk
+          cp "$ANDROID_HOME/build-tools/36.0.0/lib/apksigner.jar" apksigner.jar
+          "$ANDROID_HOME/build-tools/36.0.0/aapt" dump badging ajo-video-speed_001-unsigned.apk | head -n 4
+          sha256sum ajo-video-speed_001-unsigned.apk
       - uses: actions/upload-artifact@v4
         with:
-          name: ajo-video-speed-001-apk
-          path: ajo-video-speed_001.apk
+          name: ajo-video-speed-001-signing-candidate
+          path: |
+            ajo-video-speed_001-unsigned.apk
+            apksigner.jar
           if-no-files-found: error
           retention-days: 30
