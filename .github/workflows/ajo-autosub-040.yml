@@ -88,6 +88,11 @@ jobs:
           mkdir -p build-out
           cp subtitle-build-work/app/build/outputs/apk/debug/app-debug.apk build-out/ajo-autosub_040-temp.apk
           cp "$ANDROID_HOME/build-tools/35.0.0/lib/apksigner.jar" build-out/apksigner.jar
+          cd subtitle-build-work
+          rm -rf signing tests/build tests/build040 tests/v031-native tests/v034-native
+          zip -qr ../build-out/ajo-autosub_040.zip app/src app/build.gradle build.gradle settings.gradle gradle.properties tests README.md CHANGELOG_*.md
+          test -s ../build-out/ajo-autosub_040.zip
+          ! unzip -Z1 ../build-out/ajo-autosub_040.zip | grep -Eq '(^|/)(signing|.*keystore)(/|$)'
       - name: Upload APK and signer tool for original private key signing
         uses: actions/upload-artifact@v4
         with:
