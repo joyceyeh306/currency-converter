@@ -1,0 +1,47 @@
+name: Ajo Phone Master 004 Build
+on:
+  push:
+    branches: [ajo-phone-master-004-build]
+    paths:
+      - 'ajo-phone-master/004/source.tar.gz.b64'
+      - '.github/workflows/ajo-phone-master-004.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v4
+        with:
+          packages: ''
+      - name: Install SDK packages
+        run: |
+          yes | sdkmanager --licenses > /dev/null || true
+          sdkmanager 'platforms;android-36' 'build-tools;35.0.0'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.13'
+      - name: Extract complete 004 project
+        run: |
+          mkdir -p ajo-phone-master/004/build
+          base64 --decode ajo-phone-master/004/source.tar.gz.b64 | tar -xz -C ajo-phone-master/004/build
+          test -f ajo-phone-master/004/build/app/build.gradle
+      - name: Build unsigned release 004
+        run: gradle --no-daemon --stacktrace -p ajo-phone-master/004/build :app:assembleRelease
+      - name: Confirm app manifest and hash
+        run: |
+          cp ajo-phone-master/004/build/app/build/outputs/apk/release/app-release-unsigned.apk ajo-phone-master_004-unsigned-release.apk
+          sha256sum ajo-phone-master_004-unsigned-release.apk
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging ajo-phone-master_004-unsigned-release.apk | head -n 7
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ajo-phone-master-004-unsigned-release
+          path: ajo-phone-master_004-unsigned-release.apk
+          if-no-files-found: error
+          retention-days: 30
