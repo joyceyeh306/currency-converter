@@ -1,0 +1,208 @@
+--- a/app/build.gradle
++++ b/app/build.gradle
+@@ -18,8 +18,8 @@
+         applicationId 'tw.ajo.autosubtitles.next'
+         minSdk 33
+         targetSdk 35
+-        versionCode 39
+-        versionName '039'
++        versionCode 40
++        versionName '040'
+     }
+     compileOptions {
+         sourceCompatibility JavaVersion.VERSION_17
+--- a/app/src/main/java/tw/ajo/autosubtitles/MainActivity.java
++++ b/app/src/main/java/tw/ajo/autosubtitles/MainActivity.java
+@@ -161,7 +161,7 @@
+     private SeekBar fontSize;
+     private TextView fontSizeLabel;
+     private RadioGroup textColor;
+-    private Button recognizeButton, cancelButton, exportMp4Button, exportSrtButton;
++    private Button recognizeButton, cancelButton, exportMp4Button, exportSrtButton, gapReviewButton;
+     private AudioRecognizer recognizer;
+     private File pcmFile, recognitionPcm;
+     private File renderedFile;
+@@ -182,6 +182,8 @@
+     private Runnable recognitionClockTicker;
+     private String recognitionClockMode = "";
+     private Runnable whisperWatch;
++    private File reviewPcm;
++    private Uri reviewPcmSource;
+ 
+     @Override public void onCreate(Bundle state) {
+         int requested=getPreferences(MODE_PRIVATE).getInt("ui_theme_037",UiThemeMode.SYSTEM);
+@@ -608,6 +610,12 @@
+         Button addBtn = button("＋ 新增字幕", SURFACE, INK);
+         addBtn.setOnClickListener(v -> { Caption c=new Caption(0, Math.max(2000, Math.min(videoDurationMs,2000)), "新字幕"); captions.add(c);showCaptions();openCaptionEditor(c); });
+         addHalf(tools, importBtn); addHalf(tools, addBtn); root.addView(tools);
++        gapReviewButton=button("檢查可能漏句（不改原字幕）",SURFACE,ACCENT);
++        gapReviewButton.setTextSize(14);
++        gapReviewButton.setOnClickListener(v -> checkForUncaptionedAudio());
++        root.addView(gapReviewButton);
++        root.addView(text("040：有聲音但沒有字幕的區間，可選擇局部 Whisper 辨識；結果須人工確認，可能包含音樂或環境聲。",12,MUTED,false));
++
+         root.addView(text("拆分字幕：先點文字放置游標，再按「游標處拆分」；合併則與上一段相接。", 12, MUTED, false));
+         counter = text("目前 0 段字幕", 13, MUTED, true);
+         counter.setPadding(0, dp(8), 0, dp(7)); root.addView(counter);
+@@ -1205,6 +1213,138 @@
+                 .setNegativeButton("取消",null).show();
+         }else runWhisperRecognition();
+     }
++    /** Analyze the user's original video; do not alter captions until an explicit confirmation. */
++    private void checkForUncaptionedAudio() {
++        if(busy)return;
++        if(video==null){toast("請先選取影片");return;}
++        final Uri source=video;
++        final long duration=videoDurationMs;
++        final ArrayList<Caption> originals=new ArrayList<>();
++        for(Caption c:captions)originals.add(c.copy());
++        setBusy(true);cancelled.set(false);
++        status.setText("正在檢查未覆蓋的聲音區間…");
++        new Thread(()->{
++            try {
++                File pcm=prepareReviewPcm(source);
++                if(cancelled.get())return;
++                List<SpeechTiming.Span> voice=SpeechTiming.analyze(pcm,0,duration);
++                List<SpeechTiming.Span> gaps=SubtitleGapReview.find(voice,originals,duration);
++                ui.post(()->{
++                    if(cancelled.get()||!source.equals(video))return;
++                    setBusy(false);
++                    if(gaps.isEmpty()){
++                        status.setText("未找到明顯未覆蓋的聲音區間；重疊人聲仍可能需要逐句重辨識。");
++                        new AlertDialog.Builder(this).setTitle("漏句檢查完成")
++                            .setMessage("沒有偵測到明顯的字幕空白聲音。這不代表完全沒有漏句；若有人同時說話，可以進入那一句字幕，使用局部重辨識。")
++                            .setPositiveButton("知道了",null).show();
++                        return;
++                    }
++                    String[] labels=new String[gaps.size()];
++                    for(int i=0;i<gaps.size();i++){
++                        SpeechTiming.Span g=gaps.get(i);
++                        labels[i]=Caption.time(g.startMs,false)+" ～ "+Caption.time(g.endMs,false);
++                    }
++                    status.setText("找到 "+gaps.size()+" 個疑似缺字幕的聲音區間，請選取重辨識。");
++                    new AlertDialog.Builder(this).setTitle("疑似漏句區間（也可能是音樂）")
++                        .setItems(labels,(dialog,which)->{
++                            SpeechTiming.Span g=gaps.get(which);
++                            reviewWhisperInterval(g.startMs,g.endMs,null);
++                        })
++                        .setNegativeButton("取消",null).show();
++                });
++            }catch(Exception ex){ui.post(()->{
++                if(cancelled.get())return;
++                setBusy(false);
++                status.setText("漏句檢查失敗："+ex.getMessage());
++            });}
++        },"ajo-040-gap-scan").start();
++    }
++
++    private void retryCaptionWithWhisper(Caption item) {
++        if(busy||item==null)return;
++        if(video==null){toast("請先選取影片");return;}
++        reviewWhisperInterval(item.startMs,item.endMs,item);
++    }
++
++    /** Recognize a short bounded clip; original subtitle and its times are never overwritten. */
++    private void reviewWhisperInterval(long targetStart,long targetEnd,Caption existing) {
++        if(busy||video==null)return;
++        File model=WhisperModel.modelFile(new File(getFilesDir(),"whisper-model"));
++        if(!model.isFile()||model.length()<180_000_000L){
++            new AlertDialog.Builder(this).setTitle("需要 Whisper 本機模型")
++                .setMessage("先在主畫面完成一次 Whisper 辨識並下載模型，之後才能局部重辨識。原字幕不受影響。")
++                .setPositiveButton("知道了",null).show();
++            return;
++        }
++        final Uri source=video;
++        final long duration=videoDurationMs;
++        final int cpuThreads=WhisperCpuPolicy.threads(whisperCpuMode.getSelectedItemPosition(),Runtime.getRuntime().availableProcessors());
++        final String[] langs={"zh","en","ja","ko"};
++        final String lang=langs[Math.max(0,Math.min(3,language.getSelectedItemPosition()))];
++        setBusy(true);cancelled.set(false);
++        status.setText("正在局部重辨識（原字幕保持不變）…");
++        new Thread(()->{
++            File clipFile=new File(getCacheDir(),"ajo-040-review-clip.pcm");
++            try {
++                File pcm=prepareReviewPcm(source);
++                if(cancelled.get())return;
++                SpeechTiming.Span clip=SubtitleGapReview.clip(targetStart,targetEnd,duration);
++                ReviewPcmClip.write(pcm,clipFile,clip.startMs,clip.endMs);
++                WhisperNative.Result recheck=WhisperNative.run(model,clipFile,lang,cpuThreads,cancelled,p->{});
++                if(cancelled.get())return;
++                String suggestion=SubtitleGapReview.previewText(recheck.captions,clip.startMs,targetStart,targetEnd);
++                ui.post(()->{
++                    if(cancelled.get()||!source.equals(video))return;
++                    setBusy(false);
++                    status.setText("局部重辨識完成，請人工確認；已保留原有字幕與時間。");
++                    String original=existing==null?"（原區間沒有字幕）":existing.text;
++                    String shown=suggestion.isEmpty()?"（未取得可靠的局部文字）":suggestion;
++                    AlertDialog.Builder builder=new AlertDialog.Builder(this)
++                        .setTitle("局部 Whisper 結果（需人工確認）")
++                        .setMessage("時間："+Caption.time(targetStart,false)+" ～ "+Caption.time(targetEnd,false)+
++                            "\n原文："+original+"\n再辨識："+shown+
++                            "\n\n重辨識也可能猜錯或漏掉重疊人聲；不會自行取代原字幕或時間。")
++                        .setNegativeButton("保留原文",null);
++                    if(!suggestion.isEmpty()){
++                        builder.setPositiveButton(existing==null?"新增並校正":"取用文字並校正",(d,w)->{
++                            if(existing!=null){
++                                if(!captions.contains(existing))return;
++                                existing.text=suggestion;
++                                showCaptions();scheduleSaveCaptions();
++                                openCaptionEditor(existing);
++                            }else{
++                                // Only opt-in new captions. VAD timing is an estimate, editable by user.
++                                Caption added=new Caption(targetStart,targetEnd,suggestion);
++                                captions.add(added);captions.sort(Comparator.comparingLong(c->c.startMs));
++                                showCaptions();scheduleSaveCaptions();openCaptionEditor(added);
++                            }
++                        });
++                    }
++                    builder.show();
++                });
++            }catch(Exception|UnsatisfiedLinkError ex){ui.post(()->{
++                if(cancelled.get())return;
++                setBusy(false);
++                status.setText("局部 Whisper 失敗（原字幕仍在）："+ex.getMessage());
++                new AlertDialog.Builder(this).setTitle("局部辨識未完成")
++                    .setMessage(String.valueOf(ex.getMessage())+"\n原字幕沒有更動。")
++                    .setPositiveButton("知道了",null).show();
++            });}finally{clipFile.delete();}
++        },"ajo-040-local-retry").start();
++    }
++
++    private synchronized File prepareReviewPcm(Uri source) throws Exception {
++        File dest=new File(getCacheDir(),"ajo-040-review-full.pcm");
++        if(reviewPcmSource!=null && reviewPcmSource.equals(source) && dest.isFile() && dest.length()>32000L) return dest;
++        if(dest.exists() && !dest.delete())throw new java.io.IOException("無法更新暫存音訊");
++        PcmDecoder.decode(getApplicationContext(),source,dest,cancelled,ms->{});
++        if(cancelled.get())throw new java.io.IOException("已取消");
++        if(!dest.isFile()||dest.length()<9600L)throw new java.io.IOException("影片音訊不足");
++        reviewPcm=dest;
++        reviewPcmSource=source;
++        return dest;
++    }
++
+     private void runWhisperRecognition() {
+         requestWhisperNotifyPermission();
+         setBusy(true);cancelled.set(false);
+@@ -1598,6 +1738,7 @@
+         if (exportMp4Button != null) exportMp4Button.setEnabled(!b);
+         if (exportSrtButton != null) exportSrtButton.setEnabled(!b);
+         if (cancelButton != null) cancelButton.setVisibility(b ? View.VISIBLE : View.GONE);
++        if (gapReviewButton != null) gapReviewButton.setEnabled(!b);
+     }
+     /** Normal view is a light-weight list. Selecting a row opens an isolated, stable editor. */
+     private void showCaptions() {
+@@ -1729,6 +1870,14 @@
+         Button del=button("刪除這段",DANGER_SURFACE,DANGER_INK);
+         del.setOnClickListener(v->{captions.remove(c);closeCaptionEditor();});
+         addHalfCompact(controls,play);addHalfCompact(controls,del);editingBody.addView(controls);
++        Button retryOne=button("用 Whisper 重辨識這段（先預覽，不覆蓋）",SURFACE,ACCENT);
++        retryOne.setTextSize(14);
++        retryOne.setOnClickListener(v->{
++            dismissKeyboard();
++            retryCaptionWithWhisper(c);
++        });
++        editingBody.addView(retryOne);
++
+         LinearLayout splitter=horizontal();
+         Button split=button("游標處拆分",SURFACE,ACCENT);
+         split.setOnClickListener(v->splitEditingCaption());
