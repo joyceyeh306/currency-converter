@@ -1,0 +1,22 @@
+name: Fetch MossFormer2 weights for subtitle experiment
+on:
+  push:
+    branches: [ajo-autosub-mossformer2-model-test-20261022]
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Download INT8 model
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --retry 3 --fail -L -o model.int8.onnx 'https://huggingface.co/ipsilondev/MossFormer2-SS-16K-ONNX/resolve/main/model.int8.onnx?download=true'
+          test "$(stat -c%s model.int8.onnx)" -gt 80000000
+          sha256sum model.int8.onnx
+      - name: Upload model as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mossformer2-int8-weights
+          path: model.int8.onnx
+          retention-days: 2
