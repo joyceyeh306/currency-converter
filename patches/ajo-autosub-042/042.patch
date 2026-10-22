@@ -1,0 +1,159 @@
+--- a/app/build.gradle
++++ b/app/build.gradle
+@@ -18,8 +18,8 @@
+         applicationId 'tw.ajo.autosubtitles.next'
+         minSdk 33
+         targetSdk 35
+-        versionCode 41
+-        versionName '041'
++        versionCode 42
++        versionName '042'
+     }
+     compileOptions {
+         sourceCompatibility JavaVersion.VERSION_17
+--- a/app/src/main/java/tw/ajo/autosubtitles/AndroidCaptionTiming.java
++++ b/app/src/main/java/tw/ajo/autosubtitles/AndroidCaptionTiming.java
+@@ -39,7 +39,12 @@
+         for (int i=0; i<sorted.size(); i++) {
+             Caption c = sorted.get(i);
+             long nextStart = i+1 < sorted.size() ? sorted.get(i+1).startMs : windowEnd;
+-            long hardEnd = Math.min(windowEnd, nextStart);
++            // The next speaker can begin before the previous speaker finishes.
++            // Only preserve an overlap actually reported by the recognizer.
++            long reported = Math.min(windowEnd, c.endMs);
++            boolean providerOverlap = reported > nextStart &&
++                reported - c.startMs >= 470 && reported - c.startMs <= 6500;
++            long hardEnd = providerOverlap ? reported : Math.min(windowEnd, nextStart);
+             if (hardEnd <= c.startMs) {
+                 // Recognizer returned two phrases at the same timestamp; do not
+                 // emit overlapping 1ms flashes. Merge their text instead.
+@@ -57,7 +62,9 @@
+             long available = hardEnd-c.startMs;
+             long oldDuration = c.endMs-c.startMs;
+             long target;
+-            if (oldDuration < minimum || oldDuration > maximum || c.endMs > hardEnd) {
++            if (providerOverlap && oldDuration <= maximum + 800) {
++                target = Math.min(oldDuration, available);
++            } else if (oldDuration < minimum || oldDuration > maximum || c.endMs > hardEnd) {
+                 // If the next phrase begins soon, use its time as an upper
+                 // boundary. Otherwise cap at a plausible reading duration.
+                 target = Math.min(available, maximum);
+@@ -65,7 +72,7 @@
+                 target = Math.min(oldDuration, available);
+             }
+             long end = c.startMs + Math.max(Math.min(minimum,available),target);
+-            if (i+1<sorted.size() && end >= hardEnd && hardEnd-c.startMs>220)
++            if (!providerOverlap && i+1<sorted.size() && end >= hardEnd && hardEnd-c.startMs>220)
+                 end = Math.max(c.startMs+200, hardEnd-90);
+             // If a sufficiently long silence starts near the selected end,
+             // prefer ending at that silence, but never snap across a large gap.
+@@ -75,13 +82,8 @@
+             c.endMs = end;
+             repaired.add(c);
+         }
+-        // Keep each caption separated from its successor. Sorting must not
+-        // cause a one-character flash or overlapping text when timestamps tie.
+-        for (int i=0;i+1<repaired.size();i++) {
+-            Caption left=repaired.get(i),right=repaired.get(i+1);
+-            if (left.endMs>right.startMs)
+-                left.endMs=Math.max(left.startMs+1,right.startMs);
+-        }
++        // Preserve recognizer-supported overlap: v035+ renders simultaneous captions.
++        // Never extend an interval merely to infer speech that was not timestamped.
+         return repaired;
+     }
+ 
+--- a/app/src/main/java/tw/ajo/autosubtitles/AndroidWordTiming.java
++++ b/app/src/main/java/tw/ajo/autosubtitles/AndroidWordTiming.java
+@@ -109,11 +109,8 @@
+             add(result,buf.toString(),phraseStart,end);
+         }
+         if(result.isEmpty())return rejected("無有效字幕");
+-        // Make adjacent captions monotonic and avoid accidental overlaps.
+-        for(int i=0;i+1<result.size();i++) {
+-            Caption a=result.get(i),b=result.get(i+1);
+-            if(a.endMs>b.startMs)a.endMs=Math.max(a.startMs+1,b.startMs);
+-        }
++        // Keep independently timestamped phrase tails; subtitle lanes support overlap.
++        // This does not invent a second speaker that the recognizer did not return.
+         return new Result(result,"已核對逐字時間與原始聲音");
+     }
+     private static void add(List<Caption> captions,String text,long from,long end){
+--- a/app/src/main/java/tw/ajo/autosubtitles/MainActivity.java
++++ b/app/src/main/java/tw/ajo/autosubtitles/MainActivity.java
+@@ -1362,6 +1362,8 @@
+                 WhisperNative.Result recheck=WhisperNative.run(model,clipFile,lang,cpuThreads,cancelled,p->{});
+                 if(cancelled.get())return;
+                 String suggestion=SubtitleGapReview.previewText(recheck.captions,clip.startMs,targetStart,targetEnd);
++                final List<Caption> candidates=WhisperReviewCandidates.fromClip(
++                    recheck.captions,clip.startMs,targetStart,targetEnd,duration);
+                 ui.post(()->{
+                     if(cancelled.get()||!source.equals(video))return;
+                     setBusy(false);
+@@ -1374,6 +1376,10 @@
+                             "\n原文："+original+"\n再辨識："+shown+
+                             "\n\n重辨識也可能猜錯或漏掉重疊人聲；不會自行取代原字幕或時間。")
+                         .setNegativeButton("保留原文",null);
++                    if(!candidates.isEmpty()) {
++                        builder.setNeutralButton("逐句查看／新增字幕",(d,w)->
++                            showWhisperReviewCandidates(candidates,source,existing));
++                    }
+                     if(!suggestion.isEmpty()){
+                         builder.setPositiveButton(existing==null?"新增並校正":"取用文字並校正",(d,w)->{
+                             if(existing!=null){
+@@ -1400,6 +1406,55 @@
+                     .setPositiveButton("知道了",null).show();
+             });}finally{clipFile.delete();}
+         },"ajo-040-local-retry").start();
++    }
++
++    /** 042: present each locally decoded phrase with its own original-video times.
++     * Nothing gets added or overwritten until the user taps an explicit choice.
++     */
++    private void showWhisperReviewCandidates(List<Caption> options,Uri source,Caption selected) {
++        if(video==null || !video.equals(source) || options==null || options.isEmpty())return;
++        final String[] entries=new String[options.size()];
++        for(int i=0;i<options.size();i++){
++            Caption c=options.get(i);
++            String t=c.text.replace('\n',' ');
++            if(t.length()>42)t=t.substring(0,42)+"…";
++            entries[i]=Caption.time(c.startMs,false)+" ～ "+Caption.time(c.endMs,false)+
++                "  "+t+(WhisperReviewCandidates.resemblesExisting(c,captions)?" 〔已有近似字幕〕":"");
++        }
++        new AlertDialog.Builder(this).setTitle("042 局部辨識候選（可重疊）")
++            .setMessage("以下時間是 Whisper 的估計，可能有錯字或重複。選中一項後可新增獨立字幕，或只替換目前選取的一句；不會自動縮短其他字幕。")
++            .setItems(entries,(d,which)->{
++                if(video==null || !video.equals(source))return;
++                Caption proposal=options.get(which);
++                boolean duplicate=WhisperReviewCandidates.resemblesExisting(proposal,captions);
++                AlertDialog.Builder choice=new AlertDialog.Builder(this)
++                    .setTitle("確認局部辨識")
++                    .setMessage("文字："+proposal.text+"\n候選時間："+
++                        Caption.time(proposal.startMs,false)+" ～ "+Caption.time(proposal.endMs,false)+
++                        (duplicate?"\n\n已有時間重疊且文字相近的字幕，請避免重複新增。":"")+
++                        "\n\n新增的字幕允許與其他句同時顯示，請檢查時間及文字。")
++                    .setNegativeButton("取消",null)
++                    .setPositiveButton("新增這句並編輯",(dd,ww)->{
++                        if(video==null || !video.equals(source))return;
++                        if(WhisperReviewCandidates.resemblesExisting(proposal,captions)){
++                            toast("已存在近似字幕；若需要兩句相同文字，請使用手動新增");return;
++                        }
++                        Caption added=proposal.copy();
++                        captions.add(added);
++                        captions.sort(Comparator.comparingLong(x->x.startMs));
++                        showCaptions();scheduleSaveCaptions();openCaptionEditor(added);
++                    });
++                if(selected!=null && captions.contains(selected)){
++                    final String before=selected.text;
++                    choice.setNeutralButton("只替換選取句的文字",(dd,ww)->{
++                        if(video==null || !video.equals(source) || !captions.contains(selected) ||
++                           !before.equals(selected.text))return;
++                        selected.text=proposal.text; // keep exact original times and styles
++                        showCaptions();scheduleSaveCaptions();openCaptionEditor(selected);
++                    });
++                }
++                choice.show();
++            }).setNegativeButton("關閉",null).show();
+     }
+ 
+     private synchronized File prepareReviewPcm(Uri source) throws Exception {
