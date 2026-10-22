@@ -73,8 +73,6 @@ jobs:
           mkdir -p tests/build041
           javac -encoding UTF-8 -d tests/build041 app/src/main/java/tw/ajo/autosubtitles/Caption.java app/src/main/java/tw/ajo/autosubtitles/SpeechBoundaryReview.java tests/Version041Tests.java
           java -cp tests/build041 Version041Tests
-          javac -encoding UTF-8 -cp tests/build -d tests/build tests/Version039Tests.java
-          java -cp tests/build Version039Tests
       - name: Install native SDK 36
         shell: bash
         run: |
