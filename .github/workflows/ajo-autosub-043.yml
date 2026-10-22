@@ -1,0 +1,107 @@
+name: Ajo Autosub 043 Experiment To App Bridge
+on:
+  push:
+    branches: [ajo-autosub-043-build]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.11.1'
+      - name: Rebuild verified 042 and run historical regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m pip -q install pyyaml brotli
+          python3 - <<'PY'
+          import subprocess,yaml
+          from pathlib import Path
+          steps=yaml.safe_load(Path('.github/workflows/ajo-autosub-042.yml').read_text())['jobs']['build']['steps']
+          found=False
+          for step in steps:
+              if step.get('name')=='Install Android SDK 36 and ARM64 native toolchain':
+                  found=True;break
+              if 'run' in step:
+                  print('042 base:',step.get('name'),flush=True)
+                  subprocess.run(['bash','-eo','pipefail','-c',step['run']],check=True)
+          assert found and Path('subtitle-build-work/tests/Version042Tests.java').is_file()
+          PY
+      - name: Decode 043 source-only patch and apply to 042
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import base64,brotli
+          data=brotli.decompress(base64.b64decode(Path('patches/ajo-autosub-043/bundle.br.b64').read_text().strip()))
+          i=0
+          output=Path('patches/ajo-autosub-043/generated')
+          while i<len(data):
+              line=data.index(b'\n',i); name=data[i:line].decode();i=line+1
+              line=data.index(b'\n',i);size=int(data[i:line]);i=line+1
+              payload=data[i:i+size];i+=size
+              p=output/name
+              assert '..' not in p.parts
+              p.parent.mkdir(parents=True,exist_ok=True)
+              p.write_bytes(payload)
+              print('043 patch input',p,len(payload))
+          assert i==len(data)
+          PY
+          cd subtitle-build-work
+          patch --dry-run --batch -p1 < ../patches/ajo-autosub-043/generated/043.patch
+          patch --batch -p1 < ../patches/ajo-autosub-043/generated/043.patch
+          cp ../patches/ajo-autosub-043/generated/app/src/main/java/tw/ajo/autosubtitles/RecoveryReviewPlan.java app/src/main/java/tw/ajo/autosubtitles/
+          cp ../patches/ajo-autosub-043/generated/app/src/main/java/tw/ajo/autosubtitles/SupplementSrtReview.java app/src/main/java/tw/ajo/autosubtitles/
+          cp ../patches/ajo-autosub-043/generated/tests/Version043Tests.java tests/
+          cp ../patches/ajo-autosub-043/CHANGELOG_043.md .
+          grep -F "versionCode 43" app/build.gradle
+          grep -F "versionName '043'" app/build.gradle
+      - name: Test real 10168 results and preservation of original seven cues
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd subtitle-build-work
+          mkdir -p tests/build043
+          javac -encoding UTF-8 -d tests/build043 app/src/main/java/tw/ajo/autosubtitles/Caption.java app/src/main/java/tw/ajo/autosubtitles/SpeechTiming.java app/src/main/java/tw/ajo/autosubtitles/WhisperReviewCandidates.java app/src/main/java/tw/ajo/autosubtitles/SrtCodec.java app/src/main/java/tw/ajo/autosubtitles/RecoveryReviewPlan.java app/src/main/java/tw/ajo/autosubtitles/SupplementSrtReview.java tests/Version043Tests.java
+          java -cp tests/build043 Version043Tests
+      - name: Install Android SDK and ARM64 native toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          SDKMANAGER=$(find "$ANDROID_HOME/cmdline-tools" -name sdkmanager -type f | sort -V | tail -1)
+          yes | "$SDKMANAGER" 'platforms;android-36' 'build-tools;35.0.0' 'ndk;27.2.12479018' 'cmake;3.22.1' || test "${PIPESTATUS[1]}" -eq 0
+      - name: Generate disposable build key (never the private user keystore)
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p subtitle-build-work/signing
+          keytool -genkeypair -keystore subtitle-build-work/signing/ajo-autosub-signing.keystore -storepass android -keypass android -alias androiddebugkey -keyalg RSA -keysize 3072 -validity 10000 -dname "CN=Temp043,O=Ajo,C=TW" -noprompt
+      - name: Compile 043 Android APK
+        run: gradle -p subtitle-build-work :app:assembleDebug --no-daemon --stacktrace
+      - name: Verify package 043 and produce only temporary signed artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK=subtitle-build-work/app/build/outputs/apk/debug/app-debug.apk
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose "$APK"
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK" | grep -E "versionCode='43'.*versionName='043'"
+          mkdir -p build-out
+          cp "$APK" build-out/ajo-autosub_043-temp.apk
+          cp "$ANDROID_HOME/build-tools/35.0.0/lib/apksigner.jar" build-out/apksigner.jar
+      - name: Upload temp APK and signer only
+        uses: actions/upload-artifact@v4
+        with:
+          name: ajo-autosub-043-temp-and-signer
+          path: build-out/
+          retention-days: 5
+          if-no-files-found: error
