@@ -206,3 +206,71 @@
          LinearLayout splitter=horizontal();
          Button split=button("游標處拆分",SURFACE,ACCENT);
          split.setOnClickListener(v->splitEditingCaption());
+--- a/app/src/main/java/tw/ajo/autosubtitles/AndroidCaptionTiming.java
++++ b/app/src/main/java/tw/ajo/autosubtitles/AndroidCaptionTiming.java
+@@ -39,7 +39,10 @@
+         for (int i=0; i<sorted.size(); i++) {
+             Caption c = sorted.get(i);
+             long nextStart = i+1 < sorted.size() ? sorted.get(i+1).startMs : windowEnd;
+-            long hardEnd = Math.min(windowEnd, nextStart);
++            // Keep a provider-reported overlapping end when it is plausible.
++            // The next speaker's START is not proof the previous one has stopped.
++            long hardEnd = Math.min(windowEnd,
++                c.endMs > nextStart && c.endMs-c.startMs <= 6500 ? c.endMs : nextStart);
+             if (hardEnd <= c.startMs) {
+                 // Recognizer returned two phrases at the same timestamp; do not
+                 // emit overlapping 1ms flashes. Merge their text instead.
+@@ -57,7 +60,11 @@
+             long available = hardEnd-c.startMs;
+             long oldDuration = c.endMs-c.startMs;
+             long target;
+-            if (oldDuration < minimum || oldDuration > maximum || c.endMs > hardEnd) {
++            if (c.endMs > nextStart && oldDuration >= minimum && oldDuration <= maximum+800) {
++                // This is an explicitly overlapping provider interval, not an
++                // inferred reading-time guess. Preserve its actual tail.
++                target = Math.min(available, oldDuration);
++            } else if (oldDuration < minimum || oldDuration > maximum || c.endMs > hardEnd) {
+                 // If the next phrase begins soon, use its time as an upper
+                 // boundary. Otherwise cap at a plausible reading duration.
+                 target = Math.min(available, maximum);
+@@ -65,7 +72,7 @@
+                 target = Math.min(oldDuration, available);
+             }
+             long end = c.startMs + Math.max(Math.min(minimum,available),target);
+-            if (i+1<sorted.size() && end >= hardEnd && hardEnd-c.startMs>220)
++            if (i+1<sorted.size() && hardEnd<=nextStart && end >= hardEnd && hardEnd-c.startMs>220)
+                 end = Math.max(c.startMs+200, hardEnd-90);
+             // If a sufficiently long silence starts near the selected end,
+             // prefer ending at that silence, but never snap across a large gap.
+@@ -75,13 +82,8 @@
+             c.endMs = end;
+             repaired.add(c);
+         }
+-        // Keep each caption separated from its successor. Sorting must not
+-        // cause a one-character flash or overlapping text when timestamps tie.
+-        for (int i=0;i+1<repaired.size();i++) {
+-            Caption left=repaired.get(i),right=repaired.get(i+1);
+-            if (left.endMs>right.startMs)
+-                left.endMs=Math.max(left.startMs+1,right.startMs);
+-        }
++        // Deliberately retain acoustically plausible overlaps. Rendering has
++        // distinct lanes for concurrent captions (introduced in v035).
+         return repaired;
+     }
+ 
+--- a/app/src/main/java/tw/ajo/autosubtitles/AndroidWordTiming.java
++++ b/app/src/main/java/tw/ajo/autosubtitles/AndroidWordTiming.java
+@@ -109,11 +109,8 @@
+             add(result,buf.toString(),phraseStart,end);
+         }
+         if(result.isEmpty())return rejected("無有效字幕");
+-        // Make adjacent captions monotonic and avoid accidental overlaps.
+-        for(int i=0;i+1<result.size();i++) {
+-            Caption a=result.get(i),b=result.get(i+1);
+-            if(a.endMs>b.startMs)a.endMs=Math.max(a.startMs+1,b.startMs);
+-        }
++        // Preserve overlapping provider-timed phrases instead of forcing an
++        // artificial end at the next phrase's start. v035 can display both.
+         return new Result(result,"已核對逐字時間與原始聲音");
+     }
+     private static void add(List<Caption> captions,String text,long from,long end){
