@@ -81,12 +81,17 @@ jobs:
           "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose "$APK"
           "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK" | grep -E "versionCode='40'.*versionName='040'"
           test -s "$ANDROID_HOME/build-tools/35.0.0/lib/apksigner.jar"
+      - name: Collect build artifacts without private signing key
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p build-out
+          cp subtitle-build-work/app/build/outputs/apk/debug/app-debug.apk build-out/ajo-autosub_040-temp.apk
+          cp "$ANDROID_HOME/build-tools/35.0.0/lib/apksigner.jar" build-out/apksigner.jar
       - name: Upload APK and signer tool for original private key signing
         uses: actions/upload-artifact@v4
         with:
           name: ajo-autosub-040-temp-and-signer
-          path: |
-            subtitle-build-work/app/build/outputs/apk/debug/app-debug.apk
-            /home/runner/.android/sdk/build-tools/35.0.0/lib/apksigner.jar
+          path: build-out/
           if-no-files-found: error
           retention-days: 5
