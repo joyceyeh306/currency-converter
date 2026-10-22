@@ -1,0 +1,59 @@
+name: Ajo Video Speed 008 Build
+on:
+  push:
+    branches: [ajo-video-speed-008-build]
+    paths:
+      - 'ajo-video-speed/008/delta.tar.gz.b64'
+      - '.github/workflows/ajo-video-speed-008.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v4
+        with:
+          packages: ''
+      - name: Install Android SDK 36
+        run: |
+          yes | sdkmanager --licenses > /dev/null || true
+          sdkmanager 'platforms;android-36' 'build-tools;36.0.0'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.13'
+      - name: Unpack version 008 Android project
+        run: |
+          mkdir -p ajo-video-speed/008/project
+          base64 -d ajo-video-speed/007/source.tar.gz.b64 | tar -xz -C ajo-video-speed/008/project
+          base64 -d ajo-video-speed/008/delta.tar.gz.b64 | tar -xz -C ajo-video-speed/008/project
+          test -f ajo-video-speed/008/project/app/src/main/java/tw/ajo/videospeed/ProjectStore.java
+          test -f ajo-video-speed/008/project/app/build.gradle
+      - name: Run 008 model regression tests
+        run: |
+          cd ajo-video-speed/008/project
+          mkdir -p test-classes
+          javac -d test-classes app/src/main/java/tw/ajo/videospeed/{SpeedCurve,AudioSegments,EditHistory}.java tests/Test006Models.java tests/Test008Models.java
+          java -cp test-classes Test006Models
+          java -cp test-classes Test008Models
+      - name: Build unsigned version 008 APK
+        run: gradle --no-daemon --stacktrace -p ajo-video-speed/008/project :app:assembleRelease
+      - name: Verify unsigned package and collect signing tools
+        run: |
+          cp ajo-video-speed/008/project/app/build/outputs/apk/release/app-release-unsigned.apk ajo-video-speed_008-unsigned.apk
+          cp "$ANDROID_HOME/build-tools/36.0.0/lib/apksigner.jar" apksigner.jar
+          "$ANDROID_HOME/build-tools/36.0.0/aapt" dump badging ajo-video-speed_008-unsigned.apk | head -n 4
+          sha256sum ajo-video-speed_008-unsigned.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ajo-video-speed-008-unsigned-and-signing-tools
+          path: |
+            ajo-video-speed_008-unsigned.apk
+            apksigner.jar
+          if-no-files-found: error
+          retention-days: 30
