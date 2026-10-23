@@ -24,7 +24,8 @@ public final class Version056Tests {
         String exporter=read("app/src/main/java/tw/ajo/autosubtitles/SubtitleExporter.java");
         String existing=read("app/src/main/java/tw/ajo/autosubtitles/SdrColor054.java");
         ok(gradle.contains("versionCode 56") && gradle.contains("versionName '056'"), "version 056");
-        ok(approx(SdrSaturation056.H_TARGET_MULTIPLIER,2.5f), "H 2.5x target");
+        ok(approx(SdrSaturation056.H_TARGET_MULTIPLIER,2.5f), "H FFmpeg reference x2.5");
+        ok(approx(SdrSaturation056.MATRIX_LINEAR_MULTIPLIER,2.10f), "calibrated linear matrix x2.10");
         ok(SdrSaturation056.applyToNormalExport(true,false), "regular HDR only");
         ok(!SdrSaturation056.applyToNormalExport(false,false), "original SDR untouched");
         ok(!SdrSaturation056.applyToNormalExport(true,true), "manual HDR diagnostics untouched");
@@ -39,8 +40,8 @@ public final class Version056Tests {
         float lumaBefore=.2126f*input[0]+.7152f*input[1]+.0722f*input[2];
         float lumaAfter=.2126f*output[0]+.7152f*output[1]+.0722f*output[2];
         ok(approx(lumaBefore,lumaAfter), "BT709 luminance preserved");
-        ok(approx(output[0]-output[1],2.5f*(input[0]-input[1])), "R-G chroma separation x2.5");
-        ok(approx(output[1]-output[2],2.5f*(input[1]-input[2])), "G-B chroma separation x2.5");
+        ok(approx(output[0]-output[1],2.10f*(input[0]-input[1])), "R-G linear chroma separation x2.10");
+        ok(approx(output[1]-output[2],2.10f*(input[1]-input[2])), "G-B linear chroma separation x2.10");
         ok(exporter.contains("(RgbMatrix) (presentationTimeUs, useHdr) -> SdrSaturation056.getMatrix()"), "new RGB matrix wired into export");
         ok(!exporter.contains(".adjustSaturation("), "no misleading +150 HSL setting");
         ok(exporter.contains("Composition.HDR_MODE_TONE_MAP_HDR_TO_SDR_USING_MEDIACODEC"), "preserve verified MediaCodec HDR-to-SDR");

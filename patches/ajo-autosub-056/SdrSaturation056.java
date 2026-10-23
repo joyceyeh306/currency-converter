@@ -6,8 +6,9 @@ package tw.ajo.autosubtitles;
  * eq=saturation=2.5 (a +150% increase) on the 054 SDR result.
  *
  * Media3 RgbMatrix works in LINEAR RGB BT.709, not gamma-encoded YUV,
- * so identical output to FFmpeg is not promised; the multiplier is the
- * requested 2.5x saturation strength in the available processing space.
+ * so identical output to FFmpeg is not promised. 054 SDR sample comparison
+ * against H (12-19 seconds) calibrated the linear RGB strength to 2.10.
+ * H remains the user's FFmpeg gamma-YUV 2.5x target, not a Media3 setting.
  *
  * The matrix increases distance from BT.709 neutral grey, while keeping
  * computed luminance and neutral grey unchanged. Exceeding gamut is
@@ -17,6 +18,9 @@ public final class SdrSaturation056 {
     private SdrSaturation056() {}
 
     public static final float H_TARGET_MULTIPLIER = 2.5f;
+    // 054 SDR vs H FFmpeg sample calibrated at 12-19 seconds, 2 fps, 160x90.
+    // Media3 transforms linear RGB rather than FFmpeg gamma YUV.
+    public static final float MATRIX_LINEAR_MULTIPLIER = 2.10f;
     private static final float LUMA_R = 0.2126f;
     private static final float LUMA_G = 0.7152f;
     private static final float LUMA_B = 0.0722f;
@@ -27,7 +31,7 @@ public final class SdrSaturation056 {
 
     /** Column-major OpenGL 4x4; alpha stays unchanged. */
     public static float[] getMatrix() {
-        float saturation = H_TARGET_MULTIPLIER;
+        float saturation = MATRIX_LINEAR_MULTIPLIER;
         float inverse = 1f - saturation;
         float r = inverse * LUMA_R;
         float g = inverse * LUMA_G;

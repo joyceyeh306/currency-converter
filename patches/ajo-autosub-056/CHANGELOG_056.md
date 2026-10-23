@@ -5,7 +5,7 @@
 
 ## 本版實作
 - 保留 054 經實機證實的 HDR→SDR MediaCodec 色調映射，沒有切回 052/053 那條曾產生紫綠色的 HDR KEEP 路線。
-- 對**一般匯出且輸入來源為 HDR** 的影像，改以 Media3 `RgbMatrix` 在 BT.709 SDR 線性 RGB 色彩空間中，將相對灰階的色度差增至 2.5 倍；使用 BT.709 luminance 權重，保留中性色與計算亮度。
+- 對**一般匯出且輸入來源為 HDR** 的影像，改以 Media3 `RgbMatrix` 在 BT.709 SDR 線性 RGB 色彩空間中，使用以 H 樣本 (12～19 秒) 校準的線性 RGB 係數 2.10，作為 FFmpeg 2.5 倍的近似；使用 BT.709 luminance 權重，保留中性色與計算亮度。
 - 這是以 H 版為**視覺目標的近似實作**，並非直接在 Android 上執行 FFmpeg `eq=saturation=2.5`：兩者的工作色彩空間（線性 RGB / gamma-encoded YUV）不同，影像可能出現差異或部分顏色剪裁，須由使用者於 OPPO 實際輸出確認。**不宣稱已與 H 版完全一致。**
 - 原始 SDR 影片、手動 HDR 診斷路線、字幕樣式與時間、Whisper、解析度、FPS、音效、音訊全部不變。
 - 維持正常匯出 H.264 SDR；保留原有錯誤回退邏輯；不新增額外畫面選項。
