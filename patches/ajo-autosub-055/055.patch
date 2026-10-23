@@ -1,0 +1,24 @@
+--- a/app/build.gradle
++++ b/app/build.gradle
+@@ -18,8 +18,8 @@
+         applicationId 'tw.ajo.autosubtitles.next'
+         minSdk 33
+         targetSdk 35
+-        versionCode 54
+-        versionName '054'
++        versionCode 55
++        versionName '055'
+     }
+     compileOptions {
+         sourceCompatibility JavaVersion.VERSION_17
+--- a/app/src/main/java/tw/ajo/autosubtitles/SdrColor054.java
++++ b/app/src/main/java/tw/ajo/autosubtitles/SdrColor054.java
+@@ -6,7 +6,7 @@
+  */
+ public final class SdrColor054 {
+     private SdrColor054() {}
+-    public static final float SATURATION_POINTS = 2f;
++    public static final float SATURATION_POINTS = 4f;
+     public static boolean applyToNormalExport(boolean inputHdr, boolean diagnostic) {
+         return inputHdr && !diagnostic;
+     }
