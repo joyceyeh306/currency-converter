@@ -1,0 +1,184 @@
+name: Ajo Autosub 049 iPhone HDR First Export
+on:
+  push:
+    branches: [ajo-autosub-049-build]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.11.1'
+      - name: Restore verified 046 source and previous regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m pip -q install pyyaml brotli
+          python3 - <<'PYBASE'
+          import subprocess,yaml
+          from pathlib import Path
+          steps=yaml.safe_load(Path('.github/workflows/ajo-autosub-046.yml').read_text())['jobs']['build']['steps']
+          found=False
+          for step in steps:
+              if step.get('name')=='Install Android SDK 36 and ARM64 native tools':
+                  found=True
+                  break
+              if 'run' in step:
+                  print('046 stage:',step.get('name'),flush=True)
+                  subprocess.run(['bash','-eo','pipefail','-c',step['run']],check=True)
+          assert found and Path('subtitle-build-work/tests/Version046Tests.java').is_file()
+          PYBASE
+      - name: Apply 047 isolated worker and PCM integrity patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PYBUNDLE'
+          from pathlib import Path
+          import brotli,base64
+          data=brotli.decompress(base64.b64decode(Path('patches/ajo-autosub-047/bundle.br.b64').read_text().strip()))
+          i=0;root=Path('patches/ajo-autosub-047/generated')
+          while i<len(data):
+              j=data.index(b'\n',i);name=data[i:j].decode();i=j+1
+              j=data.index(b'\n',i);size=int(data[i:j]);i=j+1
+              content=data[i:i+size];i+=size
+              path=root/name
+              assert '..' not in path.parts
+              path.parent.mkdir(parents=True,exist_ok=True)
+              path.write_bytes(content)
+              print('047 source:',name,len(content),flush=True)
+          assert i==len(data)
+          PYBUNDLE
+          cd subtitle-build-work
+          patch --dry-run --batch -p1 < ../patches/ajo-autosub-047/generated/047.patch
+          patch --batch -p1 < ../patches/ajo-autosub-047/generated/047.patch
+          for name in WhisperRunGuard047 PcmFingerprint047; do
+            cp ../patches/ajo-autosub-047/generated/app/src/main/java/tw/ajo/autosubtitles/$name.java app/src/main/java/tw/ajo/autosubtitles/
+          done
+          cp ../patches/ajo-autosub-047/generated/tests/Version047Tests.java tests/
+          cp ../patches/ajo-autosub-047/generated/CHANGELOG_047.md .
+          grep -F 'versionCode 47' app/build.gradle
+          grep -F "versionName '047'" app/build.gradle
+          test ! -f signing/ajo-autosub-signing.keystore
+      - name: Verify 047 cancellation guard, PCM identity and regression policy
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd subtitle-build-work
+          mkdir -p tests/build047
+          javac -encoding UTF-8 -d tests/build047 app/src/main/java/tw/ajo/autosubtitles/WhisperRunGuard047.java app/src/main/java/tw/ajo/autosubtitles/PcmFingerprint047.java tests/Version047Tests.java
+          java -cp tests/build047 Version047Tests
+      - name: Apply 048 settings UI relocation from public patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY048'
+          import base64,brotli
+          from pathlib import Path
+          data=brotli.decompress(base64.b64decode(Path('patches/ajo-autosub-048/bundle.br.b64').read_text().strip()))
+          i=0
+          root=Path('patches/ajo-autosub-048/generated')
+          while i<len(data):
+              j=data.index(b'\n',i);name=data[i:j].decode();i=j+1
+              j=data.index(b'\n',i);size=int(data[i:j]);i=j+1
+              content=data[i:i+size];i+=size
+              p=root/name
+              assert '..' not in p.parts
+              p.parent.mkdir(parents=True,exist_ok=True)
+              p.write_bytes(content)
+              print('048 source:',name,len(content),flush=True)
+          assert i==len(data)
+          PY048
+          cd subtitle-build-work
+          patch --dry-run --batch -p1 < ../patches/ajo-autosub-048/generated/048.patch
+          patch --batch -p1 < ../patches/ajo-autosub-048/generated/048.patch
+          cp ../patches/ajo-autosub-048/generated/tests/Version048Tests.java tests/
+          cp ../patches/ajo-autosub-048/generated/CHANGELOG_048.md .
+          grep -F 'versionCode 48' app/build.gradle
+          grep -F "versionName '048'" app/build.gradle
+          test ! -f signing/ajo-autosub-signing.keystore
+      - name: Verify 048 main and settings UI plus 047 regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd subtitle-build-work
+          mkdir -p tests/build048
+          javac -encoding UTF-8 -d tests/build048 tests/Version048Tests.java
+          java -cp tests/build048 Version048Tests
+      - name: Apply 049 HDR-first video export and color verification patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY049'
+          import base64,brotli
+          from pathlib import Path
+          data=brotli.decompress(base64.b64decode(Path('patches/ajo-autosub-049/bundle.br.b64').read_text().strip()))
+          i=0
+          root=Path('patches/ajo-autosub-049/generated')
+          while i<len(data):
+              j=data.index(b'\n',i);name=data[i:j].decode();i=j+1
+              j=data.index(b'\n',i);size=int(data[i:j]);i=j+1
+              content=data[i:i+size];i+=size
+              path=root/name
+              assert '..' not in path.parts
+              path.parent.mkdir(parents=True,exist_ok=True)
+              path.write_bytes(content)
+              print('049 source:',name,len(content),flush=True)
+          assert i==len(data)
+          PY049
+          cd subtitle-build-work
+          patch --dry-run --batch -p1 < ../patches/ajo-autosub-049/generated/049.patch
+          patch --batch -p1 < ../patches/ajo-autosub-049/generated/049.patch
+          cp ../patches/ajo-autosub-049/generated/app/src/main/java/tw/ajo/autosubtitles/HdrExport049.java app/src/main/java/tw/ajo/autosubtitles/
+          cp ../patches/ajo-autosub-049/generated/tests/Version049Tests.java tests/
+          cp ../patches/ajo-autosub-049/generated/CHANGELOG_049.md .
+          grep -F 'versionCode 49' app/build.gradle
+          grep -F "versionName '049'" app/build.gradle
+          test ! -f signing/ajo-autosub-signing.keystore
+      - name: Verify HDR policy, downgrade disclosure and 048/047 preservation
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd subtitle-build-work
+          mkdir -p tests/build049
+          javac -encoding UTF-8 -d tests/build049 app/src/main/java/tw/ajo/autosubtitles/HdrExport049.java tests/Version049Tests.java
+          java -cp tests/build049 Version049Tests
+      - name: Install Android SDK 36 NDK and ARM64 compiler
+        shell: bash
+        run: |
+          set -euo pipefail
+          SDKMANAGER=$(find "$ANDROID_HOME/cmdline-tools" -name sdkmanager -type f | sort -V | tail -1)
+          yes | "$SDKMANAGER" 'platforms;android-36' 'build-tools;35.0.0' 'ndk;27.2.12479018' 'cmake;3.22.1' || test "${PIPESTATUS[1]}" -eq 0
+      - name: Create disposable CI-only signing key
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p subtitle-build-work/signing
+          keytool -genkeypair -keystore subtitle-build-work/signing/ajo-autosub-signing.keystore -storepass android -keypass android -alias androiddebugkey -keyalg RSA -keysize 3072 -validity 10000 -dname 'CN=Temp049,O=Ajo,C=TW' -noprompt
+      - name: Compile 049 ARM64 Android APK
+        run: gradle -p subtitle-build-work :app:assembleDebug --no-daemon --stacktrace
+      - name: Verify 049 package and emit only public build intermediates
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK=subtitle-build-work/app/build/outputs/apk/debug/app-debug.apk
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose "$APK"
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK" | grep -E "versionCode='49'.*versionName='049'"
+          mkdir -p build-out
+          cp "$APK" build-out/ajo-autosub_049-temp.apk
+          cp "$ANDROID_HOME/build-tools/35.0.0/lib/apksigner.jar" build-out/apksigner.jar
+      - name: Upload temporary 049 APK and signer, never user signing key
+        uses: actions/upload-artifact@v4
+        with:
+          name: ajo-autosub-049-temp-and-signer
+          path: build-out/
+          if-no-files-found: error
+          retention-days: 5
