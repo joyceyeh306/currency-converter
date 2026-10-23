@@ -1,0 +1,53 @@
+--- a/app/build.gradle
++++ b/app/build.gradle
+@@ -18,8 +18,8 @@
+         applicationId 'tw.ajo.autosubtitles.next'
+         minSdk 33
+         targetSdk 35
+-        versionCode 55
+-        versionName '055'
++        versionCode 56
++        versionName '056'
+     }
+     compileOptions {
+         sourceCompatibility JavaVersion.VERSION_17
+--- a/app/src/main/java/tw/ajo/autosubtitles/SubtitleExporter.java
++++ b/app/src/main/java/tw/ajo/autosubtitles/SubtitleExporter.java
+@@ -22,7 +22,7 @@
+ import androidx.media3.effect.TextureOverlay;
+ import androidx.media3.effect.OverlayEffect;
+ import androidx.media3.effect.Presentation;
+-import androidx.media3.effect.HslAdjustment;
++import androidx.media3.effect.RgbMatrix;
+ import androidx.media3.transformer.Composition;
+ import androidx.media3.transformer.DefaultEncoderFactory;
+ import androidx.media3.transformer.EditedMediaItem;
+@@ -158,18 +158,16 @@
+             (target[0]<sourceWidth || target[1]<sourceHeight)) {
+             videoEffects.add(Presentation.createForShortSide(Math.min(target[0],target[1])));
+         }
+-        // 027: Keep all source presentation frames (including iPhone 60 fps HDR).
+-        // The old FrameDropEffect intentionally halved the motion cadence.
+-        // Do not add HSL finishing: the hardware HDR->SDR tone-map below already
+-        // performs colour conversion, and extra saturation/lightness created a cast.
+-        // This does not promise identical HDR/SDR appearance on every device.
+-        // 054: Restore the successful pre-049 MediaCodec HDR-to-SDR baseline.
+-        // ONLY on normal iPhone HDR exports, slightly improve the pale colour:
+-        // saturation +2 (historical v016 used +6 / lightness -2 and looked red/yellow).
+-        // Do not adjust hue, lightness, SDR source clips or HDR diagnostic probes.
+-        if (SdrColor054.applyToNormalExport(inputHdr,diagnosticMode)) {
+-            videoEffects.add(new HslAdjustment.Builder()
+-                .adjustSaturation(SdrColor054.SATURATION_POINTS).build());
++        // 027: Preserve all source presentation frames (including 60 fps HDR).
++        // 054/055: Use the user-verified hardware MediaCodec HDR-to-SDR path.
++        // 056: Target the user's FFmpeg H sample (+150%, 2.5x saturation), which
++        // cannot be expressed by HslAdjustment's additive [-100,100] argument.
++        // Apply a BT.709 luminance-preserving RGB matrix to tone-mapped SDR only.
++        // Its linear-light RGB math is an APPROXIMATION to the gamma-domain FFmpeg
++        // 'eq=saturation=2.5' reference: phone comparison is still necessary.
++        // Preserve SDR input, diagnostic HDR, hue, exposure, subtitles, and FPS.
++        if (SdrSaturation056.applyToNormalExport(inputHdr,diagnosticMode)) {
++            videoEffects.add((RgbMatrix) (presentationTimeUs, useHdr) -> SdrSaturation056.getMatrix());
+         }
+         if(diagnosticMode){
+             // 051: The former Brightness effect explicitly rejects HDR in Media3 1.10.0!
