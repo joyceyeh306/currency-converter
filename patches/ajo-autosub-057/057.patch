@@ -1,0 +1,34 @@
+--- a/app/build.gradle
++++ b/app/build.gradle
+@@ -18,8 +18,8 @@
+         applicationId 'tw.ajo.autosubtitles.next'
+         minSdk 33
+         targetSdk 35
+-        versionCode 56
+-        versionName '056'
++        versionCode 57
++        versionName '057'
+     }
+     compileOptions {
+         sourceCompatibility JavaVersion.VERSION_17
+--- a/app/src/main/java/tw/ajo/autosubtitles/SubtitleExporter.java
++++ b/app/src/main/java/tw/ajo/autosubtitles/SubtitleExporter.java
+@@ -190,7 +190,18 @@
+         DefaultEncoderFactory encoderFactory=new DefaultEncoderFactory.Builder(context)
+             .setRequestedVideoEncoderSettings(new VideoEncoderSettings.Builder().setBitrate(bitrate).build())
+             .setEnableFallback(true).build();
+-        transformer=new Transformer.Builder(context)
++        // 057: On full-resolution 60fps HDR->SDR exports the codec may hold
++        // many input surfaces in flight. Some exported frames in 055/056
++        // contained green block/stripe damage despite a valid MP4 container.
++        // Bound the in-flight encoder surfaces to reduce buffer pressure.
++        // This is a targeted device workaround to TEST, not proof of root cause.
++        // No changes to 054 tone mapping, 056 RGB matrix, captions or frame rate.
++        Transformer.Builder transformerBuilder = new Transformer.Builder(context);
++        if (ExportFrameBudget057.useBoundedFrames(inputHdr, diagnosticMode)) {
++            transformerBuilder.experimentalSetMaxFramesInEncoder(
++                ExportFrameBudget057.MAX_IN_FLIGHT_FRAMES);
++        }
++        transformer=transformerBuilder
+             // Only a manual diagnostic is permitted to use the unverified
+             // HDR overlay path; normal output always uses stable H.264 SDR.
