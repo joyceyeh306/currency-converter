@@ -1,0 +1,66 @@
+--- a/app/build.gradle
++++ b/app/build.gradle
+@@ -18,8 +18,8 @@
+         applicationId 'tw.ajo.autosubtitles.next'
+         minSdk 33
+         targetSdk 35
+-        versionCode 58
+-        versionName '058'
++        versionCode 59
++        versionName '059'
+     }
+     compileOptions {
+         sourceCompatibility JavaVersion.VERSION_17
+--- a/app/src/main/cpp/ajo_whisper.cpp
++++ b/app/src/main/cpp/ajo_whisper.cpp
+@@ -1,6 +1,7 @@
+ #include <jni.h>
+ #include "whisper_tail_recovery.h"
+ #include "whisper_early_recovery.h"
++#include "whisper_silence_review059.h"
+ #include <whisper.h>
+ #include <android/log.h>
+ #include <algorithm>
+@@ -290,6 +291,42 @@
+             }
+         }
+     }
++    // 059: A high no-speech probability plus weak token confidence is an
++    // uncertainty signal, not proof of silence. Re-run at most TWO suspicious
++    // short regions without previous text context. Erase only when a separate
++    // successful pass returns NO speech and the original confidence was
++    // exceptionally low. Never blacklist any word, or infer speech from volume.
++    if(result==0 && !isCancelled(&ctx) && audioLengthMs<=ajo_silence059::MAX_AUDIO_MS) {
++        int reviewed=0;
++        for(size_t i=0;i<phrases.size() && reviewed<ajo_silence059::MAX_REVIEWS;) {
++            const auto & candidate=phrases[i];
++            if(!ajo_silence059::shouldReview(candidate.startMs,candidate.endMs,
++                   audioLengthMs,ajo_tail::codepoints(candidate.text),
++                   candidate.noSpeech,candidate.tokenProb)) { i++; continue; }
++            const int64_t clipStart=std::max(int64_t(0),candidate.startMs-800);
++            const int64_t clipEnd=std::min(audioLengthMs,candidate.endMs+800);
++            if(clipEnd-clipStart<1200 || clipEnd-clipStart>10000) {i++;continue;}
++            const size_t a=size_t(clipStart*WHISPER_SAMPLE_RATE/1000);
++            const size_t b=std::min(floats.size(),size_t(clipEnd*WHISPER_SAMPLE_RATE/1000));
++            if(b<=a){i++;continue;}
++            whisper_state * fresh=whisper_init_state(w);
++            if(!fresh){i++;continue;}
++            ++reviewed;
++            auto independent=params;
++            independent.no_context=true;
++            independent.progress_callback=nullptr;
++            independent.progress_callback_user_data=nullptr;
++            const int second=whisper_full_with_state(w,fresh,independent,
++                floats.data()+a,int(b-a));
++            const int count=second==0 ? whisper_full_n_segments_from_state(fresh):-1;
++            const bool reject=ajo_silence059::shouldDropAfterRecheck(second,count,
++                candidate.noSpeech,candidate.tokenProb);
++            whisper_free_state(fresh);
++            if(isCancelled(&ctx)) break;
++            if(reject)phrases.erase(phrases.begin()+i);
++            else i++;
++        }
++    }
+     const int64_t inferenceMs=tickMs()-inferenceStart; // includes conditional rescue passes
+     env->DeleteGlobalRef(ctx.cancelled);
+     env->DeleteGlobalRef(ctx.progress);
