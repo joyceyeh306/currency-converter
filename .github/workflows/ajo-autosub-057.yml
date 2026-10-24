@@ -429,7 +429,7 @@ jobs:
           set -euo pipefail
           APK=subtitle-build-work/app/build/outputs/apk/debug/app-debug.apk
           "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose "$APK"
-          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK" | grep -E "versionCode='56'.*versionName='057'"
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK" | grep -E "versionCode='57'.*versionName='057'"
           mkdir -p build-out
           cp "$APK" build-out/ajo-autosub_057-temp.apk
           cp "$ANDROID_HOME/build-tools/35.0.0/lib/apksigner.jar" build-out/apksigner.jar
