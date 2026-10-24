@@ -1,0 +1,55 @@
+--- a/app/build.gradle
++++ b/app/build.gradle
+@@ -18,8 +18,8 @@
+         applicationId 'tw.ajo.autosubtitles.next'
+         minSdk 33
+         targetSdk 35
+-        versionCode 57
+-        versionName '057'
++        versionCode 58
++        versionName '058'
+     }
+     compileOptions {
+         sourceCompatibility JavaVersion.VERSION_17
+--- a/app/src/main/java/tw/ajo/autosubtitles/SdrSaturation056.java
++++ b/app/src/main/java/tw/ajo/autosubtitles/SdrSaturation056.java
+@@ -1,13 +1,13 @@
+ package tw.ajo.autosubtitles;
+ 
+ /**
+- * 056: SDR-only colour-saturation finishing after the device's proven
+- * MediaCodec HDR-to-SDR tone map. The user's H reference is FFmpeg's
+- * eq=saturation=2.5 (a +150% increase) on the 054 SDR result.
++ * 058: preserve 057's artifact-free MediaCodec HDR-to-SDR export and
++ * raise only the SDR RGB finishing matrix to the user's selected K target.
++ * The K reference used FFmpeg eq=saturation=3.0 (+200%) on 054 SDR.
+  *
+- * Media3 RgbMatrix works in LINEAR RGB BT.709, not gamma-encoded YUV,
+- * so identical output to FFmpeg is not promised; the multiplier is the
+- * requested 2.5x saturation strength in the available processing space.
++ * Media3 RgbMatrix works in LINEAR RGB BT.709 rather than FFmpeg's
++ * gamma-domain colour adjustment: 3.0 is the requested matrix strength,
++ * not a promise of pixel-identical K output. Compare on OPPO in practice.
+  *
+  * The matrix increases distance from BT.709 neutral grey, while keeping
+  * computed luminance and neutral grey unchanged. Exceeding gamut is
+@@ -16,7 +16,10 @@
+ public final class SdrSaturation056 {
+     private SdrSaturation056() {}
+ 
++    // Retained for previous-release regression checks and documentation only.
+     public static final float H_TARGET_MULTIPLIER = 2.5f;
++    // 058 active coefficient; K reference +200% means 3x base saturation.
++    public static final float K_TARGET_MULTIPLIER = 3.0f;
+     private static final float LUMA_R = 0.2126f;
+     private static final float LUMA_G = 0.7152f;
+     private static final float LUMA_B = 0.0722f;
+@@ -27,7 +30,7 @@
+ 
+     /** Column-major OpenGL 4x4; alpha stays unchanged. */
+     public static float[] getMatrix() {
+-        float saturation = H_TARGET_MULTIPLIER;
++        float saturation = K_TARGET_MULTIPLIER;
+         float inverse = 1f - saturation;
+         float r = inverse * LUMA_R;
+         float g = inverse * LUMA_G;
