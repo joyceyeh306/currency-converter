@@ -505,125 +505,125 @@ jobs:
           gradle.write_text(original.replace('versionCode 60','versionCode 61').replace("versionName '060'","versionName '061'"))
           PY061
           cat > app/src/main/java/tw/ajo/autosubtitles/SpeakerCaptionizer.java <<'JAVA061'
-package tw.ajo.autosubtitles;
-
-import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.List;
-
-/**
- * 061: Trust the diarization service's utterance start/end, not character counts.
- *
- * The API supplies *segment* timestamps, not per-word timestamps. Splitting a
- * segment into timed pieces by number of Chinese characters invents timing and
- * can put a caption before/after the actual phrase. Keep one editable caption
- * per returned segment, retaining simultaneous speakers as separate captions.
- * When the model returns no second speaker, we never fabricate one.
- *
- * A legacy safety safeguard remains only for obviously suspect two-character
- * segments longer than eight seconds (see Version013Tests). Such a clip cannot
- * be rescued by unsupported word alignment; user timing review is still needed.
- */
-public final class SpeakerCaptionizer {
-    public static final class Segment {
-        public final String speaker, text;
-        public final long fromMs, toMs;
-        public Segment(String speaker,String text,long fromMs,long toMs) {
-            this.speaker=speaker==null?"":speaker;
-            this.text=text==null?"":text;
-            this.fromMs=fromMs;this.toMs=toMs;
-        }
-    }
-    private SpeakerCaptionizer() {}
-    public static List<Caption> convert(List<Segment> segments,long durationMs) {
-        ArrayList<Caption> out=new ArrayList<>();
-        if(segments==null || durationMs<=0)return out;
-        for(Segment s:segments) {
-            if(s==null || s.text.isBlank() || s.toMs<=s.fromMs || s.fromMs>=durationMs)continue;
-            long start=Math.max(0,s.fromMs),end=Math.min(durationMs,s.toMs);
-            if(end<=start)continue;
-            // Punctuation-only input must not produce a blank timed caption.
-            String text=CaptionPunctuation.strip(s.text).trim();
-            if(text.isEmpty())continue;
-            // Old 013 safety: a <=2 character phrase cannot linger for 11 seconds.
-            // Don't apply a duration rule to ordinary/long clauses or a 2-second
-            // phrase: that would be a fabricated end-time not supported by audio.
-            if(text.codePointCount(0,text.length())<=2 && end-start>8000) {
-                end=Math.min(end,start+1800);
-            }
-            Caption c=new Caption(start,end,text);
-            c.speaker=s.speaker;
-            out.add(c);
-        }
-        out.sort(Comparator.comparingLong(c->c.startMs));
-        return out;
-    }
-}
+          package tw.ajo.autosubtitles;
+          
+          import java.util.ArrayList;
+          import java.util.Comparator;
+          import java.util.List;
+          
+          /**
+           * 061: Trust the diarization service's utterance start/end, not character counts.
+           *
+           * The API supplies *segment* timestamps, not per-word timestamps. Splitting a
+           * segment into timed pieces by number of Chinese characters invents timing and
+           * can put a caption before/after the actual phrase. Keep one editable caption
+           * per returned segment, retaining simultaneous speakers as separate captions.
+           * When the model returns no second speaker, we never fabricate one.
+           *
+           * A legacy safety safeguard remains only for obviously suspect two-character
+           * segments longer than eight seconds (see Version013Tests). Such a clip cannot
+           * be rescued by unsupported word alignment; user timing review is still needed.
+           */
+          public final class SpeakerCaptionizer {
+              public static final class Segment {
+                  public final String speaker, text;
+                  public final long fromMs, toMs;
+                  public Segment(String speaker,String text,long fromMs,long toMs) {
+                      this.speaker=speaker==null?"":speaker;
+                      this.text=text==null?"":text;
+                      this.fromMs=fromMs;this.toMs=toMs;
+                  }
+              }
+              private SpeakerCaptionizer() {}
+              public static List<Caption> convert(List<Segment> segments,long durationMs) {
+                  ArrayList<Caption> out=new ArrayList<>();
+                  if(segments==null || durationMs<=0)return out;
+                  for(Segment s:segments) {
+                      if(s==null || s.text.isBlank() || s.toMs<=s.fromMs || s.fromMs>=durationMs)continue;
+                      long start=Math.max(0,s.fromMs),end=Math.min(durationMs,s.toMs);
+                      if(end<=start)continue;
+                      // Punctuation-only input must not produce a blank timed caption.
+                      String text=CaptionPunctuation.strip(s.text).trim();
+                      if(text.isEmpty())continue;
+                      // Old 013 safety: a <=2 character phrase cannot linger for 11 seconds.
+                      // Don't apply a duration rule to ordinary/long clauses or a 2-second
+                      // phrase: that would be a fabricated end-time not supported by audio.
+                      if(text.codePointCount(0,text.length())<=2 && end-start>8000) {
+                          end=Math.min(end,start+1800);
+                      }
+                      Caption c=new Caption(start,end,text);
+                      c.speaker=s.speaker;
+                      out.add(c);
+                  }
+                  out.sort(Comparator.comparingLong(c->c.startMs));
+                  return out;
+              }
+          }
           JAVA061
           cat > tests/Version061Tests.java <<'TEST061'
-import java.nio.file.*;
-import java.util.*;
-import tw.ajo.autosubtitles.*;
-
-/** Offline regression: segment timestamps must survive the subtitle pipeline. */
-public final class Version061Tests {
-    static int checks;
-    static void require(boolean good,String label){checks++;if(!good)throw new AssertionError(label);}
-    static SpeakerCaptionizer.Segment seg(String who,String text,long a,long b){
-        return new SpeakerCaptionizer.Segment(who,text,a,b);
-    }
-    public static void main(String[] args)throws Exception {
-        List<Caption> source=SpeakerCaptionizer.convert(Arrays.asList(
-            seg("speaker_0","爸爸新年快樂，媽媽新年快樂。",6100,9970),
-            seg("speaker_1","新年快樂！",9300,10630),
-            seg("speaker_2","阿公新年快樂",10420,12220),
-            seg("speaker_1","新年快樂",11500,12600),
-            seg("speaker_3","新年快樂",18600,20200)),21461);
-        require(source.size()==5,"one timed caption per cloud segment, no invented split");
-        require(source.get(0).startMs==6100 && source.get(0).endMs==9970,"exact long spoken segment start and end");
-        require(source.get(0).text.contains("爸爸") && source.get(0).text.contains("媽媽"),"keep all recognized text, even when natural clauses");
-        require(source.get(1).startMs==9300 && source.get(1).endMs==10630,"overlap B has independent timing");
-        require(source.get(2).startMs==10420 && source.get(2).endMs==12220,"overlap C has independent timing");
-        require(source.get(3).startMs==11500 && source.get(3).endMs==12600,"short reply not extended");
-        require(source.get(4).startMs==18600 && source.get(4).endMs==20200,"last utterance retained");
-        require(source.get(4).speaker.equals("speaker_3"),"speaker IDs retained");
-        require(OverlayCaptionText.at(source,9500).contains("甲：") && OverlayCaptionText.at(source,9500).contains("乙："),"two speakers displayed in overlap");
-        require(OverlayCaptionText.at(source,16000).isEmpty(),"actual silence stays without caption");
-        String srt=SrtCodec.encode(source);
-        List<Caption> restored=SrtCodec.decode(srt);
-        require(restored.size()==5,"SRT no dropped overlap");
-        require(restored.get(0).startMs==6100 && restored.get(0).endMs==9970,"SRT preserved segment time");
-        require(restored.get(1).startMs<restored.get(0).endMs,"SRT preserved overlap");
-        List<Caption> clipped=SpeakerCaptionizer.convert(Arrays.asList(
-             seg("A","尾端",20900,22500),seg("B","超出",22000,23000),seg("C","！！！",100,200)),21461);
-        require(clipped.size()==1,"reject out-of-duration or punctuation-only segments");
-        require(clipped.get(0).startMs==20900 && clipped.get(0).endMs==21461,"clamp at video end without arbitrary shortening");
-        require(SpeakerCaptionizer.convert(Arrays.asList(seg("A","",100,500)),1000).isEmpty(),"skip no speech");
-        require(SpeakerCaptionizer.convert(Arrays.asList(seg("A","時間錯誤",900,800)),1000).isEmpty(),"skip invalid time");
-        require(SpeakerCaptionizer.convert(Arrays.asList(seg("A","一般說話。",1000,2800)),4000).get(0).endMs==2800,"no letter-count max duration for normal clauses");
-        require(SpeakerCaptionizer.convert(Arrays.asList(seg("A","新年",1000,3000)),4000).get(0).endMs==3000,"two characters 2-sec utterance preserved");
-        require(SpeakerCaptionizer.convert(Arrays.asList(seg("B","真假",3000,14200)),15000).get(0).endMs==4800,"retain old 013 extreme phantom interval guard");
-        String cloud=Files.readString(Path.of("app/src/main/java/tw/ajo/autosubtitles/CloudTranscriber.java"));
-        String gradle=Files.readString(Path.of("app/build.gradle"));
-        String export=Files.readString(Path.of("app/src/main/java/tw/ajo/autosubtitles/SubtitleExporter.java"));
-        require(gradle.contains("versionCode 61")&&gradle.contains("versionName '061'"),"061 version identity");
-        require(cloud.contains("chunking_strategy")&&cloud.contains("listener.captions(group)"),"single-pass diarized flow unchanged");
-        require(cloud.contains("run(pcm,secret,language,cache,false,listener)"),"no second paid request by default");
-        require(export.contains("experimentalSetMaxFramesInEncoder("),"057 frame budget retained");
-        require(export.contains("HDR_MODE_TONE_MAP_HDR_TO_SDR_USING_MEDIACODEC"),"054 SDR conversion retained");
-        System.out.println("061 timing-first regression PASSED ("+checks+" checks)");
-    }
-}
+          import java.nio.file.*;
+          import java.util.*;
+          import tw.ajo.autosubtitles.*;
+          
+          /** Offline regression: segment timestamps must survive the subtitle pipeline. */
+          public final class Version061Tests {
+              static int checks;
+              static void require(boolean good,String label){checks++;if(!good)throw new AssertionError(label);}
+              static SpeakerCaptionizer.Segment seg(String who,String text,long a,long b){
+                  return new SpeakerCaptionizer.Segment(who,text,a,b);
+              }
+              public static void main(String[] args)throws Exception {
+                  List<Caption> source=SpeakerCaptionizer.convert(Arrays.asList(
+                      seg("speaker_0","爸爸新年快樂，媽媽新年快樂。",6100,9970),
+                      seg("speaker_1","新年快樂！",9300,10630),
+                      seg("speaker_2","阿公新年快樂",10420,12220),
+                      seg("speaker_1","新年快樂",11500,12600),
+                      seg("speaker_3","新年快樂",18600,20200)),21461);
+                  require(source.size()==5,"one timed caption per cloud segment, no invented split");
+                  require(source.get(0).startMs==6100 && source.get(0).endMs==9970,"exact long spoken segment start and end");
+                  require(source.get(0).text.contains("爸爸") && source.get(0).text.contains("媽媽"),"keep all recognized text, even when natural clauses");
+                  require(source.get(1).startMs==9300 && source.get(1).endMs==10630,"overlap B has independent timing");
+                  require(source.get(2).startMs==10420 && source.get(2).endMs==12220,"overlap C has independent timing");
+                  require(source.get(3).startMs==11500 && source.get(3).endMs==12600,"short reply not extended");
+                  require(source.get(4).startMs==18600 && source.get(4).endMs==20200,"last utterance retained");
+                  require(source.get(4).speaker.equals("speaker_3"),"speaker IDs retained");
+                  require(OverlayCaptionText.at(source,9500).contains("甲：") && OverlayCaptionText.at(source,9500).contains("乙："),"two speakers displayed in overlap");
+                  require(OverlayCaptionText.at(source,16000).isEmpty(),"actual silence stays without caption");
+                  String srt=SrtCodec.encode(source);
+                  List<Caption> restored=SrtCodec.decode(srt);
+                  require(restored.size()==5,"SRT no dropped overlap");
+                  require(restored.get(0).startMs==6100 && restored.get(0).endMs==9970,"SRT preserved segment time");
+                  require(restored.get(1).startMs<restored.get(0).endMs,"SRT preserved overlap");
+                  List<Caption> clipped=SpeakerCaptionizer.convert(Arrays.asList(
+                       seg("A","尾端",20900,22500),seg("B","超出",22000,23000),seg("C","！！！",100,200)),21461);
+                  require(clipped.size()==1,"reject out-of-duration or punctuation-only segments");
+                  require(clipped.get(0).startMs==20900 && clipped.get(0).endMs==21461,"clamp at video end without arbitrary shortening");
+                  require(SpeakerCaptionizer.convert(Arrays.asList(seg("A","",100,500)),1000).isEmpty(),"skip no speech");
+                  require(SpeakerCaptionizer.convert(Arrays.asList(seg("A","時間錯誤",900,800)),1000).isEmpty(),"skip invalid time");
+                  require(SpeakerCaptionizer.convert(Arrays.asList(seg("A","一般說話。",1000,2800)),4000).get(0).endMs==2800,"no letter-count max duration for normal clauses");
+                  require(SpeakerCaptionizer.convert(Arrays.asList(seg("A","新年",1000,3000)),4000).get(0).endMs==3000,"two characters 2-sec utterance preserved");
+                  require(SpeakerCaptionizer.convert(Arrays.asList(seg("B","真假",3000,14200)),15000).get(0).endMs==4800,"retain old 013 extreme phantom interval guard");
+                  String cloud=Files.readString(Path.of("app/src/main/java/tw/ajo/autosubtitles/CloudTranscriber.java"));
+                  String gradle=Files.readString(Path.of("app/build.gradle"));
+                  String export=Files.readString(Path.of("app/src/main/java/tw/ajo/autosubtitles/SubtitleExporter.java"));
+                  require(gradle.contains("versionCode 61")&&gradle.contains("versionName '061'"),"061 version identity");
+                  require(cloud.contains("chunking_strategy")&&cloud.contains("listener.captions(group)"),"single-pass diarized flow unchanged");
+                  require(cloud.contains("run(pcm,secret,language,cache,false,listener)"),"no second paid request by default");
+                  require(export.contains("experimentalSetMaxFramesInEncoder("),"057 frame budget retained");
+                  require(export.contains("HDR_MODE_TONE_MAP_HDR_TO_SDR_USING_MEDIACODEC"),"054 SDR conversion retained");
+                  System.out.println("061 timing-first regression PASSED ("+checks+" checks)");
+              }
+          }
           TEST061
           cat > CHANGELOG_061.md <<'LOG061'
-# 061｜字幕時間優先，僅調整雲端分段文字轉字幕
-
-- 雲端多人辨識每個帶有開始、結束時間的 API segment 建立**一筆字幕**，保留 API 原始段落時間與說話者標記。
-- 取消將同一個 API segment 文字切成子句後按中文字數比例產生**沒有音訊依據的假時間戳**。
-- 同時回傳的不同 speaker 時段，保持重疊；字幕顯示與 SRT 持續允許重疊；不推測未辨識的人聲。
-- 只有舊版 013 既有的極端例外（僅兩字、卻持續超過八秒）的錯誤時間保護仍使用短時限；這項保護不是精準的音訊對齊。
-- 雲端 API 設定及是否第二次付費、Whisper 模型與字幕編輯、054 HDR→SDR、057 穩定輸出、058 色彩矩陣維持不變。
-- 目前只能證明沒有再把 API segment 按字數任意重切；**不能保證 API 本身提供的語音邊界精準，也不能修正 API 漏掉的最後一句或重疊說話者**。
+          # 061｜字幕時間優先，僅調整雲端分段文字轉字幕
+          
+          - 雲端多人辨識每個帶有開始、結束時間的 API segment 建立**一筆字幕**，保留 API 原始段落時間與說話者標記。
+          - 取消將同一個 API segment 文字切成子句後按中文字數比例產生**沒有音訊依據的假時間戳**。
+          - 同時回傳的不同 speaker 時段，保持重疊；字幕顯示與 SRT 持續允許重疊；不推測未辨識的人聲。
+          - 只有舊版 013 既有的極端例外（僅兩字、卻持續超過八秒）的錯誤時間保護仍使用短時限；這項保護不是精準的音訊對齊。
+          - 雲端 API 設定及是否第二次付費、Whisper 模型與字幕編輯、054 HDR→SDR、057 穩定輸出、058 色彩矩陣維持不變。
+          - 目前只能證明沒有再把 API segment 按字數任意重切；**不能保證 API 本身提供的語音邊界精準，也不能修正 API 漏掉的最後一句或重疊說話者**。
           LOG061
           mkdir -p tests/build061
           javac -encoding UTF-8 -d tests/build061 app/src/main/java/tw/ajo/autosubtitles/Caption.java app/src/main/java/tw/ajo/autosubtitles/CaptionPunctuation.java app/src/main/java/tw/ajo/autosubtitles/SpeakerCaptionizer.java app/src/main/java/tw/ajo/autosubtitles/OverlayCaptionText.java app/src/main/java/tw/ajo/autosubtitles/SrtCodec.java tests/Version061Tests.java tests/Version013Tests.java
