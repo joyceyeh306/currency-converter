@@ -19,6 +19,8 @@ jobs:
           mkdir -p vad-model
           curl --fail --location --retry 3 --output vad-model/silero_vad.jit https://raw.githubusercontent.com/snakers4/silero-vad/master/src/silero_vad/data/silero_vad.jit
           curl --fail --location --retry 3 --output vad-model/LICENSE https://raw.githubusercontent.com/snakers4/silero-vad/master/LICENSE
+          curl --fail --location --retry 3 --output vad-model/silero_vad.onnx https://raw.githubusercontent.com/snakers4/silero-vad/60b7ffa243625ebdc1070275a29f18c87843786a/src/silero_vad/data/silero_vad.onnx
+          echo '1a153a22f4509e292a94e67d6f9b85e8deb25b4988682b7e174c65279d8788e3  vad-model/silero_vad.onnx' | sha256sum -c -
           test "$(stat -c %s vad-model/silero_vad.jit)" -gt 1000000
           sha256sum vad-model/silero_vad.jit > vad-model/SHA256SUMS
       - uses: actions/upload-artifact@v4
