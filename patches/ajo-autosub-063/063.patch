@@ -1,0 +1,83 @@
+--- a/app/build.gradle
++++ b/app/build.gradle
+@@ -18,8 +18,8 @@
+         applicationId 'tw.ajo.autosubtitles.next'
+         minSdk 33
+         targetSdk 35
+-        versionCode 62
+-        versionName '062'
++        versionCode 63
++        versionName '063'
+     }
+     compileOptions {
+         sourceCompatibility JavaVersion.VERSION_17
+--- a/app/src/main/java/tw/ajo/autosubtitles/MainActivity.java
++++ b/app/src/main/java/tw/ajo/autosubtitles/MainActivity.java
+@@ -1460,7 +1460,7 @@
+         final ArrayList<Caption> snapshot=new ArrayList<>();
+         for(Caption c:captions)snapshot.add(c.copy());
+         setBusy(true);cancelled.set(false);
+-        status.setText("062 離線檢查疑似漏句，原字幕不變…");
++        status.setText("063 離線檢查疑似漏句，原字幕不變…");
+         new Thread(()->{
+             try{
+                 File pcm=prepareReviewPcm(source);
+@@ -1471,9 +1471,9 @@
+                 ui.post(()->{
+                     if(cancelled.get()||!source.equals(video))return;
+                     setBusy(false);
+-                    status.setText("062 漏句檢查完成："+gaps.size()+" 個待確認區間；沒有更動字幕。");
++                    status.setText("063 漏句檢查完成："+gaps.size()+" 個待確認區間；沒有更動字幕。");
+                     if(gaps.isEmpty()){
+-                        new AlertDialog.Builder(this).setTitle("062 漏句檢查")
++                        new AlertDialog.Builder(this).setTitle("063 漏句檢查")
+                             .setMessage("這次沒有找到長度超過 0.6 秒、且未被字幕覆蓋的疑似人聲。仍可能漏掉短句或同時說話的第二個人，不能當作完全沒有漏句。")
+                             .setPositiveButton("知道了",null).show();
+                     }else showMissingVoiceList062(source,gaps);
+@@ -1482,7 +1482,7 @@
+                 ui.post(()->{
+                     if(!source.equals(video))return;
+                     setBusy(false);
+-                    status.setText("062 漏句檢查未完成，字幕沒有更動："+ex.getMessage());
++                    status.setText("063 漏句檢查未完成，字幕沒有更動："+ex.getMessage());
+                     new AlertDialog.Builder(this).setTitle("離線檢查未完成")
+                         .setMessage("原字幕完全沒有更改。\n"+ex.getMessage())
+                         .setPositiveButton("知道了",null).show();
+@@ -1491,17 +1491,24 @@
+         },"ajo-062-silero-review").start();
+     }
+ 
++    /**
++     * 063: AlertDialog.setMessage() and setItems() cannot be combined:
++     * Android shows the message and hides the selectable ListView.
++     * Keep the caution in the title and item-detail message; show all spans.
++     */
+     private void showMissingVoiceList062(Uri source,List<SpeechTiming.Span> gaps){
+-        if(!source.equals(video))return;
++        if(!source.equals(video) || gaps==null || gaps.isEmpty())return;
+         String[] labels=new String[gaps.size()];
+         for(int i=0;i<gaps.size();i++){
+             SpeechTiming.Span s=gaps.get(i);
+             labels[i]=(i+1)+"．"+Caption.time(s.startMs,false)+" ～ "+Caption.time(s.endMs,false);
+         }
+-        new AlertDialog.Builder(this).setTitle("062 疑似漏句（"+gaps.size()+" 處）")
+-            .setMessage("這是人聲活動提示，不代表每段一定有人說話；背景聲與重疊人聲也可能被誤判。請點一段試聽。")
++        // 063: NO setMessage in this list dialog; otherwise setItems disappears.
++        new AlertDialog.Builder(this)
++            .setTitle("063 疑似漏句（"+gaps.size()+" 處）｜點選時間試聽")
+             .setItems(labels,(dialog,i)->showMissingVoiceItem062(source,gaps,i))
+-            .setNegativeButton("返回編輯字幕",null).show();
++            .setNegativeButton("返回編輯字幕",null)
++            .show();
+     }
+ 
+     private void showMissingVoiceItem062(Uri source,List<SpeechTiming.Span> gaps,int which){
+@@ -1510,7 +1517,7 @@
+         AlertDialog dlg=new AlertDialog.Builder(this)
+             .setTitle("疑似漏句："+Caption.time(s.startMs,false))
+             .setMessage("候選時間："+Caption.time(s.startMs,false)+" ～ "+Caption.time(s.endMs,false)+
+-                "\n\n按「試聽」核對原音。只在確定有人說話時再新增字幕。新增後可自行修改起點、終點與文字。原有字幕一律不動。")
++                "\n\n※ 只是人聲活動提示，可能是背景聲或重疊人聲。請先按「試聽這段」核對原音；確認後才新增空白字幕。原有字幕時間和文字都不變。")
+             .setNegativeButton("返回列表",(d,w)->showMissingVoiceList062(source,gaps))
+             .setNeutralButton("試聽這段",null)
+             .setPositiveButton("新增空白字幕",(d,w)->{
