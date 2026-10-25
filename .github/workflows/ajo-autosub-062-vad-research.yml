@@ -1,0 +1,29 @@
+name: Ajo Autosub 062 VAD Research Model Download
+on:
+  push:
+    branches: [ajo-autosub-062-vad-research]
+    paths:
+      - .github/workflows/ajo-autosub-062-vad-research.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  obtain-upstream-model:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Download only official open source Silero VAD model
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p vad-model
+          curl --fail --location --retry 3 --output vad-model/silero_vad.jit https://raw.githubusercontent.com/snakers4/silero-vad/master/src/silero_vad/data/silero_vad.jit
+          curl --fail --location --retry 3 --output vad-model/LICENSE https://raw.githubusercontent.com/snakers4/silero-vad/master/LICENSE
+          test "$(stat -c %s vad-model/silero_vad.jit)" -gt 1000000
+          sha256sum vad-model/silero_vad.jit > vad-model/SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: silero-vad-upstream-model-only
+          path: vad-model/
+          retention-days: 2
+          if-no-files-found: error
