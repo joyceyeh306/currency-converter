@@ -1,0 +1,80 @@
+--- a/app/src/main/java/tw/ajo/autosubtitles/WhisperRecovery044.java
++++ b/app/src/main/java/tw/ajo/autosubtitles/WhisperRecovery044.java
+@@ -56,7 +56,14 @@
+         if(anchors==null || anchors.isEmpty() || durationMs<=0)return windows;
+         ArrayList<SpeechBandActivity.Anchor> good=new ArrayList<>(anchors);
+         good.sort(Comparator.comparingLong(x->x.startMs));
+-        for(int i=0;i<good.size() && windows.size()<MAX_WINDOWS;i++) {
++        // 064: when there are more than twelve anchors, distribute the same
++        // twelve rechecks across the ENTIRE video, including the final speech.
++        // Previously, choosing only the first twelve silently excluded the tail.
++        // The work limit remains twelve; normal <=12-anchor videos are unchanged.
++        final int count=Math.min(MAX_WINDOWS,good.size());
++        for(int slot=0;slot<count;slot++) {
++            int i=good.size()<=MAX_WINDOWS ? slot :
++                (int)Math.round((double)slot*(good.size()-1)/(MAX_WINDOWS-1));
+             SpeechBandActivity.Anchor a=good.get(i);
+             if(a.startMs<0 || a.endMs<=a.startMs || a.startMs>=durationMs)continue;
+             long leftLimit=i>0 ? (good.get(i-1).endMs+a.startMs)/2:0;
+--- a/app/src/main/java/tw/ajo/autosubtitles/WhisperRecovery045.java
++++ b/app/src/main/java/tw/ajo/autosubtitles/WhisperRecovery045.java
+@@ -45,6 +45,11 @@
+         if(videoMs<=0 || proposals==null || anchors==null || anchors.isEmpty())return false;
+         final List<Caption> bounded=WhisperRecovery044.bounded(proposals,videoMs);
+         if(bounded.size()!=proposals.size())return false;
++        // 064: avoid replacing a valid, distinct original tail with an
++        // acoustically anchored set that ends much earlier. This was possible
++        // when the capped 044 review omitted the last few voice islands.
++        // The historical 045 long *repeated* hallucination cleanup remains.
++        if(dropsDistinctOriginalTail(original,bounded,videoMs))return false;
+         int distinct=distinctCount(bounded);
+         if(distinct<2)return false;
+         Set<Integer> supported=new HashSet<>();
+@@ -117,6 +122,35 @@
+         return result;
+     }
+ 
++    /** Refuse a wholesale replacement that would erase credible final dialogue.
++     * Repeated long text seen 3+ times is the historical 045 hallucination case,
++     * so it is not protected as distinct dialogue. This is intentionally a
++     * conservative *preservation* rule, not an ASR correctness classifier.
++     */
++    private static boolean dropsDistinctOriginalTail(List<Caption> original,
++                                                      List<Caption> proposed,long videoMs) {
++        if(original==null || original.isEmpty() || proposed==null || proposed.isEmpty())return false;
++        long lastProposalEnd=0;
++        for(Caption c:proposed)if(c!=null)lastProposalEnd=Math.max(lastProposalEnd,c.endMs);
++        if(lastProposalEnd<=0)return false;
++        for(Caption c:original) {
++            if(c==null || c.text==null || c.text.isBlank())continue;
++            // Invalid absolute times are handled by the old bounded-path guard.
++            if(c.startMs<0 || c.startMs>=videoMs || c.endMs>videoMs+150 || c.endMs<=c.startMs)continue;
++            // A difference of <=0.5s is within the coarse anchor time pad.
++            if(c.endMs-lastProposalEnd<=500)continue;
++            String key=normalize(c.text);
++            if(key.isEmpty())continue;
++            int repeats=0;
++            if(key.codePointCount(0,key.length())>=8)for(Caption other:original) {
++                if(other!=null && key.equals(normalize(other.text)))repeats++;
++            }
++            if(repeats>=3)continue; // preserve the verified 045 long-hallucination cleanup
++            return true;
++        }
++        return false;
++    }
++
+     private static int distinctCount(List<Caption> captions) {
+         Set<String> all=new HashSet<>();
+         for(Caption c:captions)if(c!=null && c.text!=null)all.add(normalize(c.text));
+--- a/app/build.gradle
++++ b/app/build.gradle
+@@ -18,8 +18,8 @@
+         applicationId 'tw.ajo.autosubtitles.next'
+         minSdk 33
+         targetSdk 35
+-        versionCode 63
+-        versionName '063'
++        versionCode 64
++        versionName '064'
+     }
+     compileOptions {
