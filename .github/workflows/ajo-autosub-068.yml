@@ -768,6 +768,8 @@ jobs:
           cd subtitle-build-work
           patch --dry-run --batch -p1 < ../patches/ajo-autosub-068/generated/068.patch
           patch --batch -p1 < ../patches/ajo-autosub-068/generated/068.patch
+          patch --dry-run --batch -p1 < ../patches/ajo-autosub-068/068-android-compat.patch
+          patch --batch -p1 < ../patches/ajo-autosub-068/068-android-compat.patch
           cp ../patches/ajo-autosub-068/generated/app/src/main/java/tw/ajo/autosubtitles/WhisperDecisionTrace068.java app/src/main/java/tw/ajo/autosubtitles/
           cp ../patches/ajo-autosub-068/generated/tests/Version068Tests.java tests/
           cp ../patches/ajo-autosub-068/generated/CHANGELOG_068.md .
