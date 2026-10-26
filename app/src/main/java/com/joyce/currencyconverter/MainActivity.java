@@ -389,8 +389,13 @@ public class MainActivity extends Activity {
 
         amountInput = new EditText(this);
         amountInput.setInputType(
-                android.text.InputType.TYPE_CLASS_NUMBER |
-                        android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL
+                android.text.InputType.TYPE_CLASS_TEXT |
+                        android.text.InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
+        );
+        amountInput.setKeyListener(
+                android.text.method.DigitsKeyListener.getInstance(
+                        "0123456789.+−×÷-*/"
+                )
         );
         amountInput.setSingleLine(true);
         amountInput.setText(currentAmountText);
@@ -1395,7 +1400,11 @@ public class MainActivity extends Activity {
                 equals,
                 new LinearLayout.LayoutParams(dp(48), dp(30))
         );
-        equals.setOnClickListener(v -> calculateCurrentExpression());
+        equals.setHapticFeedbackEnabled(true);
+        equals.setOnClickListener(v -> {
+            performKeyHaptic(v);
+            calculateCurrentExpression();
+        });
 
         addHorizontalSpacer(header, 6);
 
@@ -1441,7 +1450,11 @@ public class MainActivity extends Activity {
                 if (col > 0) keyLp.setMargins(dp(7), 0, 0, 0);
                 row.addView(key, keyLp);
 
-                key.setOnClickListener(v -> handleNumericKey(keyText));
+                key.setHapticFeedbackEnabled(true);
+                key.setOnClickListener(v -> {
+                    performKeyHaptic(v);
+                    handleNumericKey(keyText);
+                });
             }
 
             LinearLayout.LayoutParams rowLp =
@@ -1755,6 +1768,17 @@ public class MainActivity extends Activity {
                     .toPlainString();
         } catch (Exception e) {
             return Double.toString(value);
+        }
+    }
+
+    private void performKeyHaptic(View view) {
+        if (view == null) return;
+
+        try {
+            view.performHapticFeedback(
+                    android.view.HapticFeedbackConstants.KEYBOARD_TAP
+            );
+        } catch (Exception ignored) {
         }
     }
 
