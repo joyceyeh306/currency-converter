@@ -1203,7 +1203,7 @@ private enum class FilenameBatchMode(
     ),
     CAPTURE_TIME(
         "依拍攝日期時間",
-        "例如 2026-09-28 11_20_55.JPG；同一秒多張會自動加序號"
+        "例如 2026-09-28 1120_55.JPG；同一秒多張會自動加序號"
     ),
     KEEP_ORIGINAL(
         "原檔名＋前後綴",
@@ -1276,7 +1276,7 @@ private fun FilenameRenameDialog(
                     }
                 }
                 FilenameBatchMode.CAPTURE_TIME -> {
-                    val formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH_mm_ss")
+                    val formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HHmm_ss")
                     val occurrences = mutableMapOf<String, Int>()
                     orderedItems.map { item ->
                         val stem = item.wallTime.format(formatter)
