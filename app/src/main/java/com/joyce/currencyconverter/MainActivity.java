@@ -114,6 +114,7 @@ public class MainActivity extends Activity {
     private float dragDownRawX = 0f;
     private float dragDownRawY = 0f;
     private boolean dragMoved = false;
+    private boolean calculationJustFinished = false;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -558,6 +559,7 @@ public class MainActivity extends Activity {
         );
 
         clear.setOnClickListener(v -> {
+            calculationJustFinished = false;
             amountInput.setText("");
             amountInput.requestFocus();
             showNumericKeypad();
@@ -1382,30 +1384,49 @@ public class MainActivity extends Activity {
                 )
         );
 
+        TextView equals = new TextView(this);
+        equals.setText("＝");
+        equals.setTextSize(18f);
+        equals.setTextColor(GOLD_DARK);
+        equals.setTypeface(Typeface.DEFAULT_BOLD);
+        equals.setGravity(Gravity.CENTER);
+        equals.setBackground(roundStroke(GOLD_LIGHT, GOLD_LINE, 10));
+        header.addView(
+                equals,
+                new LinearLayout.LayoutParams(dp(48), dp(30))
+        );
+        equals.setOnClickListener(v -> calculateCurrentExpression());
+
+        addHorizontalSpacer(header, 6);
+
         String[][] keys = {
-                {"1", "2", "3"},
-                {"4", "5", "6"},
-                {"7", "8", "9"},
-                {".", "0", "⌫"}
+                {"1", "2", "3", "÷"},
+                {"4", "5", "6", "×"},
+                {"7", "8", "9", "−"},
+                {".", "0", "⌫", "+"}
         };
 
         for (int rowIndex = 0; rowIndex < keys.length; rowIndex++) {
             LinearLayout row = new LinearLayout(this);
             row.setOrientation(LinearLayout.HORIZONTAL);
 
-            for (int col = 0; col < 3; col++) {
+            for (int col = 0; col < keys[rowIndex].length; col++) {
                 final String keyText = keys[rowIndex][col];
 
                 TextView key = new TextView(this);
                 key.setText(keyText);
                 key.setTextSize(keyText.equals("⌫") ? 18f : 20f);
-                key.setTextColor(TEXT);
+                key.setTextColor(isCalculatorOperator(keyText) ? GOLD_DARK : TEXT);
                 key.setGravity(Gravity.CENTER);
                 key.setTypeface(Typeface.DEFAULT_BOLD);
                 key.setBackground(
                         roundStroke(
-                                Color.rgb(250, 249, 246),
-                                Color.rgb(232, 225, 204),
+                                isCalculatorOperator(keyText)
+                                        ? GOLD_LIGHT
+                                        : Color.rgb(250, 249, 246),
+                                isCalculatorOperator(keyText)
+                                        ? GOLD_LINE
+                                        : Color.rgb(232, 225, 204),
                                 10
                         )
                 );
@@ -1466,6 +1487,36 @@ public class MainActivity extends Activity {
         if (amountInput == null) return;
 
         Editable editable = amountInput.getText();
+
+        if (isCalculatorOperator(key)) {
+            calculationJustFinished = false;
+
+            String current = editable.toString().trim();
+
+            if (current.isEmpty()) {
+                if ("−".equals(key)) {
+                    editable.append("−");
+                    amountInput.setSelection(editable.length());
+                }
+                return;
+            }
+
+            char last = current.charAt(current.length() - 1);
+
+            if (isExpressionOperator(last)) {
+                editable.replace(
+                        editable.length() - 1,
+                        editable.length(),
+                        key
+                );
+            } else {
+                editable.append(key);
+            }
+
+            amountInput.setSelection(editable.length());
+            return;
+        }
+
         int start = amountInput.getSelectionStart();
         int end = amountInput.getSelectionEnd();
 
@@ -1476,6 +1527,8 @@ public class MainActivity extends Activity {
         int right = Math.max(start, end);
 
         if ("⌫".equals(key)) {
+            calculationJustFinished = false;
+
             if (left != right) {
                 editable.delete(left, right);
                 amountInput.setSelection(left);
@@ -1486,14 +1539,28 @@ public class MainActivity extends Activity {
             return;
         }
 
-        String before = editable.subSequence(0, left).toString();
-        String after = editable.subSequence(right, editable.length()).toString();
-        String candidate = before + key + after;
+        if (calculationJustFinished) {
+            editable.clear();
+            left = 0;
+            right = 0;
+            calculationJustFinished = false;
+        }
 
         if (".".equals(key)) {
-            if (candidate.indexOf('.') != candidate.lastIndexOf('.')) return;
+            String text = editable.toString();
+            int segmentStart = lastOperatorIndex(text, left - 1) + 1;
+            int segmentEnd = nextOperatorIndex(text, right);
 
-            if (candidate.equals(".")) {
+            if (segmentEnd < 0) segmentEnd = text.length();
+
+            String segment = text.substring(
+                    Math.max(0, segmentStart),
+                    Math.max(Math.max(0, segmentStart), segmentEnd)
+            );
+
+            if (segment.contains(".")) return;
+
+            if (left == segmentStart) {
                 editable.replace(left, right, "0.");
                 amountInput.setSelection(left + 2);
                 return;
@@ -1502,6 +1569,193 @@ public class MainActivity extends Activity {
 
         editable.replace(left, right, key);
         amountInput.setSelection(left + key.length());
+    }
+
+    private boolean isCalculatorOperator(String key) {
+        return "+".equals(key) ||
+                "−".equals(key) ||
+                "×".equals(key) ||
+                "÷".equals(key);
+    }
+
+    private boolean isExpressionOperator(char c) {
+        return c == '+' ||
+                c == '−' ||
+                c == '×' ||
+                c == '÷' ||
+                c == '-' ||
+                c == '*' ||
+                c == '/';
+    }
+
+    private int lastOperatorIndex(String text, int from) {
+        for (int i = Math.min(from, text.length() - 1); i >= 0; i--) {
+            if (isExpressionOperator(text.charAt(i))) return i;
+        }
+        return -1;
+    }
+
+    private int nextOperatorIndex(String text, int from) {
+        for (int i = Math.max(0, from); i < text.length(); i++) {
+            if (isExpressionOperator(text.charAt(i))) return i;
+        }
+        return -1;
+    }
+
+    private void calculateCurrentExpression() {
+        if (amountInput == null) return;
+
+        String expression = amountInput.getText().toString().trim();
+
+        if (expression.isEmpty()) return;
+
+        Double result = evaluateExpression(expression);
+
+        if (result == null ||
+                Double.isNaN(result) ||
+                Double.isInfinite(result)) {
+            Toast.makeText(this, "無法計算", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        String formatted = formatCalculationResult(result);
+        calculationJustFinished = true;
+        amountInput.setText(formatted);
+        amountInput.setSelection(formatted.length());
+        renderResults();
+    }
+
+    private Double evaluateExpression(String expression) {
+        String e = expression
+                .replace(" ", "")
+                .replace('×', '*')
+                .replace('÷', '/')
+                .replace('−', '-');
+
+        if (e.isEmpty()) return null;
+
+        List<Double> numbers = new ArrayList<>();
+        List<Character> operators = new ArrayList<>();
+
+        int i = 0;
+        boolean expectNumber = true;
+
+        while (i < e.length()) {
+            int start = i;
+
+            if (expectNumber &&
+                    (e.charAt(i) == '+' || e.charAt(i) == '-')) {
+                i++;
+            }
+
+            boolean hasDigit = false;
+            boolean hasDot = false;
+
+            while (i < e.length()) {
+                char c = e.charAt(i);
+
+                if (Character.isDigit(c)) {
+                    hasDigit = true;
+                    i++;
+                    continue;
+                }
+
+                if (c == '.' && !hasDot) {
+                    hasDot = true;
+                    i++;
+                    continue;
+                }
+
+                break;
+            }
+
+            if (!hasDigit) return null;
+
+            try {
+                numbers.add(
+                        Double.parseDouble(e.substring(start, i))
+                );
+            } catch (Exception ex) {
+                return null;
+            }
+
+            expectNumber = false;
+
+            if (i >= e.length()) break;
+
+            char op = e.charAt(i);
+
+            if (op != '+' &&
+                    op != '-' &&
+                    op != '*' &&
+                    op != '/') {
+                return null;
+            }
+
+            operators.add(op);
+            i++;
+            expectNumber = true;
+
+            if (i >= e.length()) return null;
+        }
+
+        if (numbers.isEmpty() ||
+                numbers.size() != operators.size() + 1) {
+            return null;
+        }
+
+        List<Double> foldedNumbers = new ArrayList<>();
+        List<Character> foldedOperators = new ArrayList<>();
+
+        foldedNumbers.add(numbers.get(0));
+
+        for (int opIndex = 0; opIndex < operators.size(); opIndex++) {
+            char op = operators.get(opIndex);
+            double next = numbers.get(opIndex + 1);
+
+            if (op == '*' || op == '/') {
+                int lastIndex = foldedNumbers.size() - 1;
+                double left = foldedNumbers.get(lastIndex);
+
+                if (op == '/' && Math.abs(next) < 0.000000000001d) {
+                    return null;
+                }
+
+                foldedNumbers.set(
+                        lastIndex,
+                        op == '*' ? left * next : left / next
+                );
+            } else {
+                foldedOperators.add(op);
+                foldedNumbers.add(next);
+            }
+        }
+
+        double result = foldedNumbers.get(0);
+
+        for (int opIndex = 0; opIndex < foldedOperators.size(); opIndex++) {
+            char op = foldedOperators.get(opIndex);
+            double next = foldedNumbers.get(opIndex + 1);
+
+            result = op == '+'
+                    ? result + next
+                    : result - next;
+        }
+
+        return result;
+    }
+
+    private String formatCalculationResult(double value) {
+        if (Math.abs(value) < 0.000000000001d) value = 0d;
+
+        try {
+            return java.math.BigDecimal
+                    .valueOf(value)
+                    .stripTrailingZeros()
+                    .toPlainString();
+        } catch (Exception e) {
+            return Double.toString(value);
+        }
     }
 
     private String shortUpdate(String update) {
