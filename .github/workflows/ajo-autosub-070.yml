@@ -1,0 +1,881 @@
+name: Ajo Autosub 070 Add-only Acoustically Anchored Gap Recovery
+on:
+  push:
+    branches: [ajo-autosub-070-build]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.11.1'
+      - name: Restore verified 046 source and previous regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m pip -q install pyyaml brotli
+          python3 - <<'PYBASE'
+          import subprocess,yaml
+          from pathlib import Path
+          steps=yaml.safe_load(Path('.github/workflows/ajo-autosub-046.yml').read_text())['jobs']['build']['steps']
+          found=False
+          for step in steps:
+              if step.get('name')=='Install Android SDK 36 and ARM64 native tools':
+                  found=True
+                  break
+              if 'run' in step:
+                  print('046 stage:',step.get('name'),flush=True)
+                  subprocess.run(['bash','-eo','pipefail','-c',step['run']],check=True)
+          assert found and Path('subtitle-build-work/tests/Version046Tests.java').is_file()
+          PYBASE
+      - name: Apply 047 isolated worker and PCM integrity patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PYBUNDLE'
+          from pathlib import Path
+          import brotli,base64
+          data=brotli.decompress(base64.b64decode(Path('patches/ajo-autosub-047/bundle.br.b64').read_text().strip()))
+          i=0;root=Path('patches/ajo-autosub-047/generated')
+          while i<len(data):
+              j=data.index(b'\n',i);name=data[i:j].decode();i=j+1
+              j=data.index(b'\n',i);size=int(data[i:j]);i=j+1
+              content=data[i:i+size];i+=size
+              path=root/name
+              assert '..' not in path.parts
+              path.parent.mkdir(parents=True,exist_ok=True)
+              path.write_bytes(content)
+              print('047 source:',name,len(content),flush=True)
+          assert i==len(data)
+          PYBUNDLE
+          cd subtitle-build-work
+          patch --dry-run --batch -p1 < ../patches/ajo-autosub-047/generated/047.patch
+          patch --batch -p1 < ../patches/ajo-autosub-047/generated/047.patch
+          for name in WhisperRunGuard047 PcmFingerprint047; do
+            cp ../patches/ajo-autosub-047/generated/app/src/main/java/tw/ajo/autosubtitles/$name.java app/src/main/java/tw/ajo/autosubtitles/
+          done
+          cp ../patches/ajo-autosub-047/generated/tests/Version047Tests.java tests/
+          cp ../patches/ajo-autosub-047/generated/CHANGELOG_047.md .
+          grep -F 'versionCode 47' app/build.gradle
+          grep -F "versionName '047'" app/build.gradle
+          test ! -f signing/ajo-autosub-signing.keystore
+      - name: Verify 047 cancellation guard, PCM identity and regression policy
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd subtitle-build-work
+          mkdir -p tests/build047
+          javac -encoding UTF-8 -d tests/build047 app/src/main/java/tw/ajo/autosubtitles/WhisperRunGuard047.java app/src/main/java/tw/ajo/autosubtitles/PcmFingerprint047.java tests/Version047Tests.java
+          java -cp tests/build047 Version047Tests
+      - name: Apply 048 settings UI relocation from public patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY048'
+          import base64,brotli
+          from pathlib import Path
+          data=brotli.decompress(base64.b64decode(Path('patches/ajo-autosub-048/bundle.br.b64').read_text().strip()))
+          i=0
+          root=Path('patches/ajo-autosub-048/generated')
+          while i<len(data):
+              j=data.index(b'\n',i);name=data[i:j].decode();i=j+1
+              j=data.index(b'\n',i);size=int(data[i:j]);i=j+1
+              content=data[i:i+size];i+=size
+              p=root/name
+              assert '..' not in p.parts
+              p.parent.mkdir(parents=True,exist_ok=True)
+              p.write_bytes(content)
+              print('048 source:',name,len(content),flush=True)
+          assert i==len(data)
+          PY048
+          cd subtitle-build-work
+          patch --dry-run --batch -p1 < ../patches/ajo-autosub-048/generated/048.patch
+          patch --batch -p1 < ../patches/ajo-autosub-048/generated/048.patch
+          cp ../patches/ajo-autosub-048/generated/tests/Version048Tests.java tests/
+          cp ../patches/ajo-autosub-048/generated/CHANGELOG_048.md .
+          grep -F 'versionCode 48' app/build.gradle
+          grep -F "versionName '048'" app/build.gradle
+          test ! -f signing/ajo-autosub-signing.keystore
+      - name: Verify 048 main and settings UI plus 047 regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd subtitle-build-work
+          mkdir -p tests/build048
+          javac -encoding UTF-8 -d tests/build048 tests/Version048Tests.java
+          java -cp tests/build048 Version048Tests
+      - name: Apply 049 HDR-first video export and color verification patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY049'
+          import base64,brotli
+          from pathlib import Path
+          data=brotli.decompress(base64.b64decode(Path('patches/ajo-autosub-049/bundle.br.b64').read_text().strip()))
+          i=0
+          root=Path('patches/ajo-autosub-049/generated')
+          while i<len(data):
+              j=data.index(b'\n',i);name=data[i:j].decode();i=j+1
+              j=data.index(b'\n',i);size=int(data[i:j]);i=j+1
+              content=data[i:i+size];i+=size
+              path=root/name
+              assert '..' not in path.parts
+              path.parent.mkdir(parents=True,exist_ok=True)
+              path.write_bytes(content)
+              print('049 source:',name,len(content),flush=True)
+          assert i==len(data)
+          PY049
+          cd subtitle-build-work
+          patch --dry-run --batch -p1 < ../patches/ajo-autosub-049/generated/049.patch
+          patch --batch -p1 < ../patches/ajo-autosub-049/generated/049.patch
+          cp ../patches/ajo-autosub-049/generated/app/src/main/java/tw/ajo/autosubtitles/HdrExport049.java app/src/main/java/tw/ajo/autosubtitles/
+          cp ../patches/ajo-autosub-049/generated/tests/Version049Tests.java tests/
+          cp ../patches/ajo-autosub-049/generated/CHANGELOG_049.md .
+          grep -F 'versionCode 49' app/build.gradle
+          grep -F "versionName '049'" app/build.gradle
+          test ! -f signing/ajo-autosub-signing.keystore
+      - name: Verify HDR policy, downgrade disclosure and 048/047 preservation
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd subtitle-build-work
+          mkdir -p tests/build049
+          javac -encoding UTF-8 -d tests/build049 app/src/main/java/tw/ajo/autosubtitles/HdrExport049.java tests/Version049Tests.java
+          java -cp tests/build049 Version049Tests
+      - name: Apply 050 HDR diagnostic overlay comparison patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY050'
+          from pathlib import Path
+          import base64,brotli
+          raw=brotli.decompress(base64.b64decode(Path('patches/ajo-autosub-050/bundle.br.b64').read_text().strip()))
+          i=0
+          root=Path('patches/ajo-autosub-050/generated')
+          while i<len(raw):
+              j=raw.index(b'\n',i);name=raw[i:j].decode();i=j+1
+              j=raw.index(b'\n',i);size=int(raw[i:j]);i=j+1
+              content=raw[i:i+size];i+=size
+              p=root/name
+              assert '..' not in p.parts
+              p.parent.mkdir(parents=True,exist_ok=True)
+              p.write_bytes(content)
+              print('050 source:',name,len(content),flush=True)
+          assert i==len(raw)
+          PY050
+          cd subtitle-build-work
+          patch --dry-run --batch -p1 < ../patches/ajo-autosub-050/generated/050.patch
+          patch --batch -p1 < ../patches/ajo-autosub-050/generated/050.patch
+          for name in HdrDiagnostic050 HDRDiagnosticAssessment050; do
+            cp ../patches/ajo-autosub-050/generated/app/src/main/java/tw/ajo/autosubtitles/$name.java app/src/main/java/tw/ajo/autosubtitles/
+          done
+          cp ../patches/ajo-autosub-050/generated/tests/Version050Tests.java tests/
+          cp ../patches/ajo-autosub-050/generated/CHANGELOG_050.md .
+          grep -F 'versionCode 50' app/build.gradle
+          grep -F "versionName '050'" app/build.gradle
+          test ! -f signing/ajo-autosub-signing.keystore
+      - name: Test 050 forced HDR re-encoding, overlay comparison and error preservation
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd subtitle-build-work
+          mkdir -p tests/build050
+          javac -encoding UTF-8 -d tests/build050 app/src/main/java/tw/ajo/autosubtitles/HdrDiagnostic050.java app/src/main/java/tw/ajo/autosubtitles/HDRDiagnosticAssessment050.java tests/Version050Tests.java
+          java -cp tests/build050 Version050Tests
+      - name: Apply 051 HDR-safe rescale diagnostic and expanded error report
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY051'
+          from pathlib import Path
+          import base64,brotli
+          raw=brotli.decompress(base64.b64decode(Path('patches/ajo-autosub-051/bundle.br.b64').read_text().strip()))
+          i=0
+          root=Path('patches/ajo-autosub-051/generated')
+          while i<len(raw):
+              j=raw.index(b'\n',i);name=raw[i:j].decode();i=j+1
+              j=raw.index(b'\n',i);size=int(raw[i:j]);i=j+1
+              content=raw[i:i+size];i+=size
+              p=root/name
+              assert '..' not in p.parts
+              p.parent.mkdir(parents=True,exist_ok=True)
+              p.write_bytes(content)
+              print('051 source:',name,len(content),flush=True)
+          assert i==len(raw)
+          PY051
+          cd subtitle-build-work
+          patch --dry-run --batch -p1 < ../patches/ajo-autosub-051/generated/051.patch
+          patch --batch -p1 < ../patches/ajo-autosub-051/generated/051.patch
+          for name in HDRProbe051 HdrCodecCapabilities051; do
+            cp ../patches/ajo-autosub-051/generated/app/src/main/java/tw/ajo/autosubtitles/$name.java app/src/main/java/tw/ajo/autosubtitles/
+          done
+          cp ../patches/ajo-autosub-051/generated/tests/Version051Tests.java tests/
+          cp ../patches/ajo-autosub-051/generated/CHANGELOG_051.md .
+          grep -F 'versionCode 51' app/build.gradle
+          grep -F "versionName '051'" app/build.gradle
+          test ! -f signing/ajo-autosub-signing.keystore
+      - name: Test 051 genuine HDR-safe re-encode and error chains
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd subtitle-build-work
+          mkdir -p tests/build051
+          javac -encoding UTF-8 -d tests/build051 app/src/main/java/tw/ajo/autosubtitles/HDRProbe051.java app/src/main/java/tw/ajo/autosubtitles/HdrDiagnostic050.java tests/Version051Tests.java
+          java -cp tests/build051 Version051Tests
+      - name: Apply 052 HDR Canvas neutral gainmap overlay fix
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY052'
+          from pathlib import Path
+          import base64,brotli
+          raw=brotli.decompress(base64.b64decode(Path('patches/ajo-autosub-052/bundle.br.b64').read_text().strip()))
+          i=0
+          root=Path('patches/ajo-autosub-052/generated')
+          while i<len(raw):
+              j=raw.index(b'\n',i);name=raw[i:j].decode();i=j+1
+              j=raw.index(b'\n',i);size=int(raw[i:j]);i=j+1
+              content=raw[i:i+size];i+=size
+              path=root/name
+              assert '..' not in path.parts
+              path.parent.mkdir(parents=True,exist_ok=True)
+              path.write_bytes(content)
+              print('052 source:',name,len(content),flush=True)
+          assert i==len(raw)
+          PY052
+          cd subtitle-build-work
+          patch --dry-run --batch -p1 < ../patches/ajo-autosub-052/generated/052.patch
+          patch --batch -p1 < ../patches/ajo-autosub-052/generated/052.patch
+          cp ../patches/ajo-autosub-052/generated/app/src/main/java/tw/ajo/autosubtitles/HdrCanvasGainmap052.java app/src/main/java/tw/ajo/autosubtitles/
+          cp ../patches/ajo-autosub-052/generated/tests/Version052Tests.java tests/
+          cp ../patches/ajo-autosub-052/generated/CHANGELOG_052.md .
+          grep -F 'versionCode 52' app/build.gradle
+          grep -F "versionName '052'" app/build.gradle
+          test ! -f signing/ajo-autosub-signing.keystore
+      - name: Verify 052 HDR overlay fix, source-level SDK contract and 051 regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd subtitle-build-work
+          mkdir -p tests/build052
+          javac -encoding UTF-8 -d tests/build052 tests/Version052Tests.java
+          java -cp tests/build052 Version052Tests
+      - name: Apply 053 native HDR TEXT overlay instead of synthetic Gainmap
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY053'
+          import base64,brotli
+          from pathlib import Path
+          data=brotli.decompress(base64.b64decode(Path('patches/ajo-autosub-053/bundle.br.b64').read_text().strip()))
+          i=0;root=Path('patches/ajo-autosub-053/generated')
+          while i<len(data):
+              j=data.index(b'\n',i);name=data[i:j].decode();i=j+1
+              j=data.index(b'\n',i);size=int(data[i:j]);i=j+1
+              b=data[i:i+size];i+=size
+              p=root/name
+              assert '..' not in p.parts
+              p.parent.mkdir(parents=True,exist_ok=True)
+              p.write_bytes(b)
+              print('053 source:',name,len(b),flush=True)
+          assert i==len(data)
+          PY053
+          cd subtitle-build-work
+          patch --dry-run --batch -p1 < ../patches/ajo-autosub-053/generated/053.patch
+          patch --batch -p1 < ../patches/ajo-autosub-053/generated/053.patch
+          cp ../patches/ajo-autosub-053/generated/app/src/main/java/tw/ajo/autosubtitles/HdrCanvasTextOverlay053.java app/src/main/java/tw/ajo/autosubtitles/
+          cp ../patches/ajo-autosub-053/generated/tests/Version053Tests.java tests/
+          cp ../patches/ajo-autosub-053/generated/CHANGELOG_053.md .
+          test ! -f app/src/main/java/tw/ajo/autosubtitles/HdrCanvasGainmap052.java
+          grep -F 'versionCode 53' app/build.gradle
+          grep -F "versionName '053'" app/build.gradle
+          test ! -f signing/ajo-autosub-signing.keystore
+      - name: Test 053 native HDR text shader, unchanged SDR style, and no Gainmap
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd subtitle-build-work
+          mkdir -p tests/build053
+          javac -encoding UTF-8 -d tests/build053 tests/Version053Tests.java
+          java -cp tests/build053 Version053Tests
+      - name: Apply 054 restored SDR colour and conservative saturation patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY054'
+          from pathlib import Path
+          import base64,brotli
+          raw=brotli.decompress(base64.b64decode(Path('patches/ajo-autosub-054/bundle.br.b64').read_text().strip()))
+          root=Path('patches/ajo-autosub-054/generated')
+          i=0
+          while i<len(raw):
+              j=raw.index(b'\n',i);name=raw[i:j].decode();i=j+1
+              j=raw.index(b'\n',i);size=int(raw[i:j]);i=j+1
+              data=raw[i:i+size];i+=size
+              p=root/name
+              assert '..' not in p.parts
+              p.parent.mkdir(parents=True,exist_ok=True)
+              p.write_bytes(data)
+              print('054 source:',name,len(data),flush=True)
+          assert i==len(raw)
+          PY054
+          cd subtitle-build-work
+          patch --dry-run --batch -p1 < ../patches/ajo-autosub-054/generated/054.patch
+          patch --batch -p1 < ../patches/ajo-autosub-054/generated/054.patch
+          cp ../patches/ajo-autosub-054/generated/app/src/main/java/tw/ajo/autosubtitles/SdrColor054.java app/src/main/java/tw/ajo/autosubtitles/
+          cp ../patches/ajo-autosub-054/generated/tests/Version054Tests.java tests/
+          cp ../patches/ajo-autosub-054/generated/CHANGELOG_054.md .
+          grep -F 'versionCode 54' app/build.gradle
+          grep -F "versionName '054'" app/build.gradle
+          test ! -f signing/ajo-autosub-signing.keystore
+      - name: Test 054 restore SDR, mild colour adjustment and preserve 047-053 features
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd subtitle-build-work
+          mkdir -p tests/build054
+          javac -encoding UTF-8 -d tests/build054 app/src/main/java/tw/ajo/autosubtitles/SdrColor054.java tests/Version054Tests.java
+          java -cp tests/build054 Version054Tests
+      - name: Apply 055 saturation-only patch to verified 054
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd subtitle-build-work
+          patch --dry-run --batch -p1 < ../patches/ajo-autosub-055/055.patch
+          patch --batch -p1 < ../patches/ajo-autosub-055/055.patch
+          cp ../patches/ajo-autosub-055/Version055Tests.java tests/
+          cp ../patches/ajo-autosub-055/CHANGELOG_055.md .
+          grep -F 'versionCode 55' app/build.gradle
+          grep -F "versionName '055'" app/build.gradle
+          grep -F 'SATURATION_POINTS = 4f' app/src/main/java/tw/ajo/autosubtitles/SdrColor054.java
+          test ! -f signing/ajo-autosub-signing.keystore
+      - name: Check 055 colour adjustment and all unchanged export invariants
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd subtitle-build-work
+          mkdir -p tests/build055
+          javac -encoding UTF-8 -d tests/build055 app/src/main/java/tw/ajo/autosubtitles/SdrColor054.java tests/Version055Tests.java
+          java -cp tests/build055 Version055Tests
+      - name: Apply 056 H-reference +150 percent SDR saturation adjustment
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd subtitle-build-work
+          patch --dry-run --batch -p1 < ../patches/ajo-autosub-056/056.patch
+          patch --batch -p1 < ../patches/ajo-autosub-056/056.patch
+          cp ../patches/ajo-autosub-056/SdrSaturation056.java app/src/main/java/tw/ajo/autosubtitles/
+          cp ../patches/ajo-autosub-056/Version056Tests.java tests/
+          cp ../patches/ajo-autosub-056/CHANGELOG_056.md .
+          grep -F 'versionCode 56' app/build.gradle
+          grep -F "versionName '056'" app/build.gradle
+          grep -F 'H_TARGET_MULTIPLIER = 2.5f' app/src/main/java/tw/ajo/autosubtitles/SdrSaturation056.java
+          test ! -f signing/ajo-autosub-signing.keystore
+      - name: Validate 056 H-reference colour matrix and preserved SDR export
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd subtitle-build-work
+          mkdir -p tests/build056
+          javac -encoding UTF-8 -d tests/build056 app/src/main/java/tw/ajo/autosubtitles/SdrSaturation056.java tests/Version056Tests.java
+          java -cp tests/build056 Version056Tests
+      - name: Apply 057 limited in-flight frames for HDR SDR output
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd subtitle-build-work
+          patch --dry-run --batch -p1 < ../patches/ajo-autosub-057/057.patch
+          patch --batch -p1 < ../patches/ajo-autosub-057/057.patch
+          cp ../patches/ajo-autosub-057/ExportFrameBudget057.java app/src/main/java/tw/ajo/autosubtitles/
+          cp ../patches/ajo-autosub-057/Version057Tests.java tests/
+          cp ../patches/ajo-autosub-057/CHANGELOG_057.md .
+          grep -F 'versionCode 57' app/build.gradle
+          grep -F "versionName '057'" app/build.gradle
+          test ! -f signing/ajo-autosub-signing.keystore
+      - name: Test 057 first 056 color retained and in-flight buffer policy
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd subtitle-build-work
+          mkdir -p tests/build057
+          javac -encoding UTF-8 -d tests/build057 app/src/main/java/tw/ajo/autosubtitles/SdrSaturation056.java app/src/main/java/tw/ajo/autosubtitles/ExportFrameBudget057.java tests/Version057Tests.java
+          java -cp tests/build057 Version057Tests
+      - name: Apply 058 K +200 colour-only patch to verified 057
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd subtitle-build-work
+          patch --dry-run --batch -p1 < ../patches/ajo-autosub-058/058.patch
+          patch --batch -p1 < ../patches/ajo-autosub-058/058.patch
+          cp ../patches/ajo-autosub-058/Version058Tests.java tests/
+          cp ../patches/ajo-autosub-058/CHANGELOG_058.md .
+          grep -F 'versionCode 58' app/build.gradle
+          grep -F "versionName '058'" app/build.gradle
+          grep -F 'K_TARGET_MULTIPLIER = 3.0f' app/src/main/java/tw/ajo/autosubtitles/SdrSaturation056.java
+          test ! -f signing/ajo-autosub-signing.keystore
+      - name: Verify 058 K matrix and unchanged 057 encoder stability
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd subtitle-build-work
+          mkdir -p tests/build058
+          javac -encoding UTF-8 -d tests/build058 app/src/main/java/tw/ajo/autosubtitles/SdrSaturation056.java app/src/main/java/tw/ajo/autosubtitles/ExportFrameBudget057.java tests/Version058Tests.java
+          java -cp tests/build058 Version058Tests
+      - name: Apply 059 guarded whisper low-confidence hallucination recheck
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd subtitle-build-work
+          patch --dry-run --batch -p1 < ../patches/ajo-autosub-059/059.patch
+          patch --batch -p1 < ../patches/ajo-autosub-059/059.patch
+          cp ../patches/ajo-autosub-059/whisper_silence_review059.h app/src/main/cpp/
+          cp ../patches/ajo-autosub-059/Version059Tests.java tests/
+          cp ../patches/ajo-autosub-059/Version059Tests.cpp tests/
+          cp ../patches/ajo-autosub-059/CHANGELOG_059.md .
+          grep -F 'versionCode 59' app/build.gradle
+          grep -F "versionName '059'" app/build.gradle
+          test ! -f signing/ajo-autosub-signing.keystore
+      - name: Validate 059 native no-speech safeguard and stable video regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd subtitle-build-work
+          g++ -std=c++17 -Wall -Wextra -Werror -Iapp/src/main/cpp tests/Version059Tests.cpp -o /tmp/ajo-version059-native
+          /tmp/ajo-version059-native
+          mkdir -p tests/build059
+          javac -encoding UTF-8 -d tests/build059 tests/Version059Tests.java
+          java -cp tests/build059 Version059Tests
+      - name: Apply 060 opt-in second transcription comparison without changing timed captions
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY060'
+          import base64,zlib
+          from pathlib import Path
+          payload=zlib.decompress(base64.b64decode(Path('patches/ajo-autosub-060/bundle.zlib.b64').read_text().strip()))
+          root=Path('patches/ajo-autosub-060/generated')
+          idx=0
+          while idx<len(payload):
+              end=payload.index(b'\n',idx);name=payload[idx:end].decode('utf-8');idx=end+1
+              end=payload.index(b'\n',idx);count=int(payload[idx:end]);idx=end+1
+              part=payload[idx:idx+count];idx+=count
+              dest=root/name
+              if '..' in dest.parts or dest.is_absolute():raise ValueError('unsafe path')
+              dest.parent.mkdir(parents=True,exist_ok=True)
+              dest.write_bytes(part)
+              print('060 source:',name,len(part),flush=True)
+          assert idx==len(payload)
+          PY060
+          cd subtitle-build-work
+          patch --dry-run --batch -p1 < ../patches/ajo-autosub-060/generated/060.patch
+          patch --batch -p1 < ../patches/ajo-autosub-060/generated/060.patch
+          cp ../patches/ajo-autosub-060/generated/app/src/main/java/tw/ajo/autosubtitles/CloudReview060.java app/src/main/java/tw/ajo/autosubtitles/
+          cp ../patches/ajo-autosub-060/generated/tests/Version060Tests.java tests/
+          cp ../patches/ajo-autosub-060/generated/CHANGELOG_060.md .
+          grep -F 'versionCode 60' app/build.gradle
+          grep -F "versionName '060'" app/build.gradle
+          test ! -f signing/ajo-autosub-signing.keystore
+      - name: Validate 060 one-request default, explicit extra cost and preserved video output
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd subtitle-build-work
+          mkdir -p tests/build060
+          javac -encoding UTF-8 -d tests/build060 app/src/main/java/tw/ajo/autosubtitles/CloudReview060.java tests/Version060Tests.java
+          java -cp tests/build060 Version060Tests
+      - name: Apply 061 source-segment timing and run regression guards
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd subtitle-build-work
+          python3 - <<'PY061'
+          from pathlib import Path
+          gradle=Path('app/build.gradle')
+          original=gradle.read_text()
+          assert 'versionCode 60' in original and "versionName '060'" in original
+          gradle.write_text(original.replace('versionCode 60','versionCode 61').replace("versionName '060'","versionName '061'"))
+          PY061
+          cat > app/src/main/java/tw/ajo/autosubtitles/SpeakerCaptionizer.java <<'JAVA061'
+          package tw.ajo.autosubtitles;
+          
+          import java.util.ArrayList;
+          import java.util.Comparator;
+          import java.util.List;
+          
+          /**
+           * 061: Trust the diarization service's utterance start/end, not character counts.
+           *
+           * The API supplies *segment* timestamps, not per-word timestamps. Splitting a
+           * segment into timed pieces by number of Chinese characters invents timing and
+           * can put a caption before/after the actual phrase. Keep one editable caption
+           * per returned segment, retaining simultaneous speakers as separate captions.
+           * When the model returns no second speaker, we never fabricate one.
+           *
+           * A legacy safety safeguard remains only for obviously suspect two-character
+           * segments longer than eight seconds (see Version013Tests). Such a clip cannot
+           * be rescued by unsupported word alignment; user timing review is still needed.
+           */
+          public final class SpeakerCaptionizer {
+              public static final class Segment {
+                  public final String speaker, text;
+                  public final long fromMs, toMs;
+                  public Segment(String speaker,String text,long fromMs,long toMs) {
+                      this.speaker=speaker==null?"":speaker;
+                      this.text=text==null?"":text;
+                      this.fromMs=fromMs;this.toMs=toMs;
+                  }
+              }
+              private SpeakerCaptionizer() {}
+              public static List<Caption> convert(List<Segment> segments,long durationMs) {
+                  ArrayList<Caption> out=new ArrayList<>();
+                  if(segments==null || durationMs<=0)return out;
+                  for(Segment s:segments) {
+                      if(s==null || s.text.isBlank() || s.toMs<=s.fromMs || s.fromMs>=durationMs)continue;
+                      long start=Math.max(0,s.fromMs),end=Math.min(durationMs,s.toMs);
+                      if(end<=start)continue;
+                      // Punctuation-only input must not produce a blank timed caption.
+                      String text=CaptionPunctuation.strip(s.text).trim();
+                      if(text.isEmpty())continue;
+                      // Old 013 safety: a <=2 character phrase cannot linger for 11 seconds.
+                      // Don't apply a duration rule to ordinary/long clauses or a 2-second
+                      // phrase: that would be a fabricated end-time not supported by audio.
+                      if(text.codePointCount(0,text.length())<=2 && end-start>8000) {
+                          end=Math.min(end,start+1800);
+                      }
+                      Caption c=new Caption(start,end,text);
+                      c.speaker=s.speaker;
+                      out.add(c);
+                  }
+                  out.sort(Comparator.comparingLong(c->c.startMs));
+                  return out;
+              }
+          }
+          JAVA061
+          cat > tests/Version061Tests.java <<'TEST061'
+          import java.nio.file.*;
+          import java.util.*;
+          import tw.ajo.autosubtitles.*;
+          
+          /** Offline regression: segment timestamps must survive the subtitle pipeline. */
+          public final class Version061Tests {
+              static int checks;
+              static void require(boolean good,String label){checks++;if(!good)throw new AssertionError(label);}
+              static SpeakerCaptionizer.Segment seg(String who,String text,long a,long b){
+                  return new SpeakerCaptionizer.Segment(who,text,a,b);
+              }
+              public static void main(String[] args)throws Exception {
+                  List<Caption> source=SpeakerCaptionizer.convert(Arrays.asList(
+                      seg("speaker_0","爸爸新年快樂，媽媽新年快樂。",6100,9970),
+                      seg("speaker_1","新年快樂！",9300,10630),
+                      seg("speaker_2","阿公新年快樂",10420,12220),
+                      seg("speaker_1","新年快樂",11500,12600),
+                      seg("speaker_3","新年快樂",18600,20200)),21461);
+                  require(source.size()==5,"one timed caption per cloud segment, no invented split");
+                  require(source.get(0).startMs==6100 && source.get(0).endMs==9970,"exact long spoken segment start and end");
+                  require(source.get(0).text.contains("爸爸") && source.get(0).text.contains("媽媽"),"keep all recognized text, even when natural clauses");
+                  require(source.get(1).startMs==9300 && source.get(1).endMs==10630,"overlap B has independent timing");
+                  require(source.get(2).startMs==10420 && source.get(2).endMs==12220,"overlap C has independent timing");
+                  require(source.get(3).startMs==11500 && source.get(3).endMs==12600,"short reply not extended");
+                  require(source.get(4).startMs==18600 && source.get(4).endMs==20200,"last utterance retained");
+                  require(source.get(4).speaker.equals("speaker_3"),"speaker IDs retained");
+                  require(OverlayCaptionText.at(source,9500).contains("甲：") && OverlayCaptionText.at(source,9500).contains("乙："),"two speakers displayed in overlap");
+                  require(OverlayCaptionText.at(source,16000).isEmpty(),"actual silence stays without caption");
+                  String srt=SrtCodec.encode(source);
+                  List<Caption> restored=SrtCodec.decode(srt);
+                  require(restored.size()==5,"SRT no dropped overlap");
+                  require(restored.get(0).startMs==6100 && restored.get(0).endMs==9970,"SRT preserved segment time");
+                  require(restored.get(1).startMs<restored.get(0).endMs,"SRT preserved overlap");
+                  List<Caption> clipped=SpeakerCaptionizer.convert(Arrays.asList(
+                       seg("A","尾端",20900,22500),seg("B","超出",22000,23000),seg("C","！！！",100,200)),21461);
+                  require(clipped.size()==1,"reject out-of-duration or punctuation-only segments");
+                  require(clipped.get(0).startMs==20900 && clipped.get(0).endMs==21461,"clamp at video end without arbitrary shortening");
+                  require(SpeakerCaptionizer.convert(Arrays.asList(seg("A","",100,500)),1000).isEmpty(),"skip no speech");
+                  require(SpeakerCaptionizer.convert(Arrays.asList(seg("A","時間錯誤",900,800)),1000).isEmpty(),"skip invalid time");
+                  require(SpeakerCaptionizer.convert(Arrays.asList(seg("A","一般說話。",1000,2800)),4000).get(0).endMs==2800,"no letter-count max duration for normal clauses");
+                  require(SpeakerCaptionizer.convert(Arrays.asList(seg("A","新年",1000,3000)),4000).get(0).endMs==3000,"two characters 2-sec utterance preserved");
+                  require(SpeakerCaptionizer.convert(Arrays.asList(seg("B","真假",3000,14200)),15000).get(0).endMs==4800,"retain old 013 extreme phantom interval guard");
+                  String cloud=Files.readString(Path.of("app/src/main/java/tw/ajo/autosubtitles/CloudTranscriber.java"));
+                  String gradle=Files.readString(Path.of("app/build.gradle"));
+                  String export=Files.readString(Path.of("app/src/main/java/tw/ajo/autosubtitles/SubtitleExporter.java"));
+                  require(gradle.contains("versionCode 61")&&gradle.contains("versionName '061'"),"061 version identity");
+                  require(cloud.contains("chunking_strategy")&&cloud.contains("listener.captions(group)"),"single-pass diarized flow unchanged");
+                  require(cloud.contains("run(pcm,secret,language,cache,false,listener)"),"no second paid request by default");
+                  require(export.contains("experimentalSetMaxFramesInEncoder("),"057 frame budget retained");
+                  require(export.contains("HDR_MODE_TONE_MAP_HDR_TO_SDR_USING_MEDIACODEC"),"054 SDR conversion retained");
+                  System.out.println("061 timing-first regression PASSED ("+checks+" checks)");
+              }
+          }
+          TEST061
+          cat > CHANGELOG_061.md <<'LOG061'
+          # 061｜字幕時間優先，僅調整雲端分段文字轉字幕
+          
+          - 雲端多人辨識每個帶有開始、結束時間的 API segment 建立**一筆字幕**，保留 API 原始段落時間與說話者標記。
+          - 取消將同一個 API segment 文字切成子句後按中文字數比例產生**沒有音訊依據的假時間戳**。
+          - 同時回傳的不同 speaker 時段，保持重疊；字幕顯示與 SRT 持續允許重疊；不推測未辨識的人聲。
+          - 只有舊版 013 既有的極端例外（僅兩字、卻持續超過八秒）的錯誤時間保護仍使用短時限；這項保護不是精準的音訊對齊。
+          - 雲端 API 設定及是否第二次付費、Whisper 模型與字幕編輯、054 HDR→SDR、057 穩定輸出、058 色彩矩陣維持不變。
+          - 目前只能證明沒有再把 API segment 按字數任意重切；**不能保證 API 本身提供的語音邊界精準，也不能修正 API 漏掉的最後一句或重疊說話者**。
+          LOG061
+          mkdir -p tests/build061
+          javac -encoding UTF-8 -d tests/build061 app/src/main/java/tw/ajo/autosubtitles/Caption.java app/src/main/java/tw/ajo/autosubtitles/CaptionPunctuation.java app/src/main/java/tw/ajo/autosubtitles/SpeakerCaptionizer.java app/src/main/java/tw/ajo/autosubtitles/OverlayCaptionText.java app/src/main/java/tw/ajo/autosubtitles/SrtCodec.java tests/Version061Tests.java tests/Version013Tests.java
+          java -cp tests/build061 Version061Tests
+          java -cp tests/build061 Version013Tests
+          test ! -f signing/ajo-autosub-signing.keystore
+      - name: Apply 062 opt-in offline Silero review, verify time protection
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY062'
+          from pathlib import Path
+          import base64,brotli,hashlib
+          encoded=Path('patches/ajo-autosub-062/062.patch.br.b64').read_text().strip()
+          raw=brotli.decompress(base64.b64decode(encoded))
+          assert hashlib.sha256(raw).hexdigest() == '0d92abd1e26f79b4c450ed47b59592a26d41b2036fab0b67e4bdc426a53d6d5f'
+          Path('subtitle-build-work/062.patch').write_bytes(raw)
+          PY062
+          cd subtitle-build-work
+          patch --dry-run --batch -p1 < 062.patch
+          patch --batch -p1 < 062.patch
+          grep -F 'versionCode 62' app/build.gradle
+          grep -F "versionName '062'" app/build.gradle
+          grep -F 'onnxruntime-android:1.24.3' app/build.gradle
+          mkdir -p app/src/main/assets/licenses
+          curl --fail --location --retry 3 --output app/src/main/assets/silero_vad_062.onnx https://raw.githubusercontent.com/snakers4/silero-vad/60b7ffa243625ebdc1070275a29f18c87843786a/src/silero_vad/data/silero_vad.onnx
+          echo '1a153a22f4509e292a94e67d6f9b85e8deb25b4988682b7e174c65279d8788e3  app/src/main/assets/silero_vad_062.onnx' | sha256sum -c -
+          curl --fail --location --retry 3 --output app/src/main/assets/licenses/SILERO_VAD_LICENSE_062.txt https://raw.githubusercontent.com/snakers4/silero-vad/master/LICENSE
+          mkdir -p tests/build062
+          javac -encoding UTF-8 -d tests/build062 app/src/main/java/tw/ajo/autosubtitles/Caption.java app/src/main/java/tw/ajo/autosubtitles/SpeechTiming.java app/src/main/java/tw/ajo/autosubtitles/SpeechGap062.java app/src/main/java/tw/ajo/autosubtitles/SileroSpans062.java tests/Version062Tests.java
+          java -cp tests/build062 Version062Tests
+          test ! -f signing/ajo-autosub-signing.keystore
+      - name: Apply 063 missing-speech list UI fix and run regression checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd subtitle-build-work
+          patch --dry-run --batch -p1 < ../patches/ajo-autosub-063/063.patch
+          patch --batch -p1 < ../patches/ajo-autosub-063/063.patch
+          cp ../patches/ajo-autosub-063/Version063Tests.java tests/
+          grep -F 'versionCode 63' app/build.gradle
+          grep -F "versionName '063'" app/build.gradle
+          mkdir -p tests/build063
+          javac -encoding UTF-8 -d tests/build063 app/src/main/java/tw/ajo/autosubtitles/Caption.java app/src/main/java/tw/ajo/autosubtitles/SpeechTiming.java app/src/main/java/tw/ajo/autosubtitles/SpeechGap062.java app/src/main/java/tw/ajo/autosubtitles/SileroSpans062.java tests/Version062Tests.java tests/Version063Tests.java
+          java -cp tests/build063 Version062Tests
+          java -cp tests/build063 Version063Tests
+          test ! -f signing/ajo-autosub-signing.keystore
+      - name: Apply 064 tail-inclusive 12-pass recovery and protect original speech
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd subtitle-build-work
+          patch --dry-run --batch -p1 < ../patches/ajo-autosub-064/064.patch
+          patch --batch -p1 < ../patches/ajo-autosub-064/064.patch
+          cp ../patches/ajo-autosub-064/Version064GuardTests.java tests/
+          grep -F 'versionCode 64' app/build.gradle
+          grep -F "versionName '064'" app/build.gradle
+          mkdir -p tests/build064
+          javac -encoding UTF-8 -d tests/build064 app/src/main/java/tw/ajo/autosubtitles/Caption.java app/src/main/java/tw/ajo/autosubtitles/SpeechBandActivity.java app/src/main/java/tw/ajo/autosubtitles/WhisperRecovery044.java app/src/main/java/tw/ajo/autosubtitles/WhisperRecovery045.java app/src/main/java/tw/ajo/autosubtitles/PcmWindFilter044.java tests/Version044Tests.java tests/Version045Tests.java tests/Version064GuardTests.java
+          java -cp tests/build064 Version044Tests
+          java -cp tests/build064 Version045Tests
+          java -cp tests/build064 Version064GuardTests
+          test ! -f signing/ajo-autosub-signing.keystore
+      - name: Apply 065 guarded Whisper two-segment time preservation
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY065'
+          from pathlib import Path
+          import base64,brotli,hashlib
+          raw=brotli.decompress(base64.b64decode(Path('patches/ajo-autosub-065/bundle.br.b64').read_text().strip()))
+          assert hashlib.sha256(raw).hexdigest() == '9e9048b10bfeeb4af5877abfeca78aba1ff8ce5e7de9c57eaca73b23c2e1fe23'
+          i=0
+          root=Path('patches/ajo-autosub-065/generated')
+          while i<len(raw):
+              k=raw.index(b'\n',i); name=raw[i:k].decode('utf-8');i=k+1
+              k=raw.index(b'\n',i); count=int(raw[i:k]);i=k+1
+              data=raw[i:i+count];i+=count
+              p=root/name
+              if p.is_absolute() or '..' in p.parts: raise ValueError('unsafe path')
+              p.parent.mkdir(parents=True,exist_ok=True)
+              p.write_bytes(data)
+          assert i==len(raw)
+          PY065
+          cd subtitle-build-work
+          patch --dry-run --batch -p1 < ../patches/ajo-autosub-065/generated/065.patch
+          patch --batch -p1 < ../patches/ajo-autosub-065/generated/065.patch
+          cp ../patches/ajo-autosub-065/generated/app/src/main/java/tw/ajo/autosubtitles/WhisperClipTiming065.java app/src/main/java/tw/ajo/autosubtitles/
+          cp ../patches/ajo-autosub-065/generated/tests/Version065Tests.java tests/
+          cp ../patches/ajo-autosub-065/generated/CHANGELOG_065.md .
+          grep -F 'versionCode 65' app/build.gradle
+          grep -F "versionName '065'" app/build.gradle
+          mkdir -p tests/build065
+          javac -encoding UTF-8 -d tests/build065 app/src/main/java/tw/ajo/autosubtitles/Caption.java app/src/main/java/tw/ajo/autosubtitles/SpeechBandActivity.java app/src/main/java/tw/ajo/autosubtitles/WhisperRecovery044.java app/src/main/java/tw/ajo/autosubtitles/WhisperRecovery045.java app/src/main/java/tw/ajo/autosubtitles/WhisperClipTiming065.java app/src/main/java/tw/ajo/autosubtitles/PcmWindFilter044.java tests/Version044Tests.java tests/Version045Tests.java tests/Version064GuardTests.java tests/Version065Tests.java
+          java -cp tests/build065 Version044Tests
+          java -cp tests/build065 Version045Tests
+          java -cp tests/build065 Version064GuardTests
+          java -cp tests/build065 tw.ajo.autosubtitles.Version065Tests
+          test ! -f signing/ajo-autosub-signing.keystore
+      - name: Apply 066 beam-search full pass with local greedy rechecks and verify
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY066'
+          from pathlib import Path
+          import zlib,base64,hashlib
+          raw=zlib.decompress(base64.b64decode(Path('patches/ajo-autosub-066/066.patch.zlib.b64').read_text().strip()))
+          assert hashlib.sha256(raw).hexdigest()=='568e7f61803b86100a1450f4dbb2e2c0a96f574c5225d8d396de2a5e5cb61c6b'
+          Path('subtitle-build-work/066.patch').write_bytes(raw)
+          PY066
+          cd subtitle-build-work
+          patch --dry-run --batch -p1 < 066.patch
+          patch --batch -p1 < 066.patch
+          cp ../patches/ajo-autosub-066/Version066Tests.java tests/
+          grep -F 'versionCode 66' app/build.gradle
+          grep -F "versionName '066'" app/build.gradle
+          mkdir -p tests/build066
+          javac -encoding UTF-8 -d tests/build066 tests/Version066Tests.java
+          java -cp tests/build066 Version066Tests
+          test ! -f signing/ajo-autosub-signing.keystore
+      - name: Apply 068 observational diagnostic only and run regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY068'
+          from pathlib import Path
+          import base64,zlib,hashlib
+          raw=zlib.decompress(base64.b64decode(Path('patches/ajo-autosub-068/bundle.zlib.b64').read_text().strip()))
+          assert hashlib.sha256(raw).hexdigest() == 'a383aa8403fefd2be1a5708c5b07030b3ef5a48de3198dd69caaf6d0b8247589'
+          i=0
+          root=Path('patches/ajo-autosub-068/generated')
+          while i<len(raw):
+              end=raw.index(b'\n',i);name=raw[i:end].decode('utf-8');i=end+1
+              end=raw.index(b'\n',i);count=int(raw[i:end]);i=end+1
+              part=raw[i:i+count];i+=count
+              p=root/name
+              if p.is_absolute() or '..' in p.parts: raise ValueError('unsafe bundle path')
+              p.parent.mkdir(parents=True,exist_ok=True)
+              p.write_bytes(part)
+          assert i==len(raw)
+          PY068
+          cd subtitle-build-work
+          patch --dry-run --batch -p1 < ../patches/ajo-autosub-068/generated/068.patch
+          patch --batch -p1 < ../patches/ajo-autosub-068/generated/068.patch
+          patch --dry-run --batch -p1 < ../patches/ajo-autosub-068/068-android-compat.patch
+          patch --batch -p1 < ../patches/ajo-autosub-068/068-android-compat.patch
+          cp ../patches/ajo-autosub-068/generated/app/src/main/java/tw/ajo/autosubtitles/WhisperDecisionTrace068.java app/src/main/java/tw/ajo/autosubtitles/
+          cp ../patches/ajo-autosub-068/generated/tests/Version068Tests.java tests/
+          cp ../patches/ajo-autosub-068/generated/CHANGELOG_068.md .
+          grep -F 'versionCode 68' app/build.gradle
+          grep -F "versionName '068'" app/build.gradle
+          mkdir -p tests/build068
+          javac -encoding UTF-8 -d tests/build068 app/src/main/java/tw/ajo/autosubtitles/Caption.java app/src/main/java/tw/ajo/autosubtitles/WhisperDecisionTrace068.java tests/Version068Tests.java
+          java -cp tests/build068 Version068Tests
+          test ! -f signing/ajo-autosub-signing.keystore
+      - name: Apply 069 conservative text-and-time adoption gate and regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY069'
+          from pathlib import Path
+          import base64,brotli,hashlib
+          raw=brotli.decompress(base64.b64decode(Path('patches/ajo-autosub-069/bundle.br.b64').read_text().strip()))
+          assert hashlib.sha256(raw).hexdigest()=='65d2202a92253ead8c9ac60a322ed57dedda06af81d5e378dc73a0a62ce4ef72'
+          i=0
+          root=Path('patches/ajo-autosub-069/generated')
+          while i<len(raw):
+              k=raw.index(b'\n',i); name=raw[i:k].decode('utf-8');i=k+1
+              k=raw.index(b'\n',i); count=int(raw[i:k]);i=k+1
+              data=raw[i:i+count];i+=count
+              p=root/name
+              if p.is_absolute() or '..' in p.parts:raise ValueError('unsafe path')
+              p.parent.mkdir(parents=True,exist_ok=True)
+              p.write_bytes(data)
+          assert i==len(raw)
+          PY069
+          cd subtitle-build-work
+          patch --dry-run --batch -p1 < ../patches/ajo-autosub-069/generated/069.patch
+          patch --batch -p1 < ../patches/ajo-autosub-069/generated/069.patch
+          cp ../patches/ajo-autosub-069/generated/app/src/main/java/tw/ajo/autosubtitles/WhisperRecovery069.java app/src/main/java/tw/ajo/autosubtitles/
+          cp ../patches/ajo-autosub-069/generated/tests/Version069Tests.java tests/
+          cp ../patches/ajo-autosub-069/generated/CHANGELOG_069.md .
+          grep -F 'versionCode 69' app/build.gradle
+          grep -F "versionName '069'" app/build.gradle
+          mkdir -p tests/build069
+          javac -encoding UTF-8 -d tests/build069 app/src/main/java/tw/ajo/autosubtitles/Caption.java app/src/main/java/tw/ajo/autosubtitles/SpeechBandActivity.java app/src/main/java/tw/ajo/autosubtitles/WhisperRecovery044.java app/src/main/java/tw/ajo/autosubtitles/WhisperRecovery045.java app/src/main/java/tw/ajo/autosubtitles/WhisperRecovery069.java app/src/main/java/tw/ajo/autosubtitles/PcmWindFilter044.java tests/Version044Tests.java tests/Version045Tests.java tests/Version064GuardTests.java tests/Version069Tests.java
+          java -cp tests/build069 Version044Tests
+          java -cp tests/build069 Version045Tests
+          java -cp tests/build069 Version064GuardTests
+          java -cp tests/build069 Version069Tests
+          test ! -f signing/ajo-autosub-signing.keystore
+      - name: Apply 070 add-only acoustically anchored gap supplements
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY070'
+          from pathlib import Path
+          import brotli,base64,hashlib
+          raw=brotli.decompress(base64.b64decode(Path('patches/ajo-autosub-070/bundle.br.b64').read_text().strip()))
+          assert hashlib.sha256(raw).hexdigest()=='ec273176869252863c35b69667da478d6b83f7779b8784bbf4819b2b04f5f40d'
+          root=Path('patches/ajo-autosub-070/generated')
+          i=0
+          while i<len(raw):
+              end=raw.index(b'\n',i);name=raw[i:end].decode('utf-8');i=end+1
+              end=raw.index(b'\n',i);size=int(raw[i:end]);i=end+1
+              part=raw[i:i+size];i+=size
+              p=root/name
+              if p.is_absolute() or '..' in p.parts:raise ValueError('unsafe bundle path')
+              p.parent.mkdir(parents=True,exist_ok=True)
+              p.write_bytes(part)
+          assert i==len(raw)
+          PY070
+          cd subtitle-build-work
+          patch --dry-run --batch -p1 < ../patches/ajo-autosub-070/generated/070.patch
+          patch --batch -p1 < ../patches/ajo-autosub-070/generated/070.patch
+          cp ../patches/ajo-autosub-070/generated/app/src/main/java/tw/ajo/autosubtitles/WhisperGapSupplement070.java app/src/main/java/tw/ajo/autosubtitles/
+          cp ../patches/ajo-autosub-070/generated/tests/Version070Tests.java tests/
+          cp ../patches/ajo-autosub-070/generated/tests/WindAnchorCheck070.java tests/
+          grep -F 'versionCode 70' app/build.gradle
+          grep -F "versionName '070'" app/build.gradle
+          mkdir -p tests/build070
+          javac -encoding UTF-8 -d tests/build070 app/src/main/java/tw/ajo/autosubtitles/Caption.java app/src/main/java/tw/ajo/autosubtitles/SpeechBandActivity.java app/src/main/java/tw/ajo/autosubtitles/WhisperGapSupplement070.java tests/Version070Tests.java
+          java -cp tests/build070 Version070Tests
+          test ! -f signing/ajo-autosub-signing.keystore
+      - name: Install Android SDK 36 NDK and ARM64 compiler
+        shell: bash
+        run: |
+          set -euo pipefail
+          SDKMANAGER=$(find "$ANDROID_HOME/cmdline-tools" -name sdkmanager -type f | sort -V | tail -1)
+          yes | "$SDKMANAGER" 'platforms;android-36' 'build-tools;35.0.0' 'ndk;27.2.12479018' 'cmake;3.22.1' || test "${PIPESTATUS[1]}" -eq 0
+      - name: Create disposable CI-only signing key
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p subtitle-build-work/signing
+          keytool -genkeypair -keystore subtitle-build-work/signing/ajo-autosub-signing.keystore -storepass android -keypass android -alias androiddebugkey -keyalg RSA -keysize 3072 -validity 10000 -dname 'CN=Temp060,O=Ajo,C=TW' -noprompt
+      - name: Compile 070 ARM64 Android APK
+        run: gradle -p subtitle-build-work :app:assembleDebug --no-daemon --stacktrace
+      - name: Verify 070 package and emit only public build intermediates
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK=subtitle-build-work/app/build/outputs/apk/debug/app-debug.apk
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose "$APK"
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK" | grep -E "versionCode='70'.*versionName='070'"
+          mkdir -p build-out
+          cp "$APK" build-out/ajo-autosub_070-temp.apk
+          cp "$ANDROID_HOME/build-tools/35.0.0/lib/apksigner.jar" build-out/apksigner.jar
+      - name: Upload temporary 070 APK and signer, never user signing key
+        uses: actions/upload-artifact@v4
+        with:
+          name: ajo-autosub-070-temp-and-signer
+          path: build-out/
+          if-no-files-found: error
+          retention-days: 5
