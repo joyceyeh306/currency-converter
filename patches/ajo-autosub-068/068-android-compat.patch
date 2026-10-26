@@ -1,0 +1,14 @@
+--- a/app/src/main/java/tw/ajo/autosubtitles/MainActivity.java
++++ b/app/src/main/java/tw/ajo/autosubtitles/MainActivity.java
+@@ -2533,7 +2533,10 @@
+         File target=whisperTraceFile068();
+         File temp=new File(getFilesDir(),"whisper-diagnostic-068.tmp");
+         try {
+-            java.nio.file.Files.writeString(temp.toPath(),report,StandardCharsets.UTF_8);
++            try(java.io.FileOutputStream output=new java.io.FileOutputStream(temp)) {
++                output.write(report.getBytes(StandardCharsets.UTF_8));
++                output.getFD().sync();
++            }
+             try {
+                 java.nio.file.Files.move(temp.toPath(),target.toPath(),
+                     java.nio.file.StandardCopyOption.ATOMIC_MOVE,
