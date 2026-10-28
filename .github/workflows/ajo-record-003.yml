@@ -1,0 +1,88 @@
+name: Ajo Record 003 Build
+on:
+  push:
+    branches: [ajo-record-003-build]
+    paths:
+      - '.github/workflows/ajo-record-003.yml'
+      - 'patches/ajo-record-003/**'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.11.1'
+      - name: Rebuild 002 source using the already tested procedures
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m pip -q install pyyaml brotli
+          python3 - <<'PYRESTORE'
+          from pathlib import Path
+          import yaml,subprocess
+          steps=yaml.safe_load(Path('.github/workflows/ajo-record-002.yml').read_text())['jobs']['build']['steps']
+          expected=False
+          for step in steps:
+              if step.get('name')=='Install Android SDK and ARM64 toolchain':
+                  expected=True
+                  break
+              if 'run' in step:
+                  print('Rebuild:',step.get('name'),flush=True)
+                  subprocess.run(['bash','-eo','pipefail','-c',step['run']],check=True)
+          assert expected and Path('subtitle-build-work/app/src/main/java/tw/ajo/record/RecordingService.java').is_file()
+          PYRESTORE
+      - name: Apply Record 003 pause-aware patch and run tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p subtitle-build-work/patches/ajo-record-003
+          cp patches/ajo-record-003/SpeechChunker003.java subtitle-build-work/patches/ajo-record-003/
+          cd subtitle-build-work
+          python3 ../patches/ajo-record-003/apply003.py
+          grep -F "versionCode 3" app/build.gradle
+          grep -F "versionName '003'" app/build.gradle
+          grep -F "SpeechChunker003.nextEnd" app/src/main/java/tw/ajo/record/RecordingService.java
+          grep -F "runFullQuality066" app/src/main/java/tw/ajo/record/MainActivity.java
+          mkdir -p tests/build003
+          javac -encoding UTF-8 -d tests/build003 \
+            app/src/main/java/tw/ajo/record/SpeechChunker003.java \
+            app/src/main/java/tw/ajo/record/AudioFiles.java \
+            app/src/main/java/tw/ajo/autosubtitles/Caption.java \
+            ../patches/ajo-record-003/TEST_003.java
+          java -cp tests/build003 TEST_003
+          test ! -f signing/ajo-autosub-signing.keystore
+      - name: Install Android SDK 36 and ARM64 NDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          SDKMANAGER=$(find "$ANDROID_HOME/cmdline-tools" -name sdkmanager -type f | sort -V | tail -1)
+          yes | "$SDKMANAGER" 'platforms;android-36' 'build-tools;35.0.0' 'ndk;27.2.12479018' 'cmake;3.22.1' || true
+          test -f "$ANDROID_HOME/ndk/27.2.12479018/source.properties"
+      - name: Compile, inspect and verify Record 003 APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          gradle -p subtitle-build-work :app:assembleDebug --no-daemon --stacktrace
+          APK=subtitle-build-work/app/build/outputs/apk/debug/app-debug.apk
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose "$APK"
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK" | grep "package: name='tw.ajo.record' versionCode='3' versionName='003'"
+          mkdir -p build-out
+          cp "$APK" build-out/ajo-record_003-temp.apk
+          cp "$ANDROID_HOME/build-tools/35.0.0/lib/apksigner.jar" build-out/apksigner.jar
+          sha256sum "$APK" | tee build-out/sha256.txt
+      - name: Upload temporary unsigned-for-upgrade APK and signing utility
+        uses: actions/upload-artifact@v4
+        with:
+          name: ajo-record-003-temp-and-signer
+          path: build-out/
+          if-no-files-found: error
+          retention-days: 7
