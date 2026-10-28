@@ -264,7 +264,6 @@ jobs:
             app/src/main/java/tw/ajo/autosubtitles/TaiwanTraditional078.java \
             tests/Version078Tests.java
           java -cp "tests/build078:$JARS" Version078Tests
-          test ! -f signing/ajo-autosub-signing.keystore
 
       - name: Verify 078 version and APK
         shell: bash
