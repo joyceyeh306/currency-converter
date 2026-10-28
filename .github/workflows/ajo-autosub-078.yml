@@ -1,0 +1,281 @@
+name: Ajo Autosub 078 Offline Taiwan Traditional Whisper Captions
+on:
+  push:
+    branches: [ajo-autosub-078-build]
+  pull_request:
+    branches: [ajo-autosub-077-build]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.11.1'
+      - name: Restore verified 071 source through its identical steps
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m pip -q install pyyaml brotli
+          python3 - <<'PYBASE'
+          import subprocess,yaml
+          from pathlib import Path
+          steps=yaml.safe_load(Path('.github/workflows/ajo-autosub-071.yml').read_text())['jobs']['build']['steps']
+          stop=False
+          for step in steps:
+              if step.get('name')=='Install Android SDK 36 NDK and ARM64 compiler':
+                  stop=True
+                  break
+              if 'run' in step:
+                  print('071:',step.get('name'),flush=True)
+                  subprocess.run(['bash','-eo','pipefail','-c',step['run']],check=True)
+          assert stop and Path('subtitle-build-work/app/src/main/java/tw/ajo/autosubtitles/WhisperConfidenceTrace071.java').is_file()
+          PYBASE
+      - name: Apply 072 diagnostic-only patch and run regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY072'
+          import base64,zlib,hashlib
+          from pathlib import Path
+          raw=zlib.decompress(base64.b64decode(Path('patches/ajo-autosub-072/bundle.zlib.b64').read_text().strip()))
+          assert hashlib.sha256(raw).hexdigest()=='710f19ef2467952ab7f578ad37837d11e10c0a25f30fa99dd0abd4dd644c1dd6'
+          Path('subtitle-build-work/072.patch').write_bytes(raw)
+          PY072
+          cd subtitle-build-work
+          patch --dry-run --batch -p1 < 072.patch
+          patch --batch -p1 < 072.patch
+          grep -F 'versionCode 72' app/build.gradle
+          grep -F "versionName '072'" app/build.gradle
+          mkdir -p tests/build072
+          javac -encoding UTF-8 -d tests/build072 \
+            app/src/main/java/tw/ajo/autosubtitles/WhisperConfidenceTrace071.java \
+            app/src/main/java/tw/ajo/autosubtitles/WhisperDualReport072.java \
+            app/src/main/java/tw/ajo/autosubtitles/WhisperNative.java \
+            app/src/main/java/tw/ajo/autosubtitles/WhisperSegments.java \
+            app/src/main/java/tw/ajo/autosubtitles/Caption.java \
+            app/src/main/java/tw/ajo/autosubtitles/CaptionPunctuation.java \
+            tests/Version072Tests.java
+          java -cp tests/build072 Version072Tests
+          test ! -f signing/ajo-autosub-signing.keystore
+      - name: Apply 073 oral-faithfulness A-B diagnostics and test
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY073'
+          import base64,zlib,hashlib
+          from pathlib import Path
+          raw=zlib.decompress(base64.b64decode(Path('patches/ajo-autosub-073/bundle.zlib.b64').read_text().strip()))
+          assert hashlib.sha256(raw).hexdigest()=='03c0923ca1a773e761f0ae2c54fd58c5482c24c685eb5518fc43bcced3277682'
+          Path('subtitle-build-work/073.patch').write_bytes(raw)
+          PY073
+          cd subtitle-build-work
+          patch --dry-run --batch -p1 < 073.patch
+          patch --batch -p1 < 073.patch
+          grep -F 'versionCode 73' app/build.gradle
+          grep -F "versionName '073'" app/build.gradle
+          mkdir -p tests/build073
+          javac -encoding UTF-8 -d tests/build073 \
+            app/src/main/java/tw/ajo/autosubtitles/WhisperConfidenceTrace071.java \
+            app/src/main/java/tw/ajo/autosubtitles/WhisperDualReport072.java \
+            app/src/main/java/tw/ajo/autosubtitles/WhisperPromptReport073.java \
+            app/src/main/java/tw/ajo/autosubtitles/WhisperNative.java \
+            app/src/main/java/tw/ajo/autosubtitles/WhisperSegments.java \
+            app/src/main/java/tw/ajo/autosubtitles/Caption.java \
+            app/src/main/java/tw/ajo/autosubtitles/CaptionPunctuation.java \
+            tests/Version073Tests.java
+          java -cp tests/build073 Version073Tests
+          test ! -f signing/ajo-autosub-signing.keystore
+
+      - name: Apply 074 safe oral candidate preview and regression checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY074'
+          import base64,zlib,hashlib
+          from pathlib import Path
+          raw=zlib.decompress(base64.b64decode(Path('patches/ajo-autosub-074/bundle.zlib.b64').read_text().strip()))
+          assert hashlib.sha256(raw).hexdigest()=='f4adf692d6acebd9d0c00fc953dca0448f495fe09ac6be7bbcf7ea08606af177'
+          Path('subtitle-build-work/074.patch').write_bytes(raw)
+          PY074
+          cd subtitle-build-work
+          patch --dry-run --batch -p1 < 074.patch
+          patch --batch -p1 < 074.patch
+          grep -F 'versionCode 74' app/build.gradle
+          grep -F "versionName '074'" app/build.gradle
+          mkdir -p tests/build074
+          javac -encoding UTF-8 -d tests/build074 \
+            app/src/main/java/tw/ajo/autosubtitles/Caption.java \
+            app/src/main/java/tw/ajo/autosubtitles/WhisperCandidate074.java \
+            tests/Version074Tests.java
+          java -cp tests/build074 Version074Tests
+          test ! -f signing/ajo-autosub-signing.keystore
+
+      - name: Fix 075 hidden candidate list and test
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY075'
+          import base64,zlib,hashlib
+          from pathlib import Path
+          raw=zlib.decompress(base64.b64decode(Path('patches/ajo-autosub-075/bundle.zlib.b64').read_text().strip()))
+          assert hashlib.sha256(raw).hexdigest()=='854bf2b25ffd3cc54622f84c174fbdd9dfb769671a5c75609cf7ed267981873e'
+          Path('subtitle-build-work/075.patch').write_bytes(raw)
+          PY075
+          cd subtitle-build-work
+          patch --dry-run --batch -p1 < 075.patch
+          patch --batch -p1 < 075.patch
+          grep -F 'versionCode 75' app/build.gradle
+          grep -F "versionName '075'" app/build.gradle
+          mkdir -p tests/build075
+          javac -encoding UTF-8 -d tests/build075 \
+            app/src/main/java/tw/ajo/autosubtitles/Caption.java \
+            app/src/main/java/tw/ajo/autosubtitles/WhisperCandidate074.java \
+            tests/Version074Tests.java \
+            tests/Version075Tests.java
+          java -cp tests/build075 Version074Tests
+          java -cp tests/build075 Version075Tests
+          test ! -f signing/ajo-autosub-signing.keystore
+
+      - name: Apply 076 safe particle review prioritization and tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY076'
+          import base64,zlib,hashlib
+          from pathlib import Path
+          raw=zlib.decompress(base64.b64decode(Path('patches/ajo-autosub-076/bundle.zlib.b64').read_text().strip()))
+          assert hashlib.sha256(raw).hexdigest()=='c5fdedbe1968341ebf5a71b745279d202060d57bcc39e50acc840b2800b3c840'
+          Path('subtitle-build-work/076.patch').write_bytes(raw)
+          PY076
+          cd subtitle-build-work
+          patch --dry-run --batch -p1 < 076.patch
+          patch --batch -p1 < 076.patch
+          grep -F 'versionCode 76' app/build.gradle
+          grep -F "versionName '076'" app/build.gradle
+          mkdir -p tests/build076
+          javac -encoding UTF-8 -d tests/build076 \
+            app/src/main/java/tw/ajo/autosubtitles/Caption.java \
+            app/src/main/java/tw/ajo/autosubtitles/WhisperCandidate074.java \
+            app/src/main/java/tw/ajo/autosubtitles/WhisperReview076.java \
+            tests/Version074Tests.java \
+            tests/Version075Tests.java \
+            tests/Version076Tests.java
+          java -cp tests/build076 Version074Tests
+          java -cp tests/build076 Version075Tests
+          java -cp tests/build076 Version076Tests
+          test ! -f signing/ajo-autosub-signing.keystore
+
+      - name: Apply 077 single-paid rollback and English safety guard
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY077'
+          import base64,zlib,hashlib
+          from pathlib import Path
+          raw=zlib.decompress(base64.b64decode(Path('patches/ajo-autosub-077/bundle.zlib.b64').read_text().strip()))
+          assert hashlib.sha256(raw).hexdigest()=='5fe4d2bf72ec25f5692ef158a52a04c3eaab4f51b5c714f0a6d3a93db1fd3fb5'
+          Path('subtitle-build-work/077.patch').write_bytes(raw)
+          PY077
+          cd subtitle-build-work
+          patch --dry-run --batch -p1 < 077.patch
+          patch --batch -p1 < 077.patch
+          grep -F 'versionCode 77' app/build.gradle
+          grep -F "versionName '077'" app/build.gradle
+          mkdir -p tests/build077
+          javac -encoding UTF-8 -d tests/build077 \
+            app/src/main/java/tw/ajo/autosubtitles/Caption.java \
+            app/src/main/java/tw/ajo/autosubtitles/CaptionPunctuation.java \
+            app/src/main/java/tw/ajo/autosubtitles/CaptionSplitter.java \
+            app/src/main/java/tw/ajo/autosubtitles/SpeechTiming.java \
+            app/src/main/java/tw/ajo/autosubtitles/SpeakerCaptionizer.java \
+            app/src/main/java/tw/ajo/autosubtitles/CloudLanguageGuard077.java \
+            app/src/main/java/tw/ajo/autosubtitles/WhisperCandidate074.java \
+            app/src/main/java/tw/ajo/autosubtitles/WhisperReview076.java \
+            tests/Version074Tests.java \
+            tests/Version075Tests.java \
+            tests/Version076Tests.java \
+            tests/Version077Tests.java
+          java -cp tests/build077 Version074Tests
+          java -cp tests/build077 Version075Tests
+          java -cp tests/build077 Version076Tests
+          java -cp tests/build077 Version077Tests
+          test ! -f signing/ajo-autosub-signing.keystore
+
+      - name: Apply 078 offline Chinese typography normalization
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY078'
+          import base64,zlib,hashlib
+          from pathlib import Path
+          raw=zlib.decompress(base64.b64decode(Path('patches/ajo-autosub-078/bundle.zlib.b64').read_text().strip()))
+          assert hashlib.sha256(raw).hexdigest()=='d1657ea2006005c107b7604a82dd985c2b37ab253de7bc819c42d81b07506bc0'
+          Path('subtitle-build-work/078.patch').write_bytes(raw)
+          PY078
+          cd subtitle-build-work
+          patch --dry-run --batch -p1 < 078.patch
+          patch --batch -p1 < 078.patch
+          grep -F 'versionCode 78' app/build.gradle
+          grep -F "versionName '078'" app/build.gradle
+          test ! -f signing/ajo-autosub-signing.keystore
+
+      - name: Resolve Opencc4j and run 078 Java regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          gradle -p subtitle-build-work :app:dependencies --configuration debugRuntimeClasspath --no-daemon > /tmp/ajo078-deps.txt
+          grep 'opencc4j:1.14.0' /tmp/ajo078-deps.txt
+          cd subtitle-build-work
+          JARS=$(find "$HOME/.gradle/caches/modules-2/files-2.1" -name '*.jar' -type f | paste -sd: -)
+          test -n "$JARS"
+          mkdir -p tests/build078
+          javac -encoding UTF-8 -cp "$JARS" -d tests/build078 \
+            app/src/main/java/tw/ajo/autosubtitles/Caption.java \
+            app/src/main/java/tw/ajo/autosubtitles/WhisperCandidate074.java \
+            app/src/main/java/tw/ajo/autosubtitles/TaiwanTraditional078.java \
+            tests/Version078Tests.java
+          java -cp "tests/build078:$JARS" Version078Tests
+          test ! -f signing/ajo-autosub-signing.keystore
+
+      - name: Install Android SDK 36 ARM64 tools
+        shell: bash
+        run: |
+          set -eu
+          SDKMANAGER=$(find "$ANDROID_HOME/cmdline-tools" -name sdkmanager -type f | sort -V | tail -1)
+          yes | "$SDKMANAGER" 'platforms;android-36' 'build-tools;35.0.0' 'ndk;27.2.12479018' 'cmake;3.22.1' || true
+          test -f "$ANDROID_HOME/ndk/27.2.12479018/source.properties"
+          test -x "$ANDROID_HOME/build-tools/35.0.0/aapt"
+      - name: Create disposable CI signing key
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p subtitle-build-work/signing
+          keytool -genkeypair -keystore subtitle-build-work/signing/ajo-autosub-signing.keystore -storepass android -keypass android -alias androiddebugkey -keyalg RSA -keysize 3072 -validity 10000 -dname 'CN=Temp078,O=Ajo,C=TW' -noprompt
+      - name: Compile 078 ARM64 Android APK
+        run: gradle -p subtitle-build-work :app:assembleDebug --no-daemon --stacktrace
+      - name: Verify 078 version and APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK=subtitle-build-work/app/build/outputs/apk/debug/app-debug.apk
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose "$APK"
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK" | grep -E "versionCode='78'.*versionName='078'"
+          mkdir -p build-out
+          cp "$APK" build-out/ajo-autosub_078-temp.apk
+          cp "$ANDROID_HOME/build-tools/35.0.0/lib/apksigner.jar" build-out/apksigner.jar
+      - name: Upload temporary APK and apksigner
+        uses: actions/upload-artifact@v4
+        with:
+          name: ajo-autosub-078-temp-and-signer
+          path: build-out/
+          if-no-files-found: error
+          retention-days: 5
