@@ -228,6 +228,22 @@ jobs:
           grep -F "versionName '078'" app/build.gradle
           test ! -f signing/ajo-autosub-signing.keystore
 
+      - name: Install Android SDK 36 ARM64 tools
+        shell: bash
+        run: |
+          set -eu
+          SDKMANAGER=$(find "$ANDROID_HOME/cmdline-tools" -name sdkmanager -type f | sort -V | tail -1)
+          yes | "$SDKMANAGER" 'platforms;android-36' 'build-tools;35.0.0' 'ndk;27.2.12479018' 'cmake;3.22.1' || true
+          test -f "$ANDROID_HOME/ndk/27.2.12479018/source.properties"
+          test -x "$ANDROID_HOME/build-tools/35.0.0/aapt"
+      - name: Create disposable CI signing key
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p subtitle-build-work/signing
+          keytool -genkeypair -keystore subtitle-build-work/signing/ajo-autosub-signing.keystore -storepass android -keypass android -alias androiddebugkey -keyalg RSA -keysize 3072 -validity 10000 -dname 'CN=Temp078,O=Ajo,C=TW' -noprompt
+      - name: Compile 078 ARM64 Android APK
+        run: gradle -p subtitle-build-work :app:assembleDebug --no-daemon --stacktrace
       - name: Resolve Opencc4j and run 078 Java regressions
         shell: bash
         run: |
@@ -246,22 +262,6 @@ jobs:
           java -cp "tests/build078:$JARS" Version078Tests
           test ! -f signing/ajo-autosub-signing.keystore
 
-      - name: Install Android SDK 36 ARM64 tools
-        shell: bash
-        run: |
-          set -eu
-          SDKMANAGER=$(find "$ANDROID_HOME/cmdline-tools" -name sdkmanager -type f | sort -V | tail -1)
-          yes | "$SDKMANAGER" 'platforms;android-36' 'build-tools;35.0.0' 'ndk;27.2.12479018' 'cmake;3.22.1' || true
-          test -f "$ANDROID_HOME/ndk/27.2.12479018/source.properties"
-          test -x "$ANDROID_HOME/build-tools/35.0.0/aapt"
-      - name: Create disposable CI signing key
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p subtitle-build-work/signing
-          keytool -genkeypair -keystore subtitle-build-work/signing/ajo-autosub-signing.keystore -storepass android -keypass android -alias androiddebugkey -keyalg RSA -keysize 3072 -validity 10000 -dname 'CN=Temp078,O=Ajo,C=TW' -noprompt
-      - name: Compile 078 ARM64 Android APK
-        run: gradle -p subtitle-build-work :app:assembleDebug --no-daemon --stacktrace
       - name: Verify 078 version and APK
         shell: bash
         run: |
