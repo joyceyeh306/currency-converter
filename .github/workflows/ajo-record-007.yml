@@ -68,9 +68,11 @@ jobs:
           javac -encoding UTF-8 -d tests/build007 \
             tests/stub007/tw/ajo/record/TranscriptText.java \
             app/src/main/java/tw/ajo/autosubtitles/Caption.java \
+            app/src/main/java/tw/ajo/autosubtitles/CaptionPunctuation.java \
             app/src/main/java/tw/ajo/autosubtitles/SpeakerCaptionizer.java \
             app/src/main/java/tw/ajo/autosubtitles/CloudCaption007.java \
             app/src/main/java/tw/ajo/record/TimedTranscript005.java \
+            app/src/main/java/tw/ajo/record/TranscriptLayout006.java \
             app/src/main/java/tw/ajo/record/CloudTimed007.java \
             app/src/main/java/tw/ajo/record/AudioFiles.java \
             app/src/main/java/tw/ajo/record/CloudAudio007.java \
