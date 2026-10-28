@@ -1,0 +1,120 @@
+name: Ajo Record 002 Side By Side Test Build
+on:
+  push:
+    branches: [ajo-record-002-safe-test]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.11.1'
+      - name: Restore verified 076 Whisper source with existing regression checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m pip -q install pyyaml brotli
+          python3 - <<'PYREBUILD'
+          import yaml,subprocess
+          from pathlib import Path
+          steps=yaml.safe_load(Path('.github/workflows/ajo-autosub-076.yml').read_text())['jobs']['build']['steps']
+          stop=False
+          for step in steps:
+              if step.get('name')=='Install Android SDK 36 ARM64 tools':
+                  stop=True
+                  break
+              if 'run' in step:
+                  print('Restoring 076:',step.get('name'),flush=True)
+                  subprocess.run(['bash','-eo','pipefail','-c',step['run']],check=True)
+          assert stop and Path('subtitle-build-work/app/src/main/cpp/ajo_whisper.cpp').is_file()
+          PYREBUILD
+      - name: Apply isolated Record 001 sources
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PYPATCH'
+          from pathlib import Path
+          import base64,zlib,hashlib
+          data=zlib.decompress(base64.b64decode(Path('patches/ajo-record-001/bundle.zlib.b64').read_text().strip()))
+          expected='1d1136120bea46ae6096a8e232a2179eabe11aec8663fbae2985284e8fa61373'
+          assert hashlib.sha256(data).hexdigest()==expected,'Patch integrity failure'
+          Path('subtitle-build-work/001.patch').write_bytes(data)
+          PYPATCH
+          cd subtitle-build-work
+          patch --dry-run --batch -p1 < 001.patch
+          patch --batch -p1 < 001.patch
+          for f in app/src/main/java/tw/ajo/autosubtitles/*.java; do
+            case "$(basename "$f")" in
+              WhisperNative.java|WhisperSegments.java|WhisperModel.java|Caption.java|CaptionPunctuation.java|PcmDecoder.java) ;;
+              *) rm "$f" ;;
+            esac
+          done
+          rm -rf app/src/main/assets/fonts app/src/main/assets/licenses app/src/main/assets/silero_vad_062.onnx
+          rm -rf app/src/main/res/drawable app/src/main/res/drawable-nodpi
+          test ! -f signing/ajo-autosub-signing.keystore
+          grep -F "applicationId 'tw.ajo.record'" app/build.gradle
+          grep -F "versionName '001'" app/build.gradle
+          test -f app/src/main/java/tw/ajo/record/RecordingService.java
+      - name: Apply isolated Record 002 interface and history patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY002'
+          import base64,brotli,hashlib
+          from pathlib import Path
+          encoded=Path('patches/ajo-record-002/bundle.br.b64').read_text().strip()
+          raw=brotli.decompress(base64.b64decode(encoded))
+          assert hashlib.sha256(raw).hexdigest()=='536295031745227f12101111634a390a1db83078a424751269f0414dfa044e7c'
+          Path('subtitle-build-work/002.patch').write_bytes(raw)
+          PY002
+          cd subtitle-build-work
+          patch --dry-run --batch -p1 < 002.patch
+          patch --batch -p1 < 002.patch
+          grep -F "versionCode 2" app/build.gradle
+          grep -F "versionName '002'" app/build.gradle
+          grep -F "HapticFeedbackConstants.VIRTUAL_KEY" app/src/main/java/tw/ajo/record/MainActivity.java
+          grep -F "runFullQuality066" app/src/main/java/tw/ajo/record/MainActivity.java
+          test -f app/src/main/java/tw/ajo/record/RecordingStore.java
+          test -f app/src/main/java/tw/ajo/record/TranscriptText.java
+      - name: Install Android SDK and ARM64 toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          SDKMANAGER=$(find "$ANDROID_HOME/cmdline-tools" -name sdkmanager -type f | sort -V | tail -1)
+          yes | "$SDKMANAGER" 'platforms;android-36' 'build-tools;35.0.0' 'ndk;27.2.12479018' 'cmake;3.22.1' || true
+          test -f "$ANDROID_HOME/ndk/27.2.12479018/source.properties"
+      - name: Keep original 001 app and data safe by using independent test package
+        shell: bash
+        run: |
+          set -euo pipefail
+          sed -i "s/applicationId 'tw.ajo.record'/applicationId 'tw.ajo.record.test002'/" subtitle-build-work/app/build.gradle
+          sed -i 's/android:label="ㄚ喬逐字稿"/android:label="ㄚ喬逐字稿002測試"/' subtitle-build-work/app/src/main/AndroidManifest.xml
+          grep -F "applicationId 'tw.ajo.record.test002'" subtitle-build-work/app/build.gradle
+      - name: Compile and verify Record 002 side-by-side test
+        shell: bash
+        run: |
+          set -euo pipefail
+          gradle -p subtitle-build-work :app:assembleDebug --no-daemon --stacktrace
+          APK=subtitle-build-work/app/build/outputs/apk/debug/app-debug.apk
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose "$APK"
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK" | grep "package: name='tw.ajo.record.test002' versionCode='2' versionName='002'"
+          mkdir -p build-out
+          cp "$APK" build-out/ajo-record_002-test.apk
+          cp "$ANDROID_HOME/build-tools/35.0.0/lib/apksigner.jar" build-out/apksigner.jar
+          sha256sum "$APK" | tee build-out/sha256.txt
+      - name: Upload Record 002 test APK and signing utility
+        uses: actions/upload-artifact@v4
+        with:
+          name: ajo-record-002-safe-test
+          path: build-out/
+          if-no-files-found: error
+          retention-days: 7
