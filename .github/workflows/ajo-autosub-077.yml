@@ -2,6 +2,8 @@ name: Ajo Autosub 077 Single-Paid Transcription Restoration
 on:
   push:
     branches: [ajo-autosub-077-build]
+  pull_request:
+    branches: [ajo-autosub-076-build]
   workflow_dispatch:
 permissions:
   contents: read
