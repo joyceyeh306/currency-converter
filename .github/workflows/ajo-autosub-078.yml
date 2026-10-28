@@ -224,6 +224,10 @@ jobs:
           cd subtitle-build-work
           patch --dry-run --batch -p1 < 078.patch
           patch --batch -p1 < 078.patch
+          # Variant guard is a separate audited source patch, never a runtime change.
+          printf '0139bd12cc04bb30acd154ae26de73d3d5e316c4c1b379dc102eaf64a578a61b  ../patches/ajo-autosub-078/taiwan-variant-guard.patch\\n' | sha256sum -c -
+          patch --dry-run --batch -p1 < ../patches/ajo-autosub-078/taiwan-variant-guard.patch
+          patch --batch -p1 < ../patches/ajo-autosub-078/taiwan-variant-guard.patch
           grep -F 'versionCode 78' app/build.gradle
           grep -F "versionName '078'" app/build.gradle
           test ! -f signing/ajo-autosub-signing.keystore
