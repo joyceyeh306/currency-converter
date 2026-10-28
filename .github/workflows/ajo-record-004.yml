@@ -1,0 +1,82 @@
+name: Ajo Record 004 Build
+on:
+  push:
+    branches: [ajo-record-004-build]
+    paths:
+      - '.github/workflows/ajo-record-004.yml'
+      - 'patches/ajo-record-004/**'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.11.1'
+      - name: Restore verified 003 source and tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m pip -q install pyyaml brotli
+          python3 - <<'PYRESTORE'
+          from pathlib import Path
+          import yaml,subprocess
+          steps=yaml.safe_load(Path('.github/workflows/ajo-record-003.yml').read_text())['jobs']['build']['steps']
+          restored=False
+          for step in steps:
+              if step.get('name')=='Install Android SDK 36 and ARM64 NDK':
+                  restored=True;break
+              if 'run' in step:
+                  print('003:',step.get('name'),flush=True)
+                  subprocess.run(['bash','-eo','pipefail','-c',step['run']],check=True)
+          assert restored and Path('subtitle-build-work/app/src/main/java/tw/ajo/record/SpeechChunker003.java').is_file()
+          PYRESTORE
+      - name: Apply 004 natural punctuation and run regression test
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd subtitle-build-work
+          python3 ../patches/ajo-record-004/apply004.py
+          grep -F 'versionCode 4' app/build.gradle
+          grep -F "versionName '004'" app/build.gradle
+          grep -F 'runFullQuality066' app/src/main/java/tw/ajo/record/MainActivity.java
+          mkdir -p tests/build004
+          javac -encoding UTF-8 -d tests/build004 \
+            app/src/main/java/tw/ajo/autosubtitles/Caption.java \
+            app/src/main/java/tw/ajo/record/TranscriptFormatter004.java \
+            ../patches/ajo-record-004/TEST_004.java
+          java -cp tests/build004 TEST_004
+          test ! -f signing/ajo-autosub-signing.keystore
+      - name: Install Android SDK 36 and ARM64 NDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          SDKMANAGER=$(find "$ANDROID_HOME/cmdline-tools" -name sdkmanager -type f | sort -V | tail -1)
+          yes | "$SDKMANAGER" 'platforms;android-36' 'build-tools;35.0.0' 'ndk;27.2.12479018' 'cmake;3.22.1' || true
+          test -f "$ANDROID_HOME/ndk/27.2.12479018/source.properties"
+      - name: Build and verify Ajo Record 004
+        shell: bash
+        run: |
+          set -euo pipefail
+          gradle -p subtitle-build-work :app:assembleDebug --no-daemon --stacktrace
+          APK=subtitle-build-work/app/build/outputs/apk/debug/app-debug.apk
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose "$APK"
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK" | grep "package: name='tw.ajo.record' versionCode='4' versionName='004'"
+          mkdir -p build-out
+          cp "$APK" build-out/ajo-record_004-temp.apk
+          cp "$ANDROID_HOME/build-tools/35.0.0/lib/apksigner.jar" build-out/apksigner.jar
+      - name: Upload temporary test-signed APK for secure local re-signing
+        uses: actions/upload-artifact@v4
+        with:
+          name: ajo-record-004-temp-and-signer
+          path: build-out/
+          retention-days: 7
+          if-no-files-found: error
