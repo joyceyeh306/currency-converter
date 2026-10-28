@@ -1,0 +1,50 @@
+--- a/app/src/main/java/tw/ajo/autosubtitles/TaiwanTraditional078.java
++++ b/app/src/main/java/tw/ajo/autosubtitles/TaiwanTraditional078.java
+@@ -1,11 +1,11 @@
+ package tw.ajo.autosubtitles;
+ 
+-import com.github.houbb.opencc4j.util.ZhTwConverterUtil;
++import com.github.houbb.opencc4j.util.ZhConverterUtil;
+ import java.util.ArrayList;
+ import java.util.List;
+ 
+ /** 078: script normalization only for newly decoded local Whisper Chinese results.
+- * Runs entirely offline with Opencc4j's Taiwan data. Never edits an existing draft,
++ * Runs entirely offline with the Opencc4j phrase dictionary. Never edits an existing draft,
+  * changes timecodes/speaker/styles or alters Whisper's raw diagnostics.
+  * This is typography conversion, NOT speech correction or translation.
+  */
+@@ -15,7 +15,10 @@
+     public static String convert(String text, String language) {
+         if (text==null || !"zh".equalsIgnoreCase(language) || text.isEmpty())return text;
+         // Fail closed: a missing dictionary is an error, not a silent regression to simplified.
+-        return ZhTwConverterUtil.toTraditional(text);
++        // The port's Taiwan preset incorrectly converts a second pass of「裡面」
++        // into「裡麵」. Use its stable phrase-aware baseline, then normalize the
++        // common Taiwan character form「裏」→「裡」(not regional vocabulary).
++        return ZhConverterUtil.toTraditional(text).replace('裏','裡');
+     }
+ 
+     public static List<Caption> convertedCopies(List<Caption> original, String language) {
+--- a/tests/Version078Tests.java
++++ b/tests/Version078Tests.java
+@@ -15,6 +15,8 @@
+    ok(normalized.contains("怎麼辦"),"怎麼 conversion: "+normalized);
+    ok("你好，世界！".equals(TaiwanTraditional078.convert("你好，世界！","zh")),"Chinese already traditional stays");
+    ok(normalized.equals(TaiwanTraditional078.convert(normalized,"zh")),"conversion is idempotent");
++   ok("包裡面有什麼".equals(TaiwanTraditional078.convert("包裡面有什麼","zh")),
++       "Traditional 裡面 never becomes 麵");
+    ok("包里面有什么".equals(TaiwanTraditional078.convert("包里面有什么","en")),"English mode unchanged");
+    ok("包里面有什么".equals(TaiwanTraditional078.convert("包里面有什么","ja")),"Japanese mode unchanged");
+    ok("包里面有什么".equals(TaiwanTraditional078.convert("包里面有什么","ko")),"Korean mode unchanged");
+--- a/README_078.md
++++ b/README_078.md
+@@ -4,7 +4,7 @@
+ 
+ ## 實作
+ 
+-- 使用 `com.github.houbb:opencc4j:1.14.0` 的 `ZhTwConverterUtil.toTraditional`，它是 OpenCC 理念的**純 Java 實作**，提供臺灣繁體映射；不是官方 OpenCC C++ 核心，也不聲稱完全等同官方 `s2tw` 的字典版本。
++- 使用 `com.github.houbb:opencc4j:1.14.0` 的 `ZhConverterUtil.toTraditional` 再做 `裏→裡`，它是 OpenCC 理念的**純 Java 實作**，透過保守字形映射維持臺灣慣用的「裡」，避免該移植版臺灣預設把「裡面」誤轉成「裡麵」；不是官方 OpenCC C++ 核心，也不聲稱完全等同官方 `s2tw` 的字典版本。
+ - 只在 `WhisperNative.runInternal()` 的 Chinese `language=zh` 結果封裝為 `Caption` 時轉換文字；母本 `WhisperSegments.parse`、原始 `rawTranscript072`、其他語言不變。
+ - 073 A/B 原始診斷保留，進入 074 候選配對的複本另外轉換，維持同一繁體字形與現有字幕比對，避免自動採納或改動 A/B 守則。
+ - 字形轉換可能有語境歧義，不能修復模型重複、幻聽、漏句或誤聽。已存在/手動修改字幕、匯入 SRT、付費輸出均不自動重寫。
