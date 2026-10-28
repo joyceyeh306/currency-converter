@@ -43,6 +43,8 @@ old='String output=TranscriptText.traditional(AudioFiles.texts(result.captions))
 assert s.count(old)==1
 s=s.replace(old,'String output=TranscriptText.traditional(TranscriptFormatter004.format(result.captions));')
 s=s.replace('success=true;status="辨識完成 · 可編輯或匯出 TXT";', 'success=true;status="辨識完成 · Whisper " + clock(result.inferenceMs) + " · 可編輯或匯出 TXT";')
+assert 'if(text.exists())ok=text.delete()&&ok;' in s
+s=s.replace('if(text.exists())ok=text.delete()&&ok;', 'if(text.exists())ok=text.delete()&&ok;\n                File rawFile=new File(wav.getParentFile(),wav.getName().substring(0,wav.getName().length()-4)+".raw.txt");\n                if(rawFile.exists())ok=rawFile.delete()&&ok;')
 p.write_text(s)
 p=root/'RecordingService.java';s=p.read_text()
 old='transcript=TranscriptText.traditional(AudioFiles.texts(finalResult.captions));'
