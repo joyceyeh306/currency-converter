@@ -1,0 +1,99 @@
+name: Ajo Record 006 Build
+on:
+  push:
+    branches: [ajo-record-006-build]
+    paths:
+      - '.github/workflows/ajo-record-006.yml'
+      - 'patches/ajo-record-006/**'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.11.1'
+      - name: Restore verified Record 005 source with prior tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m pip -q install pyyaml brotli
+          python3 - <<'PYRESTORE'
+          from pathlib import Path
+          import yaml,subprocess
+          steps=yaml.safe_load(Path('.github/workflows/ajo-record-005.yml').read_text())['jobs']['build']['steps']
+          restored=False
+          for step in steps:
+              if step.get('name')=='Install Android SDK 36 and ARM64 NDK':
+                  restored=True;break
+              if 'run' in step:
+                  print('Restore 005:',step.get('name'),flush=True)
+                  subprocess.run(['bash','-eo','pipefail','-c',step['run']],check=True)
+          assert restored and Path('subtitle-build-work/app/src/main/java/tw/ajo/record/MainActivity.java').is_file()
+          PYRESTORE
+      - name: Apply 006 UI layout and readable segments; test no lost words
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PYPATCH'
+          import base64,brotli,hashlib
+          from pathlib import Path
+          raw=brotli.decompress(base64.b64decode(Path('patches/ajo-record-006/bundle006.br.b64').read_text().strip()))
+          assert hashlib.sha256(raw).hexdigest()=='594caa27e25eba22cd2daa890e40951eed3a394a78565865ca0dead1c4521321'
+          Path('subtitle-build-work/006.patch').write_bytes(raw)
+          PYPATCH
+          cd subtitle-build-work
+          patch --dry-run --batch -p1 < 006.patch
+          patch --batch -p1 < 006.patch
+          grep -F 'versionCode 6' app/build.gradle
+          grep -F "versionName '006'" app/build.gradle
+          grep -F "applicationId 'tw.ajo.record'" app/build.gradle
+          grep -F "getInsets(WindowInsets.Type.systemBars())" app/src/main/java/tw/ajo/record/MainActivity.java
+          grep -F 'playButton.setText(player.playing()?"Ⅱ":"▶")' app/src/main/java/tw/ajo/record/MainActivity.java
+          test -f app/src/main/java/tw/ajo/record/TranscriptLayout006.java
+          test ! -f signing/ajo-autosub-signing.keystore
+          mkdir -p tests/build006 tests/stub006/tw/ajo/record
+          printf '%s\n' 'package tw.ajo.record; public final class TranscriptText { public static String traditional(String s){return s==null?"":s;} }' > tests/stub006/tw/ajo/record/TranscriptText.java
+          javac -encoding UTF-8 -d tests/build006 \
+             tests/stub006/tw/ajo/record/TranscriptText.java \
+             app/src/main/java/tw/ajo/autosubtitles/Caption.java \
+             app/src/main/java/tw/ajo/record/TimedTranscript005.java \
+             app/src/main/java/tw/ajo/record/TranscriptLayout006.java \
+             ../patches/ajo-record-005/TEST_005.java \
+             ../patches/ajo-record-006/TEST_006.java
+          java -cp tests/build006 TEST_005
+          java -cp tests/build006 TEST_006
+      - name: Install Android SDK 36 and ARM64 NDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          SDKMANAGER=$(find "$ANDROID_HOME/cmdline-tools" -name sdkmanager -type f | sort -V | tail -1)
+          yes | "$SDKMANAGER" 'platforms;android-36' 'build-tools;35.0.0' 'ndk;27.2.12479018' 'cmake;3.22.1' || true
+          test -f "$ANDROID_HOME/ndk/27.2.12479018/source.properties"
+      - name: Compile and verify Record 006 APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          gradle -p subtitle-build-work :app:assembleDebug --no-daemon --stacktrace
+          APK=subtitle-build-work/app/build/outputs/apk/debug/app-debug.apk
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose "$APK"
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK" | grep "package: name='tw.ajo.record' versionCode='6' versionName='006'"
+          mkdir -p build-out
+          cp "$APK" build-out/ajo-record_006-temp.apk
+          cp "$ANDROID_HOME/build-tools/35.0.0/lib/apksigner.jar" build-out/apksigner.jar
+          sha256sum "$APK" > build-out/sha256.txt
+      - name: Upload temporary APK for secure local production signing
+        uses: actions/upload-artifact@v4
+        with:
+          name: ajo-record-006-temp-and-signer
+          path: build-out/
+          retention-days: 7
+          if-no-files-found: error
