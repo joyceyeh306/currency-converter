@@ -1,0 +1,45 @@
+name: 078 Opencc4j Taiwan Script Consistency Probe
+on:
+  push:
+    branches: [ajo-autosub-078-build]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Fetch public Java conversion dependencies and compare outputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p jars
+          for spec in "opencc4j/1.14.0" "heaven/0.13.0" "nlp-common/0.0.5"; do
+            name="${spec%%/*}"
+            ver="${spec##*/}"
+            curl -fsSL --retry 3 "https://repo.maven.apache.org/maven2/com/github/houbb/${name}/${ver}/${name}-${ver}.jar" -o "jars/${name}.jar"
+          done
+          cat > Probe.java <<'JAVAPROBE'
+          import com.github.houbb.opencc4j.util.ZhTwConverterUtil;
+          import com.github.houbb.opencc4j.util.ZhConverterUtil;
+          public class Probe {
+            public static void main(String[] args) {
+              for(String raw: new String[]{
+                  "那你是包里面有什么？我说包里面有什么。可是爸爸没有怎么办",
+                  "包里面有什么", "我說包裡面有什麼", "頭髮很長", "台北的天气", "我们今天去理发"})
+              {
+                String tw=ZhTwConverterUtil.toTraditional(raw);
+                String tw2=ZhTwConverterUtil.toTraditional(tw);
+                String std=ZhConverterUtil.toTraditional(raw);
+                String std2=ZhConverterUtil.toTraditional(std);
+                System.out.println("INPUT="+raw+"\nTW-1="+tw+"\nTW-2="+tw2+"\nSTD-1="+std+"\nSTD-2="+std2);
+              }
+            }
+          }
+          JAVAPROBE
+          javac -cp 'jars/*' Probe.java
+          java -cp '.:jars/*' Probe
