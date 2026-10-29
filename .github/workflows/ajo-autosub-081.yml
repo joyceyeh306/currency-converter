@@ -315,8 +315,8 @@ jobs:
           from pathlib import Path
           p=Path('app/src/main/java/tw/ajo/autosubtitles/MainActivity.java')
           s=p.read_text()
-          old='for(int buttonKind:new int[]{AlertDialog.BUTTON_POSITIVE,AlertDialog.BUTTON_NEGATIVE}){\\n                Button b=dlg.getButton(which);'
-          new='for(int buttonKind:new int[]{AlertDialog.BUTTON_POSITIVE,AlertDialog.BUTTON_NEGATIVE}){\\n                Button b=dlg.getButton(buttonKind);'
+          old='for(int buttonKind:new int[]{AlertDialog.BUTTON_POSITIVE,AlertDialog.BUTTON_NEGATIVE}){\n                Button b=dlg.getButton(which);'
+          new='for(int buttonKind:new int[]{AlertDialog.BUTTON_POSITIVE,AlertDialog.BUTTON_NEGATIVE}){\n                Button b=dlg.getButton(buttonKind);'
           assert s.count(old)==1, "081 special-dialog variable guard"
           p.write_text(s.replace(old,new))
           PYFIX081
