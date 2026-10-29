@@ -51,7 +51,7 @@ jobs:
           start=s.index(anchor)
           end=s.index('private void pauseOrResume()',start)
           method=s[start:end]
-          msg='          .setMessage("Android 系統辨識是否與鍵盤相同、是否支援持續音訊，要在 OPPO 實測。兩種引擎都會保存原始 WAV，停止後不再自動用完整 Whisper 覆蓋即時稿。")\\n'
+          msg='          .setMessage("Android 系統辨識是否與鍵盤相同、是否支援持續音訊，要在 OPPO 實測。兩種引擎都會保存原始 WAV，停止後不再自動用完整 Whisper 覆蓋即時稿。")'
           assert method.count(msg)==1, 'Expected 008 description in engine picker'
           assert '.setSingleChoiceItems(items,androidLive008?0:1' in method
           s=s.replace(msg, '')
