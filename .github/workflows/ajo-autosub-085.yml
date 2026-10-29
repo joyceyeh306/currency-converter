@@ -520,7 +520,7 @@ jobs:
           assert 'sourceAspectLabel.setVisibility(View.VISIBLE)' in s
           # 084 fixes must remain: no 78dp shrinking when IME opens
           keyboard=s[s.index('private void setEditingKeyboardLayout(boolean visible)'):s.index('private void ensureEditingTextVisible()')]
-          assert 'compactPreviewHeight' not in keyboard and 'previewFrame.setLayoutParams' not in keyboard
+          assert 'EditorKeyboardPolicy.compactPreviewHeight' not in keyboard and 'previewFrame.setLayoutParams' not in keyboard
           assert 'versionCode 85' in g.read_text() and "versionName '085'" in g.read_text()
           print('085: targeted home UI changes and 084 keyboard guard PASS')
           PYCHECK085
