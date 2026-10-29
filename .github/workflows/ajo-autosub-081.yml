@@ -315,10 +315,16 @@ jobs:
           from pathlib import Path
           p=Path('app/src/main/java/tw/ajo/autosubtitles/MainActivity.java')
           s=p.read_text()
-          old='for(int buttonKind:new int[]{AlertDialog.BUTTON_POSITIVE,AlertDialog.BUTTON_NEGATIVE}){\n                Button b=dlg.getButton(which);'
-          new='for(int buttonKind:new int[]{AlertDialog.BUTTON_POSITIVE,AlertDialog.BUTTON_NEGATIVE}){\n                Button b=dlg.getButton(buttonKind);'
-          assert s.count(old)==1, "081 special-dialog variable guard"
-          p.write_text(s.replace(old,new))
+          start=s.index('private void showMissingVoiceItem062(')
+          end=s.index('private void retryCaptionWithWhisper(',start)
+          section=s[start:end]
+          section=section.replace('for(int which:new int[]{AlertDialog.BUTTON_POSITIVE,AlertDialog.BUTTON_NEGATIVE})',
+                                  'for(int buttonKind:new int[]{AlertDialog.BUTTON_POSITIVE,AlertDialog.BUTTON_NEGATIVE})')
+          section=section.replace('Button b=dlg.getButton(which);','Button b=dlg.getButton(buttonKind);')
+          assert 'for(int buttonKind:new int[]{AlertDialog.BUTTON_POSITIVE,AlertDialog.BUTTON_NEGATIVE})' in section
+          assert 'Button b=dlg.getButton(buttonKind);' in section
+          s=s[:start]+section+s[end:]
+          p.write_text(s)
           PYFIX081
           python3 - <<'PYCHECK081'
           from pathlib import Path
