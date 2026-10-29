@@ -59,9 +59,13 @@ jobs:
           p=Path('app/src/main/java/tw/ajo/record/RecordingService.java')
           s=p.read_text()
           old='if(WhisperModel.verified(model)&&fallbackStarted.compareAndSet(false,true))recognizer.submit(RecordingService.this::liveRecognizeLoop);'
-          new='boolean ready=false;\\n                    try{ready=WhisperModel.verified(model);}catch(Exception ignored){}\\n                    if(ready&&fallbackStarted.compareAndSet(false,true))recognizer.submit(RecordingService.this::liveRecognizeLoop);'
+          new=chr(10).join([
+              'boolean ready=false;',
+              '                    try{ready=WhisperModel.verified(model);}catch(Exception ignored){}',
+              '                    if(ready&&fallbackStarted.compareAndSet(false,true))recognizer.submit(RecordingService.this::liveRecognizeLoop);'
+          ])
           assert s.count(old)==1,'Expected exactly one model-check branch'
-          p.write_text(s.replace(old,new.replace('\\\\n','\\n')))
+          p.write_text(s.replace(old,new))
           PYFIX
           grep -F 'versionCode 8' app/build.gradle
           grep -F "versionName '008'" app/build.gradle
