@@ -1,0 +1,88 @@
+name: Ajo Record 010 System Recognition Continuity And File Import
+on:
+  push:
+    branches: [ajo-record-010-build]
+    paths:
+      - '.github/workflows/ajo-record-010.yml'
+      - 'patches/ajo-record-010/**'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.11.1'
+      - name: Restore verified 009 source
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m pip -q install pyyaml brotli
+          python3 - <<'PYRESTORE'
+          import yaml,subprocess
+          from pathlib import Path
+          steps=yaml.safe_load(Path('.github/workflows/ajo-record-009.yml').read_text())['jobs']['build']['steps']
+          found=False
+          for step in steps:
+              if step.get('name')=='Install SDK 36 and NDK':
+                  found=True;break
+              if 'run' in step:
+                  print('Restore 009:',step.get('name'),flush=True)
+                  subprocess.run(['bash','-eo','pipefail','-c',step['run']],check=True)
+          assert found
+          assert Path('subtitle-build-work/app/src/main/java/tw/ajo/record/MainActivity.java').exists()
+          PYRESTORE
+      - name: Apply imported Android audio and timed session restart
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd subtitle-build-work
+          python3 ../patches/ajo-record-010/apply010.py
+          grep -F 'versionCode 10' app/build.gradle
+          grep -F "versionName '010'" app/build.gradle
+          grep -F "applicationId 'tw.ajo.record'" app/build.gradle
+          grep -F 'EXTRA_AUDIO_SOURCE' app/src/main/java/tw/ajo/record/SystemSpeech008.java
+          grep -F 'speech.finishInput()' app/src/main/java/tw/ajo/record/SystemFileTranscriber010.java
+          grep -F 'startSystemImport010' app/src/main/java/tw/ajo/record/MainActivity.java
+          grep -F 'runFullQuality066' app/src/main/java/tw/ajo/record/MainActivity.java
+          test ! -f signing/ajo-autosub-signing.keystore
+          mkdir -p tests/build010
+          javac -encoding UTF-8 -d tests/build010 \
+            app/src/main/java/tw/ajo/record/SystemTranscript008.java \
+            app/src/main/java/tw/ajo/record/TranscriptSafety008.java \
+            ../patches/ajo-record-008/TEST_008.java
+          java -cp tests/build010 TEST_008
+      - name: Install SDK 36 and ARM64 tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          SDKMANAGER=$(find "$ANDROID_HOME/cmdline-tools" -name sdkmanager -type f | sort -V | tail -1)
+          yes | "$SDKMANAGER" 'platforms;android-36' 'build-tools;35.0.0' 'ndk;27.2.12479018' 'cmake;3.22.1' || true
+          test -f "$ANDROID_HOME/ndk/27.2.12479018/source.properties"
+      - name: Compile and verify Record 010
+        shell: bash
+        run: |
+          set -euo pipefail
+          gradle -p subtitle-build-work :app:assembleDebug --no-daemon --stacktrace
+          APK=subtitle-build-work/app/build/outputs/apk/debug/app-debug.apk
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose "$APK"
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK" | grep "package: name='tw.ajo.record' versionCode='10' versionName='010'"
+          mkdir -p build-out
+          cp "$APK" build-out/ajo-record_010-temp.apk
+          cp "$ANDROID_HOME/build-tools/35.0.0/lib/apksigner.jar" build-out/apksigner.jar
+          sha256sum "$APK" > build-out/sha256.txt
+      - name: Upload temporary APK and signer
+        uses: actions/upload-artifact@v4
+        with:
+          name: ajo-record-010-temp-and-signer
+          path: build-out/
+          if-no-files-found: error
+          retention-days: 7
