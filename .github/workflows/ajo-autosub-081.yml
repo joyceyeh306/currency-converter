@@ -304,7 +304,7 @@ jobs:
           import base64,zlib,hashlib
           from pathlib import Path
           raw=zlib.decompress(base64.b64decode(Path('patches/ajo-autosub-081/ui-haptic.zlib.b64').read_text().strip()))
-          assert hashlib.sha256(raw).hexdigest()=='8501c5b080e78cb91e0604f46cf00d46fe33f758c729e31ee6709926685acee6'
+          assert hashlib.sha256(raw).hexdigest()=='41e3cdf9faf9e32159f1ebfcbac5e6d23b9618873329f8ff5a09833c636fafd4'
           Path('subtitle-build-work/081-ui-haptic.py').write_bytes(raw)
           PY081
           cd subtitle-build-work
