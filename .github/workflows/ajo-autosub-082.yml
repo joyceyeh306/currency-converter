@@ -408,7 +408,7 @@ jobs:
           p=Path('tests/Version078Tests.java')
           s=p.read_text()
           old="ok(gradle.contains(\"versionCode 78\")&&gradle.contains(\"versionName '078'\"),\"version 078\");"
-          new="ok(gradle.contains(\"versionCode 81\")&&gradle.contains(\"versionName '081'\"),\"version 082 (078 recognition behavior)\");"
+          new="ok(gradle.contains(\"versionCode 82\")&&gradle.contains(\"versionName '082'\"),\"version 082 (078 recognition behavior)\");"
           assert s.count(old)==1
           p.write_text(s.replace(old,new))
           PYTEST
