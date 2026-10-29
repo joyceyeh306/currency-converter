@@ -54,6 +54,15 @@ jobs:
           cd subtitle-build-work
           patch --dry-run --batch -p1 < 008.patch
           patch --batch -p1 < 008.patch
+          python3 - <<'PYFIX'
+          from pathlib import Path
+          p=Path('app/src/main/java/tw/ajo/record/RecordingService.java')
+          s=p.read_text()
+          old='if(WhisperModel.verified(model)&&fallbackStarted.compareAndSet(false,true))recognizer.submit(RecordingService.this::liveRecognizeLoop);'
+          new='boolean ready=false;\\n                    try{ready=WhisperModel.verified(model);}catch(Exception ignored){}\\n                    if(ready&&fallbackStarted.compareAndSet(false,true))recognizer.submit(RecordingService.this::liveRecognizeLoop);'
+          assert s.count(old)==1,'Expected exactly one model-check branch'
+          p.write_text(s.replace(old,new.replace('\\\\n','\\n')))
+          PYFIX
           grep -F 'versionCode 8' app/build.gradle
           grep -F "versionName '008'" app/build.gradle
           grep -F "applicationId 'tw.ajo.record'" app/build.gradle
