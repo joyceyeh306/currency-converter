@@ -1,0 +1,99 @@
+name: Ajo Record 009 Engine Picker Fix
+on:
+  push:
+    branches: [ajo-record-009-build]
+    paths:
+      - '.github/workflows/ajo-record-009.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.11.1'
+      - name: Restore verified 008 source and tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m pip -q install pyyaml brotli
+          python3 - <<'PY'
+          import yaml,subprocess
+          from pathlib import Path
+          steps=yaml.safe_load(Path('.github/workflows/ajo-record-008.yml').read_text())['jobs']['build']['steps']
+          found=False
+          for step in steps:
+              if step.get('name')=='Install SDK and NDK':
+                  found=True; break
+              if 'run' in step:
+                  print('Restore 008:',step.get('name'),flush=True)
+                  subprocess.run(['bash','-eo','pipefail','-c',step['run']],check=True)
+          assert found and Path('subtitle-build-work/app/src/main/java/tw/ajo/record/MainActivity.java').exists()
+          PY
+      - name: Fix engine choice dialog; verify scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd subtitle-build-work
+          python3 - <<'PY'
+          from pathlib import Path
+          src=Path('app/src/main/java/tw/ajo/record/MainActivity.java')
+          s=src.read_text(encoding='utf-8')
+          anchor='private void chooseLiveEngine008()'
+          start=s.index(anchor)
+          end=s.index('private void pauseOrResume()',start)
+          method=s[start:end]
+          msg='          .setMessage("Android 系統辨識是否與鍵盤相同、是否支援持續音訊，要在 OPPO 實測。兩種引擎都會保存原始 WAV，停止後不再自動用完整 Whisper 覆蓋即時稿。")\\n'
+          assert method.count(msg)==1, 'Expected 008 description in engine picker'
+          assert '.setSingleChoiceItems(items,androidLive008?0:1' in method
+          s=s.replace(msg, '')
+          src.write_text(s,encoding='utf-8')
+          fixed=s[s.index(anchor):s.index('private void pauseOrResume()',s.index(anchor))]
+          assert '.setMessage(' not in fixed, 'Engine picker message must not mask choices'
+          assert 'Android 系統語音辨識' in fixed and 'Whisper Small' in fixed
+          build=Path('app/build.gradle')
+          b=build.read_text()
+          assert b.count('versionCode 8')==1 and b.count("versionName '008'")==1
+          build.write_text(b.replace('versionCode 8','versionCode 9').replace("versionName '008'","versionName '009'"))
+          assert "applicationId 'tw.ajo.record'" in build.read_text()
+          print('009 engine selector fix passed')
+          PY
+          grep -F "versionCode 9" app/build.gradle
+          grep -F "versionName '009'" app/build.gradle
+          grep -F 'setSingleChoiceItems(items,androidLive008?0:1' app/src/main/java/tw/ajo/record/MainActivity.java
+          grep -F 'EXTRA_AUDIO_SOURCE' app/src/main/java/tw/ajo/record/SystemSpeech008.java
+          test ! -f signing/ajo-autosub-signing.keystore
+      - name: Install SDK 36 and NDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          SDKMANAGER=$(find "$ANDROID_HOME/cmdline-tools" -name sdkmanager -type f | sort -V | tail -1)
+          yes | "$SDKMANAGER" 'platforms;android-36' 'build-tools;35.0.0' 'ndk;27.2.12479018' 'cmake;3.22.1' || true
+          test -f "$ANDROID_HOME/ndk/27.2.12479018/source.properties"
+      - name: Build and verify Record 009 APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          gradle -p subtitle-build-work :app:assembleDebug --no-daemon --stacktrace
+          APK=subtitle-build-work/app/build/outputs/apk/debug/app-debug.apk
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose "$APK"
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK" | grep "package: name='tw.ajo.record' versionCode='9' versionName='009'"
+          mkdir -p build-out
+          cp "$APK" build-out/ajo-record_009-temp.apk
+          cp "$ANDROID_HOME/build-tools/35.0.0/lib/apksigner.jar" build-out/apksigner.jar
+          sha256sum "$APK" > build-out/sha256.txt
+      - name: Upload temporary signed APK for private production re-sign
+        uses: actions/upload-artifact@v4
+        with:
+          name: ajo-record-009-temp-and-signer
+          path: build-out/
+          if-no-files-found: error
+          retention-days: 7
