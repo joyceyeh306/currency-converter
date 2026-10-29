@@ -1,0 +1,32 @@
+--- a/app/src/main/java/tw/ajo/autosubtitles/MainActivity.java
++++ b/app/src/main/java/tw/ajo/autosubtitles/MainActivity.java
+@@ -3427,8 +3427,14 @@
+                 scheduleSaveCaptions();
+                 if(video!=null && previewReady){preview.pause();preview.seekTo((int)Math.min(Integer.MAX_VALUE,c.startMs));}
+             });
+-            b.setMinHeight(dp(40));
+-            LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,dp(40),1f);
++            // 086: Only the eight time-adjustment buttons are 36dp pill shapes.
++            // Other app buttons retain their globally agreed 10dp corners.
++            GradientDrawable timePill086=new GradientDrawable();
++            timePill086.setColor(SURFACE);
++            timePill086.setCornerRadius(dp(18));
++            b.setBackground(timePill086);
++            b.setMinHeight(dp(36));
++            LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,dp(36),1f);
+             lp.setMargins(dp(4),dp(4),dp(4),dp(4));row.addView(b,lp);
+         }
+         parent.addView(row);
+--- a/app/build.gradle
++++ b/app/build.gradle
+@@ -18,8 +18,8 @@
+         applicationId 'tw.ajo.autosubtitles.next'
+         minSdk 33
+         targetSdk 35
+-        versionCode 85
+-        versionName '085'
++        versionCode 86
++        versionName '086'
+     }
+     compileOptions {
+         sourceCompatibility JavaVersion.VERSION_17
