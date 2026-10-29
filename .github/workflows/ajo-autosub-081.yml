@@ -309,6 +309,17 @@ jobs:
           PY081
           cd subtitle-build-work
           python3 081-ui-haptic.py
+          # The missing-voice dialog already has an argument named 'which'.
+          # Use a different name for its positive/negative button loop.
+          python3 - <<'PYFIX081'
+          from pathlib import Path
+          p=Path('app/src/main/java/tw/ajo/autosubtitles/MainActivity.java')
+          s=p.read_text()
+          old='for(int buttonKind:new int[]{AlertDialog.BUTTON_POSITIVE,AlertDialog.BUTTON_NEGATIVE}){\\n                Button b=dlg.getButton(which);'
+          new='for(int buttonKind:new int[]{AlertDialog.BUTTON_POSITIVE,AlertDialog.BUTTON_NEGATIVE}){\\n                Button b=dlg.getButton(buttonKind);'
+          assert s.count(old)==1, "081 special-dialog variable guard"
+          p.write_text(s.replace(old,new))
+          PYFIX081
           python3 - <<'PYCHECK081'
           from pathlib import Path
           s=Path('app/src/main/java/tw/ajo/autosubtitles/MainActivity.java').read_text()
