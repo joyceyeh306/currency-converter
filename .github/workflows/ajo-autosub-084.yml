@@ -459,6 +459,31 @@ jobs:
           print('084 keyboard visible preview and editor layout: PASS')
           PYCHECK084
 
+      - name: Apply 084 approved small inline information icons
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PYINFO084'
+          from pathlib import Path
+          import zlib,base64,hashlib
+          raw=zlib.decompress(base64.b64decode(Path('patches/ajo-autosub-084/inline-info-fix.zlib.b64').read_text().strip()))
+          assert hashlib.sha256(raw).hexdigest()=='c624edab4102235a92ce1e0d9896ad843388e66b4c8cf4958424a1fbcb3c1df8'
+          Path('subtitle-build-work/084-info.patch').write_bytes(raw)
+          PYINFO084
+          cd subtitle-build-work
+          patch --batch --fuzz=0 -p1 < 084-info.patch
+          python3 - <<'PYCHECKINFO084'
+          from pathlib import Path
+          import hashlib
+          s=Path('app/src/main/java/tw/ajo/autosubtitles/MainActivity.java').read_text()
+          assert hashlib.sha256(s.encode()).hexdigest()=='37e566cfbf1e86798aef9605d71a29b30b262c8633d79c67c9ba6e44519f924c'
+          assert 'b.setBackgroundColor(Color.TRANSPARENT)' in s
+          assert 'new LinearLayout.LayoutParams(dp(32),dp(32))' in s
+          assert 'row.addView(t,new LinearLayout.LayoutParams(-2,-2))' in s
+          assert 'row.addView(title,new LinearLayout.LayoutParams(-2,-2))' in s
+          print('084 small adjacent info icons: PASS')
+          PYCHECKINFO084
+
       - name: Install Android SDK 36 ARM64 tools
         shell: bash
         run: |
