@@ -1,0 +1,95 @@
+name: Ajo Record 012 Capture and Transcript Repair
+on:
+  push:
+    branches: [ajo-record-012-build]
+    paths:
+      - '.github/workflows/ajo-record-012.yml'
+      - 'patches/ajo-record-012/**'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.11.1'
+      - name: Restore verified Record 011 source
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m pip -q install pyyaml brotli
+          python3 - <<'PYRESTORE'
+          from pathlib import Path
+          import yaml,subprocess
+          steps=yaml.safe_load(Path('.github/workflows/ajo-record-011.yml').read_text())['jobs']['build']['steps']
+          found=False
+          for step in steps:
+              if step.get('name')=='Install SDK 36 and ARM64 NDK':
+                  found=True;break
+              if 'run' in step:
+                  print('Restore 011:',step.get('name'),flush=True)
+                  subprocess.run(['bash','-eo','pipefail','-c',step['run']],check=True)
+          assert found and Path('subtitle-build-work/app/src/main/java/tw/ajo/record/RecordingService.java').exists()
+          PYRESTORE
+      - name: Apply 012 fix and run tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY012'
+          from pathlib import Path
+          import base64,zlib,hashlib
+          patch=zlib.decompress(base64.b64decode(Path('patches/ajo-record-012/bundle012.zlib.b64').read_text().strip()))
+          assert hashlib.sha256(patch).hexdigest()=='8abac90d1bc05e010a05b0216c787da39eea598ec9b824b3662c29431b00a097'
+          Path('subtitle-build-work/012.patch').write_bytes(patch)
+          PY012
+          cd subtitle-build-work
+          patch --dry-run --batch -p1 < 012.patch
+          patch --batch -p1 < 012.patch
+          grep -F 'versionCode 12' app/build.gradle
+          grep -F "versionName '012'" app/build.gradle
+          grep -F "applicationId 'tw.ajo.record'" app/build.gradle
+          grep -F 'createSystemMicrophone012' app/src/main/java/tw/ajo/record/RecordingService.java
+          grep -F 'receiver.send(buf,n)' app/src/main/java/tw/ajo/record/RecordingService.java
+          grep -F 'stopAndCollect012' app/src/main/java/tw/ajo/record/SystemSpeech008.java
+          grep -F 'recoverIfSeverelyTruncated012' app/src/main/java/tw/ajo/record/RecordingService.java
+          grep -F 'runFullQuality066' app/src/main/java/tw/ajo/record/MainActivity.java
+          test ! -f signing/ajo-autosub-signing.keystore
+          mkdir -p tests/build012
+          javac -encoding UTF-8 -d tests/build012 \
+            app/src/main/java/tw/ajo/record/SpeechHealth012.java \
+            ../patches/ajo-record-012/TEST_012.java
+          java -cp tests/build012 TEST_012
+      - name: Install Android 36 NDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          SDKMANAGER=$(find "$ANDROID_HOME/cmdline-tools" -name sdkmanager -type f | sort -V | tail -1)
+          yes | "$SDKMANAGER" 'platforms;android-36' 'build-tools;35.0.0' 'ndk;27.2.12479018' 'cmake;3.22.1' || true
+          test -f "$ANDROID_HOME/ndk/27.2.12479018/source.properties"
+      - name: Compile verify package and code 012
+        shell: bash
+        run: |
+          set -euo pipefail
+          gradle -p subtitle-build-work :app:assembleDebug --no-daemon --stacktrace
+          APK=subtitle-build-work/app/build/outputs/apk/debug/app-debug.apk
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose "$APK"
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK" | grep "package: name='tw.ajo.record' versionCode='12' versionName='012'"
+          mkdir -p build-out
+          cp "$APK" build-out/ajo-record_012-temp.apk
+          cp "$ANDROID_HOME/build-tools/35.0.0/lib/apksigner.jar" build-out/apksigner.jar
+          sha256sum "$APK" > build-out/sha256.txt
+      - name: Upload temporary APK for private production signing
+        uses: actions/upload-artifact@v4
+        with:
+          name: ajo-record-012-temp-and-signer
+          path: build-out/
+          if-no-files-found: error
+          retention-days: 7
