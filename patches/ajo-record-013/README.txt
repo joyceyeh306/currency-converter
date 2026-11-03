@@ -1,0 +1,1 @@
+013 patch is stored in bundle013.zlib.b64; unpack with zlib+base64, then apply patch -p1 to reconstructed 012. No private audio, model or signing key is included.
