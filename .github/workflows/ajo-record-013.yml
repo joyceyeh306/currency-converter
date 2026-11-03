@@ -1,0 +1,99 @@
+name: Ajo Record 013 Long Whisper and Guarded Android File Import
+on:
+  push:
+    branches: [ajo-record-013-build]
+    paths:
+      - '.github/workflows/ajo-record-013.yml'
+      - 'patches/ajo-record-013/**'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.11.1'
+      - name: Restore verified 012 from original build chain
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m pip -q install pyyaml brotli
+          python3 - <<'PYRESTORE'
+          import yaml,subprocess
+          from pathlib import Path
+          steps=yaml.safe_load(Path('.github/workflows/ajo-record-012.yml').read_text())['jobs']['build']['steps']
+          restored=False
+          for step in steps:
+              if step.get('name')=='Install Android 36 NDK':
+                  restored=True
+                  break
+              if 'run' in step:
+                  print('Restore 012:',step.get('name'),flush=True)
+                  subprocess.run(['bash','-eo','pipefail','-c',step['run']],check=True)
+          assert restored and Path('subtitle-build-work/app/src/main/java/tw/ajo/record/MainActivity.java').is_file()
+          PYRESTORE
+      - name: Apply 013 patch, run deterministic regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PYPATCH'
+          from pathlib import Path
+          import base64,zlib,hashlib
+          data=zlib.decompress(base64.b64decode(Path('patches/ajo-record-013/bundle013.zlib.b64').read_text().strip()))
+          assert hashlib.sha256(data).hexdigest()=='4db2bed8cee3ef92ce24530a1d52ecf1e521f3c6d10ff3dec27ada0986227570','Patch checksum failed'
+          Path('subtitle-build-work/013.patch').write_bytes(data)
+          PYPATCH
+          cd subtitle-build-work
+          patch --dry-run --batch -p1 < 013.patch
+          patch --batch -p1 < 013.patch
+          grep -F 'versionCode 13' app/build.gradle
+          grep -F "versionName '013'" app/build.gradle
+          grep -F "applicationId 'tw.ajo.record'" app/build.gradle
+          grep -F 'SafeLongWhisper013.transcribe' app/src/main/java/tw/ajo/record/MainActivity.java
+          grep -F 'SystemFileTranscriber013.transcribe' app/src/main/java/tw/ajo/record/MainActivity.java
+          grep -F 'runFullQuality066' app/src/main/java/tw/ajo/record/MainActivity.java
+          test -f app/src/main/java/tw/ajo/record/SystemFileTranscriber013.java
+          grep -F 'awaitWritten013' app/src/main/java/tw/ajo/record/SystemFileTranscriber013.java
+          test ! -f signing/ajo-autosub-signing.keystore
+          mkdir -p tests/build013
+          javac -encoding UTF-8 -d tests/build013 \
+            app/src/main/java/tw/ajo/autosubtitles/Caption.java \
+            app/src/main/java/tw/ajo/record/AudioFiles.java \
+            app/src/main/java/tw/ajo/record/TranscriptSafety008.java \
+            app/src/main/java/tw/ajo/record/SafeLongWhisper013.java \
+            ../patches/ajo-record-013/TEST_013.java
+          java -cp tests/build013 TEST_013
+      - name: Install Android SDK 36 with ARM64 NDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          SDKMANAGER=$(find "$ANDROID_HOME/cmdline-tools" -name sdkmanager -type f | sort -V | tail -1)
+          yes | "$SDKMANAGER" 'platforms;android-36' 'build-tools;35.0.0' 'ndk;27.2.12479018' 'cmake;3.22.1' || true
+          test -f "$ANDROID_HOME/ndk/27.2.12479018/source.properties"
+      - name: Compile Record 013 and inspect APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          gradle -p subtitle-build-work :app:assembleDebug --no-daemon --stacktrace
+          APK=subtitle-build-work/app/build/outputs/apk/debug/app-debug.apk
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose "$APK"
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK" | grep "package: name='tw.ajo.record' versionCode='13' versionName='013'"
+          mkdir -p build-out
+          cp "$APK" build-out/ajo-record_013-temp.apk
+          cp "$ANDROID_HOME/build-tools/35.0.0/lib/apksigner.jar" build-out/apksigner.jar
+          sha256sum "$APK" > build-out/sha256.txt
+      - name: Upload temporary APK for local original-key signing
+        uses: actions/upload-artifact@v4
+        with:
+          name: ajo-record-013-temp-and-signer
+          path: build-out/
+          if-no-files-found: error
+          retention-days: 7
