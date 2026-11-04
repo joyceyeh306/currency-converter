@@ -51,6 +51,10 @@ jobs:
           Path('subtitle-build-work/014.patch').write_bytes(raw)
           PYPATCH
           cd subtitle-build-work
+          echo '---- 013 source import callback ----'
+          sed -n '283,335p' app/src/main/java/tw/ajo/record/MainActivity.java
+          echo '---- 013 source engine selector ----'
+          sed -n '485,545p' app/src/main/java/tw/ajo/record/MainActivity.java
           patch --dry-run --batch -p1 < 014.patch
           patch --batch -p1 < 014.patch
           python3 - <<'PYTEST'
