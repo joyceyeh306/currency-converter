@@ -51,10 +51,22 @@ jobs:
           Path('subtitle-build-work/014.patch').write_bytes(raw)
           PYPATCH
           cd subtitle-build-work
-          echo '---- 013 source import callback ----'
-          sed -n '283,335p' app/src/main/java/tw/ajo/record/MainActivity.java
-          echo '---- 013 source engine selector ----'
-          sed -n '485,545p' app/src/main/java/tw/ajo/record/MainActivity.java
+          python3 - <<'PYALIGN'
+          # The 013 full source ZIP has two minor comment/tooltip differences from
+          # the reproducible CI reconstruction. Normalize text, not behavior.
+          from pathlib import Path
+          p=Path('app/src/main/java/tw/ajo/record/MainActivity.java')
+          s=p.read_text()
+          old='/** 010: Android system recognizer for imported audio; does not require Whisper. */'
+          new='/** 010: Use the same Android speech service for imported audio; no Whisper model download. */'
+          assert s.count(old)==1
+          s=s.replace(old,new)
+          old='toast("系統辨識匯入音檔需裝置支援，可能使用網路");'
+          new='toast("系統辨識匯入音檔需裝置支援，可能使用網路；播放音訊不會自動送至麥克風");'
+          assert s.count(old)==1
+          p.write_text(s.replace(old,new))
+          print('013 UI source normalized; no recognition or data-flow changes')
+          PYALIGN
           patch --dry-run --batch -p1 < 014.patch
           patch --batch -p1 < 014.patch
           python3 - <<'PYTEST'
