@@ -1,0 +1,110 @@
+name: Ajo Record 014 Explicit File Transcription Start
+on:
+  push:
+    branches: [ajo-record-014-build]
+    paths:
+      - '.github/workflows/ajo-record-014.yml'
+      - 'patches/ajo-record-014/**'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.11.1'
+      - name: Restore verified Record 013 source and tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m pip -q install pyyaml brotli
+          python3 - <<'PYRESTORE'
+          import subprocess,yaml
+          from pathlib import Path
+          steps=yaml.safe_load(Path('.github/workflows/ajo-record-013.yml').read_text())['jobs']['build']['steps']
+          restored=False
+          for step in steps:
+              if step.get('name')=='Install Android SDK 36 with ARM64 NDK':
+                  restored=True;break
+              if 'run' in step:
+                  print('Restore 013:',step.get('name'),flush=True)
+                  subprocess.run(['bash','-eo','pipefail','-c',step['run']],check=True)
+          assert restored and Path('subtitle-build-work/app/src/main/java/tw/ajo/record/MainActivity.java').exists()
+          PYRESTORE
+      - name: Apply 014 UI patch and validate import workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PYPATCH'
+          from pathlib import Path
+          import base64,zlib,hashlib
+          raw=zlib.decompress(base64.b64decode(Path('patches/ajo-record-014/bundle014.zlib.b64').read_text().strip()))
+          assert hashlib.sha256(raw).hexdigest()=='7755ef5de6cb391159b64efcc278a71ed5456465f2997d2d74fbbad91b4dcf71'
+          Path('subtitle-build-work/014.patch').write_bytes(raw)
+          PYPATCH
+          cd subtitle-build-work
+          patch --dry-run --batch -p1 < 014.patch
+          patch --batch -p1 < 014.patch
+          python3 - <<'PYTEST'
+          from pathlib import Path
+          src=Path('app/src/main/java/tw/ajo/record/MainActivity.java').read_text()
+          b=Path('app/build.gradle').read_text()
+          assert "applicationId 'tw.ajo.record'" in b
+          assert "versionCode 14" in b and "versionName '014'" in b
+          cb=src[src.index('if(request==REQ_IMPORT&&data.getData()!=null){'):src.index('}else if(request==REQ_TXT||request==REQ_WAV){')]
+          for forbidden in ['startCloudImport007(uri)','startSystemImport010(uri)','startImport(uri)','withModel(']:
+              assert forbidden not in cb, 'selection must not start recognition: '+forbidden
+          assert 'probeSelectedFile014(uri,++selectedImportGeneration014)' in cb
+          assert 'MediaMetadataRetriever' in src
+          assert 'takePersistableUriPermission' in src
+          assert 'private void startSelectedImport014()' in src
+          selector=src[src.index('private void chooseEngine007()'):src.index('private void refreshCloudAgain007()')]
+          assert 'setSingleChoiceItems(choices,selected' in selector
+          assert 'pickFile()' not in selector
+          assert 'startSelectedImport014()' in src
+          handler=src[src.index('private void startSelectedImport014()'):src.index('/** 010: Use the same Android speech service')]
+          assert 'startCloudImport007(uri)' in handler
+          assert 'startSystemImport010(uri)' in handler
+          assert 'startImport(uri)' in handler
+          assert 'requestCancel()' in src
+          assert 'WaveformView' in src
+          print('014 import picker, engine switch, explicit start, SAF URI, version and import modes PASS')
+          PYTEST
+          test -f app/src/main/java/tw/ajo/record/SafeLongWhisper013.java
+          test -f app/src/main/java/tw/ajo/record/SystemFileTranscriber013.java
+          grep -F 'SafeLongWhisper013.transcribe' app/src/main/java/tw/ajo/record/MainActivity.java
+          test ! -f signing/ajo-autosub-signing.keystore
+      - name: Install Android SDK 36 and ARM64 NDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          SDKMANAGER=$(find "$ANDROID_HOME/cmdline-tools" -name sdkmanager -type f | sort -V | tail -1)
+          yes | "$SDKMANAGER" 'platforms;android-36' 'build-tools;35.0.0' 'ndk;27.2.12479018' 'cmake;3.22.1' || true
+          test -f "$ANDROID_HOME/ndk/27.2.12479018/source.properties"
+      - name: Compile and verify Record 014
+        shell: bash
+        run: |
+          set -euo pipefail
+          gradle -p subtitle-build-work :app:assembleDebug --no-daemon --stacktrace
+          APK=subtitle-build-work/app/build/outputs/apk/debug/app-debug.apk
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose "$APK"
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK" | grep "package: name='tw.ajo.record' versionCode='14' versionName='014'"
+          mkdir -p build-out
+          cp "$APK" build-out/ajo-record_014-temp.apk
+          cp "$ANDROID_HOME/build-tools/35.0.0/lib/apksigner.jar" build-out/apksigner.jar
+          sha256sum "$APK" > build-out/sha256.txt
+      - name: Upload temporary APK for private original-key signing
+        uses: actions/upload-artifact@v4
+        with:
+          name: ajo-record-014-temp-and-signer
+          path: build-out/
+          if-no-files-found: error
+          retention-days: 7
