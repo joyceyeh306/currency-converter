@@ -15,17 +15,23 @@ public class BootReceiver extends BroadcastReceiver {
         RecoveryScheduler.schedule(context, 60_000L);
 
         if (!hasBackgroundLocation(context)) {
-            Prefs.setRecoveryStatus(context, System.currentTimeMillis(), "重新開機後等待背景定位權限");
+            Prefs.setRecoveryStatus(context, System.currentTimeMillis(),
+                    "重新開機後等待背景定位權限");
             return;
         }
+
+        // Re-register the PendingIntent subscription after reboot/app replacement.
+        LocationSubscription.register(context);
 
         try {
             Intent svc = new Intent(context, LocationService.class);
             if (Build.VERSION.SDK_INT >= 26) context.startForegroundService(svc);
             else context.startService(svc);
-            Prefs.setRecoveryStatus(context, System.currentTimeMillis(), "重新開機後已恢復分享");
+            Prefs.setRecoveryStatus(context, System.currentTimeMillis(),
+                    "重新開機後已恢復分享");
         } catch (Exception e) {
-            Prefs.setRecoveryStatus(context, System.currentTimeMillis(), "重新開機後恢復失敗：" + e.getClass().getSimpleName());
+            Prefs.setRecoveryStatus(context, System.currentTimeMillis(),
+                    "Google 背景定位已恢復，前景服務稍後再試");
         }
     }
 

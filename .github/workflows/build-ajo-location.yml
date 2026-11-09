@@ -18,7 +18,6 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-
       - name: Install Android command line tools
         run: |
           mkdir -p "$ANDROID_HOME/cmdline-tools"
@@ -36,6 +35,10 @@ jobs:
         working-directory: ajo_where
         run: gradle :app:assembleRelease --no-daemon --stacktrace
 
+      - name: Build complete source ZIP
+        run: |
+          zip -qr AjoWhere_v1.0.13_source.zip ajo_where             -x "ajo_where/.gradle/*"                "ajo_where/**/build/*"                "ajo_where/local.properties"
+
       - name: Collect release kit
         run: |
           cp ajo_where/app/build/outputs/apk/release/app-release-unsigned.apk app-release-unsigned.apk
@@ -47,4 +50,5 @@ jobs:
           path: |
             app-release-unsigned.apk
             apksigner.jar
+            AjoWhere_v1.0.13_source.zip
           if-no-files-found: error

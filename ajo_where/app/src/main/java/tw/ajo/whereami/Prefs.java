@@ -35,7 +35,6 @@ public final class Prefs {
     public static int intervalMin(Context c) { return p(c).getInt("interval_min", 3); }
     public static void setIntervalMin(Context c, int v) { p(c).edit().putInt("interval_min", v).apply(); }
 
-    // "running" means the user wants sharing enabled.
     public static boolean running(Context c) { return p(c).getBoolean("running", false); }
     public static void setRunning(Context c, boolean v) { p(c).edit().putBoolean("running", v).apply(); }
 
@@ -44,6 +43,17 @@ public final class Prefs {
 
     public static void setLastLocationCallback(Context c, long v) { p(c).edit().putLong("last_location_callback", v).apply(); }
     public static long lastLocationCallback(Context c) { return p(c).getLong("last_location_callback", 0L); }
+
+    public static void setFusedRegisteredAt(Context c, long v) { p(c).edit().putLong("fused_registered_at", v).apply(); }
+    public static long fusedRegisteredAt(Context c) { return p(c).getLong("fused_registered_at", 0L); }
+
+    public static void setFusedLastDelivery(Context c, long v) { p(c).edit().putLong("fused_last_delivery", v).apply(); }
+    public static long fusedLastDelivery(Context c) { return p(c).getLong("fused_last_delivery", 0L); }
+
+    public static void setFusedStatus(Context c, String v) {
+        p(c).edit().putString("fused_status", v == null ? "" : v).apply();
+    }
+    public static String fusedStatus(Context c) { return p(c).getString("fused_status", "尚未註冊"); }
 
     public static void setRecoveryStatus(Context c, long time, String message) {
         p(c).edit()
