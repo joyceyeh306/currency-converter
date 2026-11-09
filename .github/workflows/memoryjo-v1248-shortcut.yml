@@ -5,6 +5,7 @@ on:
       - memoryjo-v1248-shortcut-build
     paths:
       - .github/workflows/memoryjo-v1248-shortcut.yml
+      - memoryjo-v1248-ci/BookActivity.java
   workflow_dispatch:
 
 permissions:
