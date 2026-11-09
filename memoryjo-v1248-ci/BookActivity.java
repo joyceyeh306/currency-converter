@@ -1,6 +1,6 @@
 package tw.joyce.xiaobenben;
 
-import android.app.ShortcutManager;
+import android.content.pm.ShortcutManager;
 import android.content.Intent;
 import android.content.pm.ShortcutInfo;
 import android.graphics.Bitmap;
