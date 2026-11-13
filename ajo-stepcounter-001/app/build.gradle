@@ -1,0 +1,34 @@
+plugins {
+    id 'com.android.application'
+}
+android {
+    namespace 'tw.ajo.stepcounter'
+    compileSdk 35
+
+    defaultConfig {
+        applicationId 'tw.ajo.stepcounter'
+        minSdk 29
+        targetSdk 35
+        versionCode 1
+        versionName '001'
+    }
+    signingConfigs {
+        release {
+            storeFile file(System.getenv('AJO_STEP_KEYSTORE') ?: "${System.getProperty("user.home")}/.android/ajo-step-001.jks")
+            storePassword System.getenv('AJO_STEP_STOREPASS') ?: 'android'
+            keyAlias 'ajostep'
+            keyPassword System.getenv('AJO_STEP_KEYPASS') ?: 'android'
+        }
+    }
+    buildTypes {
+        release {
+            minifyEnabled false
+            debuggable false
+            signingConfig signingConfigs.release
+        }
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
