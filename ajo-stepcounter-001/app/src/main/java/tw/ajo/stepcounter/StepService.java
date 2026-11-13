@@ -92,7 +92,7 @@ public final class StepService extends Service implements SensorEventListener {
         PendingIntent pi=PendingIntent.getActivity(this,0,open,PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE);
         return new Notification.Builder(this,CHANNEL)
                 .setSmallIcon(R.drawable.ic_notification)
-                .setContentTitle("ㄚ喬計步器")
+                .setContentTitle("🐾 ㄚ喬計步器")
                 .setContentText("硬體計步器正在安靜地記錄步數")
                 .setContentIntent(pi)
                 .setOngoing(true)

@@ -89,7 +89,7 @@ public final class StepGoals {
             PendingIntent pi=PendingIntent.getActivity(context,402,open,
                     PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE);
             String amount=NumberFormat.getIntegerInstance(Locale.TAIWAN).format(reachedNow);
-            String title="小腳印達標啦！♡";
+            String title="🐾 小腳印達標啦！";
             String detail="今天已走到 "+amount+" 步"+(reached.size()>1?"（一次達成 "+reached.size()+" 個目標）":"");
             Notification n=new Notification.Builder(context,CHANNEL)
                     .setSmallIcon(R.drawable.ic_notification)

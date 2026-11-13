@@ -40,12 +40,14 @@ import java.util.Locale;
 
 /** One offline, dependency-free Activity. No location/network permission needed. */
 public final class MainActivity extends Activity {
-    private static final int PURPLE=Color.rgb(123,85,173);
-    private static final int INK=Color.rgb(61,52,75);
-    private static final int MUTED=Color.rgb(120,109,131);
-    private static final int PINK=Color.rgb(255,241,247);
-    private static final int CREAM=Color.rgb(255,248,226);
-    private static final int LILAC=Color.rgb(242,236,255);
+    private static final int PURPLE=Color.rgb(111,59,181);
+    private static final int INK=Color.rgb(56,41,67);
+    private static final int MUTED=Color.rgb(101,81,116);
+    private static final int PINK=Color.rgb(255,170,199);
+    private static final int CREAM=Color.rgb(255,217,90);
+    private static final int YELLOW=Color.rgb(255,212,63);
+    private static final int MINT=Color.rgb(117,220,184);
+    private static final int LILAC=Color.rgb(191,156,246);
     private static final int WHITE=Color.WHITE;
     private static final int ACTIVITY_REQ=100, NOTICE_REQ=101,EXPORT_REQ=102, IMPORT_REQ=103;
 
@@ -190,7 +192,7 @@ public final class MainActivity extends Activity {
         return b;
     }
     private void buildShell() {
-        container=col();container.setBackgroundColor(Color.rgb(255,249,248));
+        container=col();container.setBackgroundColor(Color.rgb(255,251,246));
         container.setPadding(dp(18),dp(12),dp(18),dp(8));
         if(Build.VERSION.SDK_INT>=30) {
             // Android 15+ and ColorOS may force edge-to-edge even if a theme does not request it.
@@ -206,9 +208,9 @@ public final class MainActivity extends Activity {
         setContentView(container);
         if(Build.VERSION.SDK_INT>=30) container.requestApplyInsets();
         LinearLayout header=row();
-        TextView title=text("♡ ㄚ喬計步器",23,PURPLE,true);
+        TextView title=text("🐾 ㄚ喬計步器",22,PURPLE,true);
         header.addView(title,new LinearLayout.LayoutParams(0,dp(52),1));
-        TextView v=text("002",12,MUTED,false);
+        TextView v=text("003",12,MUTED,false);
         LinearLayout.LayoutParams versionParams=new LinearLayout.LayoutParams(-2,-2);
         versionParams.rightMargin=dp(8);
         header.addView(v,versionParams);
@@ -268,28 +270,22 @@ public final class MainActivity extends Activity {
             mon=s.sum(today.withDayOfMonth(1),today);
             updated=s.lastSample(); warning=s.warningDate();
         }
-        LinearLayout hero=card(PINK);
+        LinearLayout hero=card(YELLOW);
         TextView date=text(today.getMonthValue()+"月"+today.getDayOfMonth()+"日 · 今天",15,PURPLE,true);
         date.setGravity(Gravity.CENTER);add(hero,date,-1,34);
-        TextView number=text(fmt(steps),68,INK,true);
-        // Android's built-in "casual" font has rounded, playful numerals.
-        // No external font downloads or redistribution are required.
-        number.setTypeface(Typeface.create("casual",Typeface.BOLD));
-        number.setLetterSpacing(0.035f);
-        number.setMaxLines(1);
-        number.setAutoSizeTextTypeUniformWithConfiguration(
-                42,72,2,TextView.AUTO_SIZE_TEXT_TYPE_UNIFORM);
-        number.setGravity(Gravity.CENTER);
-        add(hero,number,-1,103);
+        // Dedicated vector-drawn chunky numerals. No dependency on the phone's font selection.
+        CuteStepNumberView number=new CuteStepNumberView(this);
+        number.setSteps(steps);
+        add(hero,number,-1,112);
         TextView unit=text("步",18,PURPLE,true);unit.setGravity(Gravity.CENTER);add(hero,unit,-1,30);
         gap(hero,8);
-        TextView status=text("● "+statusText(),13,StepService.running&&StepService.sensorReady?PURPLE:MUTED,false);
+        TextView status=text("● "+statusText(),13,StepService.running&&StepService.sensorReady?Color.rgb(28,105,78):MUTED,false);
         status.setGravity(Gravity.CENTER);add(hero,status,-1,34);
         fullCard(hero);
 
         LinearLayout stats=row();
         LinearLayout left=metric("最近 7 天",fmt(week)+" 步",LILAC);
-        LinearLayout right=metric("本月累計",fmt(mon)+" 步",CREAM);
+        LinearLayout right=metric("本月累計",fmt(mon)+" 步",PINK);
         LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,-2,1);
         lp.rightMargin=dp(6);stats.addView(left,lp);
         LinearLayout.LayoutParams rp=new LinearLayout.LayoutParams(0,-2,1);
@@ -309,15 +305,15 @@ public final class MainActivity extends Activity {
         LinearLayout bars=row();bars.setGravity(Gravity.BOTTOM);
         for(int i=0;i<7;i++) {
             LinearLayout column=col();column.setGravity(Gravity.BOTTOM|Gravity.CENTER_HORIZONTAL);
-            LinearLayout.LayoutParams cp=new LinearLayout.LayoutParams(0,dp(137),1);
+            LinearLayout.LayoutParams cp=new LinearLayout.LayoutParams(0,dp(122),1);
             if(i>0)cp.leftMargin=dp(4);
             bars.addView(column,cp);
             TextView value=text(vals[i]>0?fmt(vals[i]):"·",10,MUTED,false);
             value.setGravity(Gravity.CENTER);add(column,value,-1,23);
             Space spacer=new Space(this);column.addView(spacer,new LinearLayout.LayoutParams(1,0,1));
             View bar=new View(this);
-            bar.setBackground(bg(i==6?Color.rgb(238,154,193):Color.rgb(182,155,232),8,0));
-            add(column,bar,17,vals[i]==0?5:Math.max(9,(int)(78.0*vals[i]/max)));
+            bar.setBackground(bg(i==6?Color.rgb(231,83,145):Color.rgb(141,98,215),8,0));
+            add(column,bar,17,vals[i]==0?5:Math.max(9,(int)(75.0*vals[i]/max)));
             gap(column,4);
             LocalDate day=today.minusDays(6-i);
             TextView dayLabel=text(day.getDayOfMonth()+"",11,MUTED,false);
@@ -326,18 +322,6 @@ public final class MainActivity extends Activity {
         add(graph,bars,-1,-2);
         fullCard(graph);
 
-        LinearLayout state=card(LILAC);
-        TextView caption=text("可靠記錄小提醒",15,PURPLE,true);add(state,caption,-1,31);
-        String details="計步資料只保存在這支手機。第一次啟用時先建立硬體基準，安裝前的步數不會自動補入。";
-        if(today.toString().equals(warning))
-            details+="\n有一筆資料跨越午夜才送達，該段步數可能無法精準切分。";
-        TextView t=text(details,13,INK,false);t.setLineSpacing(dp(3),1f);add(state,t,-1,-2);
-        gap(state,12);
-        Button start=btn(!StepService.enabled(this)?"開始計步":
-            StepService.running&&StepService.sensorReady?"暫停記錄":"重新啟動記錄",
-            PURPLE,true,()->toggleTracking());
-        add(state,start,-1,47);
-        fullCard(state);
     }
     private LinearLayout metric(String name,String value,int color) {
         LinearLayout c=card(color);
@@ -418,34 +402,27 @@ public final class MainActivity extends Activity {
         return "一二三四五六日".substring(d.getDayOfWeek().getValue()-1,d.getDayOfWeek().getValue());
     }
     private void backup() {
-        LinearLayout info=card(PINK);
-        add(info,text("我的步數日記",20,PURPLE,true),-1,44);
-        TextView message=text("所有資料只存在手機的 SQLite 資料庫，不需要登入、網路或雲端。建議定期匯出 JSON，另存到妳信任的位置。",14,INK,false);
-        message.setLineSpacing(dp(5),1f);add(info,message,-1,-2);
-        fullCard(info);
+        LinearLayout intro=card(PINK);
+        add(intro,text("我的步數日記",20,INK,true),-1,42);
+        infoRow(intro,"備份與資料保存",
+                "所有步數只存放在這支手機的 SQLite 資料庫，沒有網路、帳號或雲端。解除安裝或清除 App 資料可能失去紀錄，建議定期匯出 JSON。");
+        fullCard(intro);
 
         LinearLayout export=card(WHITE);
-        add(export,text("匯出備份",18,INK,true),-1,37);
-        add(export,text("包含已記錄的每一天步數，可自行選擇儲存位置。",13,MUTED,false),-1,-2);
-        gap(export,13);
+        infoRow(export,"匯出備份",
+                "匯出目前資料庫內記錄的每一天步數，並自行選擇儲存位置。建議妥善保管這份 JSON 檔案。");
+        gap(export,10);
         Button ex=btn("匯出 JSON 備份",PURPLE,true,()->exportFile());
         add(export,ex,-1,50);
         fullCard(export);
 
         LinearLayout restore=card(CREAM);
-        add(restore,text("還原歷史紀錄",18,INK,true),-1,37);
-        TextView caution=text("還原會取代本機全部每日紀錄。原本的感測器累積基準會清除，下一次硬體讀取只建立新基準，避免重複計步。",13,INK,false);
-        caution.setLineSpacing(dp(4),1f);add(restore,caution,-1,-2);
-        gap(restore,13);
+        infoRow(restore,"還原歷史紀錄",
+                "注意：還原會取代本機所有已記錄的每日步數，並清除感測器計數基準。還原後從下一次感測器回報重新建立基準，以避免重複計步。操作前請先匯出現有資料。");
+        gap(restore,10);
         Button im=btn("選擇 JSON 檔案還原",PURPLE,true,()->confirmImport());
         add(restore,im,-1,50);
         fullCard(restore);
-
-        LinearLayout note=card(LILAC);
-        add(note,text("關於背景計步",16,PURPLE,true),-1,35);
-        TextView details=text("系統會顯示「ㄚ喬計步器 正在記錄」的低干擾通知。請允許身體活動權限。若 ColorOS 限制背景執行、強制停止 App、重開機後未允許自啟動，可能漏記步數。",13,INK,false);
-        details.setLineSpacing(dp(4),1f);add(note,details,-1,-2);
-        fullCard(note);
     }
     private void exportFile() {
         Intent intent=new Intent(Intent.ACTION_CREATE_DOCUMENT);
@@ -506,69 +483,95 @@ public final class MainActivity extends Activity {
     /** Header gear: set arbitrary, ordered daily step milestones. No goals means no alerts. */
     private void settings() {
         LinearLayout intro=card(PINK);
-        add(intro,text("♡ 我的提醒設定",20,PURPLE,true),-1,40);
-        TextView summary=text("想走多少步才提醒，由妳自己決定。每個步數門檻每天只提醒一次。",14,INK,false);
-        summary.setLineSpacing(dp(3),1f);
-        add(intro,summary,-1,-2);
+        infoRow(intro,"🐾 我的步數提醒",
+                "妳可以自行設定 3000、5000、8000 等任何步數門檻，每個門檻每天只提醒一次。多個目標同時達到會合併通知。");
         fullCard(intro);
 
         LinearLayout block=card(WHITE);
         add(block,text("每日步數門檻",18,INK,true),-1,36);
         List<Integer> goals=StepGoals.list(this);
         if(goals.isEmpty()) {
-            TextView empty=text("目前沒有設定提醒，走路時不會跳出達標通知。",14,MUTED,false);
-            empty.setLineSpacing(dp(3),1f);
-            add(block,empty,-1,-2);
-            gap(block,12);
+            TextView empty=text("還沒有設定提醒",14,MUTED,false);
+            add(block,empty,-1,33);
         } else {
             for(int i=0;i<goals.size();i++) {
                 int goal=goals.get(i);
                 LinearLayout item=col();
                 item.setPadding(dp(12),dp(11),dp(12),dp(11));
                 item.setBackground(bg(i%2==0?LILAC:PINK,17,0));
-                TextView label=text("第 "+(i+1)+" 次提醒  ♡  "+fmt(goal)+" 步",16,INK,true);
+                TextView label=text("第 "+(i+1)+" 次提醒  •  "+fmt(goal)+" 步",16,INK,true);
                 add(item,label,-1,40);
                 LinearLayout actions=row();
                 Button edit=btn("修改",WHITE,false,()->editGoal(goal));
                 Button remove=btn("刪除",WHITE,false,()->removeGoal(goal));
                 LinearLayout.LayoutParams first=new LinearLayout.LayoutParams(0,dp(40),1);
-                first.rightMargin=dp(5);
-                actions.addView(edit,first);
+                first.rightMargin=dp(5);actions.addView(edit,first);
                 LinearLayout.LayoutParams second=new LinearLayout.LayoutParams(0,dp(40),1);
-                second.leftMargin=dp(5);
-                actions.addView(remove,second);
+                second.leftMargin=dp(5);actions.addView(remove,second);
                 add(item,actions,-1,40);
                 LinearLayout.LayoutParams params=new LinearLayout.LayoutParams(-1,-2);
-                params.bottomMargin=dp(10);
-                block.addView(item,params);
+                params.bottomMargin=dp(10);block.addView(item,params);
             }
         }
         Button addGoal=btn("＋ 新增提醒步數",PURPLE,true,()->editGoal(0));
         add(block,addGoal,-1,49);
         fullCard(block);
 
-        LinearLayout notices=card(CREAM);
-        add(notices,text("通知方式",17,INK,true),-1,36);
-        TextView note=text("達到設定步數才會跳出提醒；同一次感測器回報若跨過多個目標，只會合併發送一則。背景計步仍保留 Android 必須顯示的靜音服務通知。",13,INK,false);
-        note.setLineSpacing(dp(3),1f);
-        add(notices,note,-1,-2);
+        LinearLayout recording=card(LILAC);
+        infoRow(recording,"可靠記錄小提醒",
+                "硬體 STEP_COUNTER 提供累積數值，首次啟用時會建立基準，安裝前的步數不會補入。當 ColorOS 限制背景執行、強制停止、關機或暫停計步時，步數可能無法補回。跨午夜的延遲事件也可能無法完全精確切分到兩天。請定期備份紀錄。");
+        gap(recording,9);
+        TextView status=text("● "+statusText(),14,
+                StepService.running&&StepService.sensorReady?Color.rgb(22,96,70):INK,true);
+        add(recording,status,-1,32);
+        gap(recording,9);
+        Button track=btn(!StepService.enabled(this)?"開始計步":
+                        StepService.running&&StepService.sensorReady?"暫停記錄":"重新啟動記錄",
+                PURPLE,true,()->toggleTracking());
+        add(recording,track,-1,47);
+        fullCard(recording);
+
+        LinearLayout notifications=card(CREAM);
+        infoRow(notifications,"通知方式",
+                "背景計步需要 Android 要求的靜音、低干擾服務通知。只有達到妳設定的門檻時才會另發提醒；如果通知權限被拒絕，就不會收到達標提醒。");
         if(Build.VERSION.SDK_INT>=33
                 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)!=PackageManager.PERMISSION_GRANTED) {
-            gap(notices,13);
-            TextView blocked=text("提醒通知尚未授權，達標時可能無法顯示通知。",13,PURPLE,true);
-            add(notices,blocked,-1,-2);
-            gap(notices,8);
-            Button allow=btn("授權步數提醒通知",PURPLE,true,()->{
+            gap(notifications,9);
+            Button allow=btn("允許達標提醒通知",PURPLE,true,()->{
                 requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS},NOTICE_REQ);
             });
-            add(notices,allow,-1,48);
+            add(notifications,allow,-1,46);
         }
-        fullCard(notices);
+        fullCard(notifications);
         Button back=btn("‹ 返回今日",LILAC,false,()->{
             tab=0;render();scroller.smoothScrollTo(0,0);
         });
         add(content,back,-1,48);
         gap(content,12);
+    }
+
+    /** Small ⓘ affordance; bulky explanatory paragraphs remain hidden until tapped. */
+    private void infoRow(LinearLayout parent,String title,String details) {
+        LinearLayout r=row();
+        TextView heading=text(title,17,INK,true);
+        r.addView(heading,new LinearLayout.LayoutParams(0,dp(44),1));
+        Button i=btn("ⓘ",WHITE,false,()->{
+            AlertDialog dialog=new AlertDialog.Builder(this)
+                    .setTitle(title)
+                    .setMessage(details)
+                    .setPositiveButton("知道了",null)
+                    .create();
+            dialog.setOnShowListener(ignored->dialog.getButton(AlertDialog.BUTTON_POSITIVE)
+                    .setOnClickListener(v->{
+                        v.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP);
+                        dialog.dismiss();
+                    }));
+            dialog.show();
+        });
+        i.setTextSize(20);
+        i.setContentDescription("查看 "+title+" 的說明");
+        r.addView(i,new LinearLayout.LayoutParams(dp(45),dp(42)));
+        add(parent,r,-1,-2);
     }
     private void editGoal(int previous) {
         EditText input=new EditText(this);
