@@ -17,6 +17,9 @@ public final class BootReceiver extends BroadcastReceiver {
                 || Intent.ACTION_MY_PACKAGE_REPLACED.equals(action)) {
             if(StepService.enabled(context)) StepService.start(context);
         }
+        if(MIDNIGHT.equals(action) && StepService.running && StepService.sensorReady) {
+            try(StepStore store=new StepStore(context)) { store.ensureToday(); }
+        }
         StepWidget.updateAll(context);
         scheduleMidnight(context);
     }

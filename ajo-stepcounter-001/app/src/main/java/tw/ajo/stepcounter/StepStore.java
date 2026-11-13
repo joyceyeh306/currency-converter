@@ -74,8 +74,8 @@ public final class StepStore extends SQLiteOpenHelper {
             long oldCounter=parseLong(getState(db,"counter"),-1);
             long delta=StepMath.newSteps(oldBoot,oldCounter,boot,counter);
             String oldDay=getState(db,"day");
+            db.execSQL("INSERT OR IGNORE INTO days(day,steps) VALUES(?,0)",new Object[]{day});
             if(delta>0) {
-                db.execSQL("INSERT OR IGNORE INTO days(day,steps) VALUES(?,0)",new Object[]{day});
                 db.execSQL("UPDATE days SET steps=steps+? WHERE day=?",new Object[]{delta,day});
                 if(!oldDay.isEmpty()&&!oldDay.equals(day))
                     putState(db,"boundary_warning",day);
@@ -92,6 +92,17 @@ public final class StepStore extends SQLiteOpenHelper {
     private static long readDay(SQLiteDatabase db,String day) {
         try(Cursor c=db.rawQuery("SELECT steps FROM days WHERE day=?",new String[]{day})) {
             return c.moveToFirst()?c.getLong(0):0;
+        }
+    }
+    public synchronized void ensureToday() {
+        SQLiteDatabase db=getWritableDatabase();
+        db.execSQL("INSERT OR IGNORE INTO days(day,steps) VALUES(?,0)",
+                new Object[]{LocalDate.now().toString()});
+    }
+    public synchronized boolean hasDay(LocalDate date) {
+        try(Cursor c=getReadableDatabase().rawQuery(
+                "SELECT 1 FROM days WHERE day=?",new String[]{date.toString()})) {
+            return c.moveToFirst();
         }
     }
     public synchronized long day(LocalDate date) {

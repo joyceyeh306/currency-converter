@@ -281,7 +281,7 @@ public final class MainActivity extends Activity {
             Space spacer=new Space(this);column.addView(spacer,new LinearLayout.LayoutParams(1,0,1));
             View bar=new View(this);
             bar.setBackground(bg(i==6?Color.rgb(238,154,193):Color.rgb(182,155,232),8,0));
-            add(column,bar,dp(17),vals[i]==0?5:Math.max(9,(int)(78.0*vals[i]/max)));
+            add(column,bar,17,vals[i]==0?5:Math.max(9,(int)(78.0*vals[i]/max)));
             gap(column,4);
             LocalDate day=today.minusDays(6-i);
             TextView dayLabel=text(day.getDayOfMonth()+"",11,MUTED,false);
@@ -362,11 +362,12 @@ public final class MainActivity extends Activity {
             for(int date=month.lengthOfMonth();date>=1;date--) {
                 LocalDate d=month.atDay(date);
                 if(d.isAfter(now))continue;
-                long count=s.day(d);
+                boolean recorded=s.hasDay(d);
+                long count=recorded?s.day(d):0;
                 LinearLayout line=row();
                 TextView label=text(d.getMonthValue()+"/"+d.getDayOfMonth()+"  週"+weekday(d),14,INK,false);
                 line.addView(label,new LinearLayout.LayoutParams(0,dp(46),1));
-                TextView value=text(fmt(count)+" 步",15,count>0?PURPLE:MUTED,count>0);
+                TextView value=text(recorded?fmt(count)+" 步":"未記錄",15,count>0?PURPLE:MUTED,count>0);
                 value.setGravity(Gravity.RIGHT|Gravity.CENTER_VERTICAL);
                 add(line,value,-2,46);
                 add(days,line,-1,-2);

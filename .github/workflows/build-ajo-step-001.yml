@@ -54,7 +54,7 @@ jobs:
         run: |
           mkdir -p release
           cp ajo-stepcounter-001/app/build/outputs/apk/release/app-release.apk release/ajo-stepcounter_001.apk
-          zip -rq release/ajo-stepcounter_001_source.zip ajo-stepcounter-001 -x '*/build/*' '*.gradle.lockfile'
+          zip -rq release/ajo-stepcounter_001_source.zip ajo-stepcounter-001 -x '*/build/*' '*/.gradle/*' '*.gradle.lockfile'
           ls -lh release
       - name: Upload install APK and complete source
         uses: actions/upload-artifact@v4

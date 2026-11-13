@@ -77,6 +77,7 @@ public final class StepService extends Service implements SensorEventListener {
                 getSharedPreferences("ajo",MODE_PRIVATE).edit().putString("last_error","無法註冊計步感測器").apply();
                 stopSelf();return START_NOT_STICKY;
             }
+            try(StepStore store=new StepStore(this)) { store.ensureToday(); }
             BootReceiver.scheduleMidnight(this);
             StepWidget.updateAll(this);
             return START_STICKY;
