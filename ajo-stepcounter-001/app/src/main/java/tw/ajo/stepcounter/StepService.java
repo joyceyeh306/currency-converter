@@ -96,7 +96,7 @@ public final class StepService extends Service implements SensorEventListener {
                 .setContentText("硬體計步器正在安靜地記錄步數")
                 .setContentIntent(pi)
                 .setOngoing(true)
-                .setSilent(true)
+                .setPriority(Notification.PRIORITY_LOW)
                 .setOnlyAlertOnce(true)
                 .setCategory(Notification.CATEGORY_SERVICE)
                 .build();

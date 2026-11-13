@@ -116,6 +116,8 @@ public final class MainActivity extends Activity {
         }
     }
     private void requestNotificationsIfNeeded() {
+        // Do not request notification permission before the user actually enables a reminder.
+        if(StepGoals.list(this).isEmpty())return;
         if(Build.VERSION.SDK_INT>=33
                 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)!=PackageManager.PERMISSION_GRANTED
                 && !getSharedPreferences("ajo",MODE_PRIVATE).getBoolean("notifications_asked",false)) {
@@ -604,6 +606,7 @@ public final class MainActivity extends Activity {
                     input.setError("最多可設定 30 個不重複的步數");return;
                 }
                 dialog.dismiss();
+                requestNotificationsIfNeeded();
                 render();
                 toast("已儲存 "+fmt(goal)+" 步的提醒");
             });
