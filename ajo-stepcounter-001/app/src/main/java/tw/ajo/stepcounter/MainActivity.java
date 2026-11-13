@@ -317,6 +317,7 @@ public final class MainActivity extends Activity {
         if(!hasSensor()){toast("找不到硬體計步器");return;}
         if(StepService.enabled(this)&&StepService.running&&StepService.sensorReady) {
             StepService.setEnabled(this,false);StepService.stop(this);
+            StepStore.clearBaseline(this);
             toast("計步已暫停");
         } else {
             StepService.setEnabled(this,true);

@@ -94,6 +94,16 @@ public final class StepStore extends SQLiteOpenHelper {
             return c.moveToFirst()?c.getLong(0):0;
         }
     }
+    /** Intentionally paused recording must NOT count intervening steps on restart. */
+    public static synchronized void clearBaseline(Context context) {
+        StepStore store=new StepStore(context);
+        SQLiteDatabase db=store.getWritableDatabase();
+        db.beginTransaction();
+        try {
+            db.delete("state","k IN (?,?)",new String[]{"boot","counter"});
+            db.setTransactionSuccessful();
+        } finally { db.endTransaction();store.close(); }
+    }
     public synchronized void ensureToday() {
         SQLiteDatabase db=getWritableDatabase();
         db.execSQL("INSERT OR IGNORE INTO days(day,steps) VALUES(?,0)",
