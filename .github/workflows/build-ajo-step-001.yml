@@ -1,4 +1,4 @@
-name: Build Ajo Step Counter 001
+name: Build Ajo Step Counter 002
 on:
   push:
     branches: [ajo-step-001-build]
@@ -30,8 +30,9 @@ jobs:
       - name: Unit check (pure Java)
         run: |
           mkdir -p /tmp/step-test
-          javac -d /tmp/step-test ajo-stepcounter-001/app/src/main/java/tw/ajo/stepcounter/StepMath.java ajo-stepcounter-001/tests/StepMathTest.java
+          javac -d /tmp/step-test ajo-stepcounter-001/app/src/main/java/tw/ajo/stepcounter/StepMath.java ajo-stepcounter-001/app/src/main/java/tw/ajo/stepcounter/GoalMath.java ajo-stepcounter-001/tests/StepMathTest.java ajo-stepcounter-001/tests/GoalMathTest.java
           java -cp /tmp/step-test StepMathTest
+          java -cp /tmp/step-test GoalMathTest
       - name: Cache personal signing key
         uses: actions/cache@v4
         with:
@@ -53,24 +54,24 @@ jobs:
       - name: Build distribution ZIP and stable filenames
         run: |
           mkdir -p release
-          cp ajo-stepcounter-001/app/build/outputs/apk/release/app-release.apk release/ajo-stepcounter_001.apk
-          rm -f release/ajo-stepcounter_001_source.zip
-          zip -rq release/ajo-stepcounter_001_source.zip ajo-stepcounter-001 -x '*/build/*' '*/.gradle/*' '*.gradle.lockfile'
+          cp ajo-stepcounter-001/app/build/outputs/apk/release/app-release.apk release/ajo-stepcounter_002.apk
+          rm -f release/ajo-stepcounter_002_source.zip
+          zip -rq release/ajo-stepcounter_002_source.zip ajo-stepcounter-001 -x '*/build/*' '*/.gradle/*' '*.gradle.lockfile'
           ls -lh release
       - name: Upload install APK and complete source
         uses: actions/upload-artifact@v4
         with:
-          name: ajo-stepcounter-001
+          name: ajo-stepcounter-002
           path: |
-            release/ajo-stepcounter_001.apk
-            release/ajo-stepcounter_001_source.zip
+            release/ajo-stepcounter_002.apk
+            release/ajo-stepcounter_002_source.zip
           if-no-files-found: error
       - name: Publish both files on isolated branch
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add release/ajo-stepcounter_001.apk release/ajo-stepcounter_001_source.zip
+          git add release/ajo-stepcounter_002.apk release/ajo-stepcounter_002_source.zip
           if ! git diff --cached --quiet; then
-            git commit -m "Publish Ajo Step Counter 001 APK and source archive"
+            git commit -m "Publish Ajo Step Counter 002 APK and source archive"
             git push
           fi

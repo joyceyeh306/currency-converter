@@ -1,4 +1,4 @@
-# ㄚ喬計步器 001
+# ㄚ喬計步器 002
 
 獨立 Android App，套件名稱 `tw.ajo.stepcounter`。使用 `TYPE_STEP_COUNTER` 硬體感測器，沒有定位、網路、帳號、Google Fit 或其他第三方套件。
 
@@ -26,4 +26,13 @@ gradle :app:assembleDebug
 GitHub Actions 將建立簽章的 `assembleRelease` APK，並發佈到獨立分支的 `release/` 目錄。分支不影響 main 與現有 App。
 
 ## 發佈簽章
-此 001 版使用 GitHub Actions 快取保存私有簽章檔。**GitHub 快取可能過期**，後續更新前必須保存原簽章憑證或搬到安全的私有保管方式；否則 Android 無法原地升級既有安裝。禁止將金鑰提交到公開 GitHub。
+此系列版本使用 GitHub Actions 快取保存私有簽章檔。**GitHub 快取可能過期**，後續更新前必須保存原簽章憑證或搬到安全的私有保管方式；否則 Android 無法原地升級既有安裝。禁止將金鑰提交到公開 GitHub。
+
+## 002 版修正
+- 今日步數改為 Android 內建 casual 手寫感數字字體。
+- 解決 Android 17 / ColorOS 17 狀態列與手勢列安全區域疊畫。
+- 標題右側齒輪設定每日步數通知門檻，任意新增、修改與刪除（最多 30 個）。
+- 每個門檻每天只提醒一次；感測器一次送來多筆累積時合併通知，避免洗通知。
+- 保留 Android 要求的低干擾靜音前景服務通知，不再因每次感測器更新重新發佈。
+- 可原地覆蓋 001：相同 Android package、資料庫結構與既有簽章（GitHub Actions 同分支快取）。
+- 若不授權通知權限仍可計步，但收不到達標提醒。

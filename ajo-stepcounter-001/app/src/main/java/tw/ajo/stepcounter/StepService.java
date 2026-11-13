@@ -65,7 +65,7 @@ public final class StepService extends Service implements SensorEventListener {
         try {
             NotificationManager nm=(NotificationManager)getSystemService(NOTIFICATION_SERVICE);
             nm.createNotificationChannel(new NotificationChannel(CHANNEL,"計步紀錄",NotificationManager.IMPORTANCE_LOW));
-            Notification n=notification(currentSteps());
+            Notification n=notification();
             if(Build.VERSION.SDK_INT>=34) startForeground(NOTIFICATION_ID,n,ServiceInfo.FOREGROUND_SERVICE_TYPE_HEALTH);
             else startForeground(NOTIFICATION_ID,n);
             if(manager==null) {
@@ -87,18 +87,16 @@ public final class StepService extends Service implements SensorEventListener {
             stopSelf();return START_NOT_STICKY;
         }
     }
-    private long currentSteps() {
-        try(StepStore s=new StepStore(this)) { return s.day(LocalDate.now()); }
-    }
-    private Notification notification(long steps) {
+    private Notification notification() {
         Intent open=new Intent(this,MainActivity.class);
         PendingIntent pi=PendingIntent.getActivity(this,0,open,PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE);
         return new Notification.Builder(this,CHANNEL)
                 .setSmallIcon(R.drawable.ic_notification)
-                .setContentTitle("ㄚ喬計步器 正在記錄")
-                .setContentText("今日 "+NumberFormat.getIntegerInstance(Locale.TAIWAN).format(steps)+" 步")
+                .setContentTitle("ㄚ喬計步器")
+                .setContentText("硬體計步器正在安靜地記錄步數")
                 .setContentIntent(pi)
                 .setOngoing(true)
+                .setSilent(true)
                 .setOnlyAlertOnce(true)
                 .setCategory(Notification.CATEGORY_SERVICE)
                 .build();
@@ -106,11 +104,13 @@ public final class StepService extends Service implements SensorEventListener {
     @Override public void onSensorChanged(SensorEvent event) {
         if(event.sensor.getType()!=Sensor.TYPE_STEP_COUNTER||event.values.length==0)return;
         long raw=(long)event.values[0];
+        long previousToday;
+        try(StepStore store=new StepStore(this)) { previousToday=store.day(LocalDate.now()); }
         long today=StepStore.record(this,raw,event.timestamp);
+        StepGoals.notifyReached(this,previousToday,today);
         long now=SystemClock.elapsedRealtime();
         if(now-lastUiUpdate>=7000) {
             lastUiUpdate=now;
-            ((NotificationManager)getSystemService(NOTIFICATION_SERVICE)).notify(NOTIFICATION_ID,notification(today));
             StepWidget.updateAll(this);
         }
     }

@@ -14,6 +14,9 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.view.WindowInsets;
+import android.text.InputType;
+import android.widget.EditText;
 import android.view.Gravity;
 import android.view.HapticFeedbackConstants;
 import android.view.View;
@@ -31,6 +34,8 @@ import java.nio.charset.StandardCharsets;
 import java.text.NumberFormat;
 import java.time.LocalDate;
 import java.time.YearMonth;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Locale;
 
 /** One offline, dependency-free Activity. No location/network permission needed. */
@@ -184,13 +189,33 @@ public final class MainActivity extends Activity {
     }
     private void buildShell() {
         container=col();container.setBackgroundColor(Color.rgb(255,249,248));
-        container.setPadding(dp(18),dp(12),dp(18),0);
+        container.setPadding(dp(18),dp(12),dp(18),dp(8));
+        if(Build.VERSION.SDK_INT>=30) {
+            // Android 15+ and ColorOS may force edge-to-edge even if a theme does not request it.
+            getWindow().setDecorFitsSystemWindows(false);
+            container.setOnApplyWindowInsetsListener((view,insets)->{
+                android.graphics.Insets safe=insets.getInsets(
+                        WindowInsets.Type.systemBars()|WindowInsets.Type.displayCutout());
+                view.setPadding(dp(18)+safe.left,dp(12)+safe.top,
+                        dp(18)+safe.right,dp(8)+safe.bottom);
+                return insets;
+            });
+        }
         setContentView(container);
+        if(Build.VERSION.SDK_INT>=30) container.requestApplyInsets();
         LinearLayout header=row();
         TextView title=text("♡ ㄚ喬計步器",23,PURPLE,true);
         header.addView(title,new LinearLayout.LayoutParams(0,dp(52),1));
-        TextView v=text("001",12,MUTED,false);
-        header.addView(v);
+        TextView v=text("002",12,MUTED,false);
+        LinearLayout.LayoutParams versionParams=new LinearLayout.LayoutParams(-2,-2);
+        versionParams.rightMargin=dp(8);
+        header.addView(v,versionParams);
+        Button gear=btn("⚙",LILAC,false,()->{
+            tab=3;render();scroller.smoothScrollTo(0,0);
+        });
+        gear.setTextSize(25);
+        gear.setContentDescription("設定步數提醒");
+        header.addView(gear,new LinearLayout.LayoutParams(dp(46),dp(46)));
         add(container,header,-1,-2);
         scroller=new ScrollView(this);scroller.setFillViewport(false);scroller.setVerticalScrollBarEnabled(false);
         content=col();content.setPadding(0,dp(10),0,dp(4));
@@ -205,7 +230,8 @@ public final class MainActivity extends Activity {
         content.removeAllViews();
         if(tab==0) home();
         else if(tab==1) history();
-        else backup();
+        else if(tab==2) backup();
+        else settings();
         nav.removeAllViews();
         String[] names={"今日","歷史紀錄","備份"};
         for(int i=0;i<names.length;i++) {
@@ -243,8 +269,16 @@ public final class MainActivity extends Activity {
         LinearLayout hero=card(PINK);
         TextView date=text(today.getMonthValue()+"月"+today.getDayOfMonth()+"日 · 今天",15,PURPLE,true);
         date.setGravity(Gravity.CENTER);add(hero,date,-1,34);
-        TextView number=text(fmt(steps),64,INK,true);
-        number.setGravity(Gravity.CENTER);add(hero,number,-1,-2);
+        TextView number=text(fmt(steps),68,INK,true);
+        // Android's built-in "casual" font has rounded, playful numerals.
+        // No external font downloads or redistribution are required.
+        number.setTypeface(Typeface.create("casual",Typeface.BOLD));
+        number.setLetterSpacing(0.035f);
+        number.setMaxLines(1);
+        number.setAutoSizeTextTypeUniformWithConfiguration(
+                42,72,2,TextView.AUTO_SIZE_TEXT_TYPE_UNIFORM);
+        number.setGravity(Gravity.CENTER);
+        add(hero,number,-1,103);
         TextView unit=text("步",18,PURPLE,true);unit.setGravity(Gravity.CENTER);add(hero,unit,-1,30);
         gap(hero,8);
         TextView status=text("● "+statusText(),13,StepService.running&&StepService.sensorReady?PURPLE:MUTED,false);
@@ -465,6 +499,147 @@ public final class MainActivity extends Activity {
                 .setMessage(e.getMessage()==null?"請檢查檔案":e.getMessage())
                 .setPositiveButton("確定",null).show();
         }
+    }
+
+    /** Header gear: set arbitrary, ordered daily step milestones. No goals means no alerts. */
+    private void settings() {
+        LinearLayout intro=card(PINK);
+        add(intro,text("♡ 我的提醒設定",20,PURPLE,true),-1,40);
+        TextView summary=text("想走多少步才提醒，由妳自己決定。每個步數門檻每天只提醒一次。",14,INK,false);
+        summary.setLineSpacing(dp(3),1f);
+        add(intro,summary,-1,-2);
+        fullCard(intro);
+
+        LinearLayout block=card(WHITE);
+        add(block,text("每日步數門檻",18,INK,true),-1,36);
+        List<Integer> goals=StepGoals.list(this);
+        if(goals.isEmpty()) {
+            TextView empty=text("目前沒有設定提醒，走路時不會跳出達標通知。",14,MUTED,false);
+            empty.setLineSpacing(dp(3),1f);
+            add(block,empty,-1,-2);
+            gap(block,12);
+        } else {
+            for(int i=0;i<goals.size();i++) {
+                int goal=goals.get(i);
+                LinearLayout item=col();
+                item.setPadding(dp(12),dp(11),dp(12),dp(11));
+                item.setBackground(bg(i%2==0?LILAC:PINK,17,0));
+                TextView label=text("第 "+(i+1)+" 次提醒  ♡  "+fmt(goal)+" 步",16,INK,true);
+                add(item,label,-1,40);
+                LinearLayout actions=row();
+                Button edit=btn("修改",WHITE,false,()->editGoal(goal));
+                Button remove=btn("刪除",WHITE,false,()->removeGoal(goal));
+                LinearLayout.LayoutParams first=new LinearLayout.LayoutParams(0,dp(40),1);
+                first.rightMargin=dp(5);
+                actions.addView(edit,first);
+                LinearLayout.LayoutParams second=new LinearLayout.LayoutParams(0,dp(40),1);
+                second.leftMargin=dp(5);
+                actions.addView(remove,second);
+                add(item,actions,-1,40);
+                LinearLayout.LayoutParams params=new LinearLayout.LayoutParams(-1,-2);
+                params.bottomMargin=dp(10);
+                block.addView(item,params);
+            }
+        }
+        Button addGoal=btn("＋ 新增提醒步數",PURPLE,true,()->editGoal(0));
+        add(block,addGoal,-1,49);
+        fullCard(block);
+
+        LinearLayout notices=card(CREAM);
+        add(notices,text("通知方式",17,INK,true),-1,36);
+        TextView note=text("達到設定步數才會跳出提醒；同一次感測器回報若跨過多個目標，只會合併發送一則。背景計步仍保留 Android 必須顯示的靜音服務通知。",13,INK,false);
+        note.setLineSpacing(dp(3),1f);
+        add(notices,note,-1,-2);
+        if(Build.VERSION.SDK_INT>=33
+                && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)!=PackageManager.PERMISSION_GRANTED) {
+            gap(notices,13);
+            TextView blocked=text("提醒通知尚未授權，達標時可能無法顯示通知。",13,PURPLE,true);
+            add(notices,blocked,-1,-2);
+            gap(notices,8);
+            Button allow=btn("授權步數提醒通知",PURPLE,true,()->{
+                requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS},NOTICE_REQ);
+            });
+            add(notices,allow,-1,48);
+        }
+        fullCard(notices);
+        Button back=btn("‹ 返回今日",LILAC,false,()->{
+            tab=0;render();scroller.smoothScrollTo(0,0);
+        });
+        add(content,back,-1,48);
+        gap(content,12);
+    }
+    private void editGoal(int previous) {
+        EditText input=new EditText(this);
+        input.setInputType(InputType.TYPE_CLASS_NUMBER);
+        input.setSingleLine(true);
+        input.setTextSize(20);
+        input.setTextColor(INK);
+        input.setHint("例如 3000 或 5000");
+        input.setPadding(dp(20),dp(12),dp(20),dp(12));
+        if(previous>0) {
+            input.setText(Integer.toString(previous));
+            input.selectAll();
+        }
+        AlertDialog dialog=new AlertDialog.Builder(this)
+                .setTitle(previous>0?"修改步數提醒":"新增步數提醒")
+                .setMessage("請輸入每天到達幾步時提醒妳（1～200,000 步）。")
+                .setView(input)
+                .setPositiveButton("儲存",null)
+                .setNegativeButton("取消",null)
+                .create();
+        dialog.setOnShowListener(ignored->{
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v->{
+                v.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP);
+                int goal;
+                try {goal=Integer.parseInt(input.getText().toString().trim());}
+                catch(Exception e){input.setError("請輸入正確的步數");return;}
+                if(goal<1||goal>200000) {
+                    input.setError("步數必須介於 1～200,000");return;
+                }
+                List<Integer> updated=new ArrayList<>(StepGoals.list(this));
+                if(previous>0)updated.remove(Integer.valueOf(previous));
+                if(updated.contains(goal)){input.setError("這個步數已經設定過了");return;}
+                updated.add(goal);
+                if(!StepGoals.save(this,updated)){
+                    input.setError("最多可設定 30 個不重複的步數");return;
+                }
+                dialog.dismiss();
+                render();
+                toast("已儲存 "+fmt(goal)+" 步的提醒");
+            });
+            dialog.getButton(AlertDialog.BUTTON_NEGATIVE).setOnClickListener(v->{
+                v.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP);
+                dialog.dismiss();
+            });
+        });
+        dialog.show();
+    }
+    private void removeGoal(int goal) {
+        AlertDialog dialog=new AlertDialog.Builder(this)
+                .setTitle("刪除這個提醒？")
+                .setMessage("將不再於 "+fmt(goal)+" 步時發送提醒。")
+                .setPositiveButton("刪除",null)
+                .setNegativeButton("取消",null)
+                .create();
+        dialog.setOnShowListener(ignored->{
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v->{
+                v.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP);
+                List<Integer> updated=new ArrayList<>(StepGoals.list(this));
+                updated.remove(Integer.valueOf(goal));
+                if(StepGoals.save(this,updated)) {
+                    dialog.dismiss();render();toast("已刪除提醒");
+                } else toast("儲存失敗，請再試一次");
+            });
+            dialog.getButton(AlertDialog.BUTTON_NEGATIVE).setOnClickListener(v->{
+                v.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP);
+                dialog.dismiss();
+            });
+        });
+        dialog.show();
+    }
+    @Override public void onBackPressed() {
+        if(tab==3){tab=0;render();scroller.smoothScrollTo(0,0);}
+        else super.onBackPressed();
     }
     private void toast(String str) { Toast.makeText(this,str,Toast.LENGTH_LONG).show(); }
 }
