@@ -52,7 +52,7 @@ public class MainActivity extends Activity {
   load();
   LinearLayout root=vertical();root.setBackgroundColor(BG);root.setPadding(dp(16),dp(14),dp(16),dp(8));
   TextView heading=text("ㄚ喬文字搜尋測試",23,BLUE);heading.setTypeface(null,Typeface.BOLD);root.addView(heading);
-  root.addView(text("001  •  離線 OCR 辨識",13,MUTED));space(root,8);
+  root.addView(text("002  •  離線 OCR 辨識",13,MUTED));space(root,8);
   script=new Spinner(this);ArrayAdapter<String> a=new ArrayAdapter<>(this,android.R.layout.simple_spinner_item,MODES);a.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);script.setAdapter(a);root.addView(script,new LinearLayout.LayoutParams(-1,dp(44)));
   LinearLayout bar=new LinearLayout(this);pick=button("＋ 選擇照片");pick.setBackgroundTintList(android.content.res.ColorStateList.valueOf(BLUE));pick.setTextColor(Color.WHITE);clear=button("清除紀錄");stop=button("停止");
   bar.addView(pick,new LinearLayout.LayoutParams(0,dp(48),1));bar.addView(clear);bar.addView(stop);root.addView(bar);stop.setVisibility(View.GONE);

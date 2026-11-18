@@ -1,4 +1,4 @@
-name: Build Ajo OCR Test 001
+name: Build Ajo OCR Test 002
 on:
   push:
     branches: [ajo-ocr-test-001]
@@ -21,14 +21,27 @@ jobs:
       - uses: gradle/actions/setup-gradle@v6
         with:
           gradle-version: '8.9'
-      - run: gradle :app:assembleDebug --no-daemon
+      - uses: actions/cache@v4
+        with:
+          path: ~/.android/ajo-ocr-release.jks
+          key: ajo-ocr-release-key-v1
+      - run: |
+          mkdir -p ~/.android
+          if [ ! -s ~/.android/ajo-ocr-release.jks ]; then
+            keytool -genkeypair -keystore ~/.android/ajo-ocr-release.jks -storepass ajoocrtest -keypass ajoocrtest -alias ajoocr -dname "CN=Ajo OCR Test" -keyalg RSA -keysize 2048 -validity 10000
+          fi
+      - run: gradle :app:assembleRelease --no-daemon
       - run: |
           mkdir -p dist
-          cp app/build/outputs/apk/debug/app-debug.apk dist/AjoOCR_001.apk
-          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose dist/AjoOCR_001.apk
-          zip -r dist/AjoOCR_001_source.zip settings.gradle build.gradle gradle.properties app README.md .github -x 'app/build/*'
+          BT="$ANDROID_HOME/build-tools/35.0.0"
+          "$BT/zipalign" -P 16 -f 4 app/build/outputs/apk/release/app-release-unsigned.apk /tmp/ajo-aligned.apk
+          "$BT/apksigner" sign --ks ~/.android/ajo-ocr-release.jks --ks-key-alias ajoocr --ks-pass pass:ajoocrtest --key-pass pass:ajoocrtest --v1-signing-enabled true --v2-signing-enabled true --v3-signing-enabled true --out dist/AjoOCR_002.apk /tmp/ajo-aligned.apk
+          "$BT/zipalign" -c -P 16 -v 4 dist/AjoOCR_002.apk
+          "$BT/aapt" dump badging dist/AjoOCR_002.apk
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs dist/AjoOCR_002.apk
+          zip -r dist/AjoOCR_002_source.zip settings.gradle build.gradle gradle.properties app README.md .github -x 'app/build/*'
       - uses: actions/upload-artifact@v4
         with:
-          name: AjoOCR_001
+          name: AjoOCR_002
           path: dist/
           if-no-files-found: error

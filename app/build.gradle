@@ -2,7 +2,8 @@ plugins { id 'com.android.application' }
 android {
  namespace 'tw.ajo.ocrtest'
  compileSdk 35
- defaultConfig { applicationId 'tw.ajo.ocrtest'; minSdk 26; targetSdk 34; versionCode 1; versionName '001'; ndk { abiFilters 'arm64-v8a' } }
+ defaultConfig { applicationId 'tw.ajo.ocrtest'; minSdk 26; targetSdk 34; versionCode 2; versionName '002'; ndk { abiFilters 'arm64-v8a' } }
+ packaging { jniLibs { useLegacyPackaging = true } }
  compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
 }
 dependencies {
