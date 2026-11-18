@@ -1,5 +1,0 @@
-run_id=36318302597
-run_attempt=1
-build=success
-sign=success
-upload=success

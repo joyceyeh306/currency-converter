@@ -1,0 +1,40 @@
+plugins {
+    id 'com.android.application'
+}
+android {
+    namespace 'tw.ajo.phototext'
+    compileSdk 35
+
+    defaultConfig {
+        applicationId 'tw.ajo.phototext'
+        minSdk 29
+        targetSdk 35
+        versionCode 3
+        versionName '003'
+    }
+    packaging { jniLibs { useLegacyPackaging = true } }
+    signingConfigs {
+        release {
+            storeFile file(System.getenv('AJO_OCR_KEYSTORE') ?: "${System.getProperty("user.home")}/.android/ajo-phototext-003.jks")
+            storePassword System.getenv('AJO_OCR_STOREPASS') ?: 'android'
+            keyAlias 'ajophototext'
+            keyPassword System.getenv('AJO_OCR_KEYPASS') ?: 'android'
+        }
+    }
+    buildTypes {
+        release {
+            minifyEnabled false
+            debuggable false
+            signingConfig signingConfigs.release
+        }
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
+
+dependencies {
+ implementation 'com.google.mlkit:text-recognition-chinese:16.0.1'
+ implementation 'com.google.mlkit:text-recognition:16.0.1'
+}
