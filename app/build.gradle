@@ -1,18 +1,13 @@
-plugins {
-    id 'com.android.application'
-}
-
+plugins { id 'com.android.application' }
 android {
-    namespace 'com.joyce.currencyconverter'
-    compileSdk 35
-
-    defaultConfig {
-        applicationId 'com.joyce.currencyconverter'
-        minSdk 24
-        targetSdk 35
-
-        def runNumber = System.getenv('GITHUB_RUN_NUMBER')
-        versionCode runNumber != null ? runNumber.toInteger() : 1
-        versionName runNumber != null ? "1.${runNumber}" : '1.0'
-    }
+ namespace 'tw.ajo.ocrtest'
+ compileSdk 35
+ defaultConfig { applicationId 'tw.ajo.ocrtest'; minSdk 26; targetSdk 34; versionCode 1; versionName '001'; ndk { abiFilters 'arm64-v8a' } }
+ compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
+}
+dependencies {
+ implementation 'com.google.mlkit:text-recognition:16.0.1'
+ implementation 'com.google.mlkit:text-recognition-chinese:16.0.1'
+ implementation 'com.google.mlkit:text-recognition-japanese:16.0.1'
+ implementation 'com.google.mlkit:text-recognition-korean:16.0.1'
 }
