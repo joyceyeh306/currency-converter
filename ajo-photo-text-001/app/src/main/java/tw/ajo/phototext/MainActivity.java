@@ -32,6 +32,9 @@ public class MainActivity extends Activity {
     private boolean busy=false, binding=false;
     private LinearLayout root, editor, nav, nudges, advanced; private TextView metaBadge; private boolean buttonHaptic=true;
     private TextView status, count, fields;
+    private LinearLayout editableFields;
+    private final LinkedHashMap<Integer,View> editableRows=new LinkedHashMap<>();
+    private ArrayList<Integer> renderedEditableOrder=null;
     private Preview preview;
     private EditText date,time,place,note,title,device;
     private Spinner mode,position,separator;
@@ -93,7 +96,8 @@ public class MainActivity extends Activity {
         nudges=row();for(String a:new String[]{"←","↑","↓","→"}){final int x=a.equals("←")?-1:a.equals("→")?1:0,y=a.equals("↑")?-1:a.equals("↓")?1:0;Button b=button(a,()->nudge(x,y));b.setTextSize(19);b.setContentDescription(a.equals("←")?"向左微調":a.equals("→")?"向右微調":a.equals("↑")?"向上微調":"向下微調");equal(nudges,b);}Button magnet=button("磁吸",()->snapSettings());skin(magnet,0xffefe6d3,0xff735c32,0,44);equal(nudges,magnet);add(root,nudges,6);
         ScrollView scroll=new ScrollView(this);scroll.setFillViewport(false);scroll.setClipToPadding(false);scroll.setVerticalScrollBarEnabled(false);editor=column();editor.setPadding(0,0,0,dp(6));scroll.addView(editor);LinearLayout.LayoutParams sp=new LinearLayout.LayoutParams(-1,0,1f);sp.topMargin=dp(2);root.addView(scroll,sp);
         LinearLayout contentCard=card(editor);LinearLayout titleRow=row();TextView contentTitle=text("加字內容",16);contentTitle.setTextColor(TEAL);contentTitle.setTypeface(null,Typeface.BOLD);titleRow.addView(contentTitle,new LinearLayout.LayoutParams(0,-2,1));Button select=button("選擇資訊／排序",()->fieldDialog());titleRow.addView(select);contentCard.addView(titleRow);fields=text("",12);fields.setTextColor(MUTED);fields.setMaxLines(2);fields.setEllipsize(android.text.TextUtils.TruncateAt.END);add(contentCard,fields,4);
-        date=input(contentCard,"拍攝日期",false);time=input(contentCard,"拍攝時間",false);place=input(contentCard,"拍攝地點",false);device=input(contentCard,"器材名稱",false);note=input(contentCard,"共用備註",true);title=input(contentCard,"共用標題",false);
+        editableFields=column();contentCard.addView(editableFields);
+        date=editableInput(0,"拍攝日期",false);time=editableInput(1,"拍攝時間",false);place=editableInput(3,"拍攝地點",false);device=editableInput(7,"器材名稱",false);note=editableInput(27,"共用備註",true);title=editableInput(28,"共用標題",false);
         LinearLayout layoutCard=card(editor);section(layoutCard,"樣式與位置");mode=spinner(layoutCard,"加字模式",new String[]{"相片內部","外部下邊框","外部上邊框","外部四邊框（下方加字）"});position=spinner(layoutCard,"文字位置",new String[]{"左上","上方置中","右上","左下","下方置中","右下"});position.setSelection(3);separator=spinner(layoutCard,"排列方式",new String[]{"逐項換行","空格","｜","・","／"});
         size=slider(layoutCard,"字體大小",100,36);edge=slider(layoutCard,"安全邊距 %",20,5);border=slider(layoutCard,"邊框厚度 %",50,15);alpha=slider(layoutCard,"不透明度 %",100,100);
         LinearLayout colors=row();equal(colors,button("文字顏色",()->chooseColor(false)));equal(colors,button("邊框顏色",()->chooseColor(true)));add(layoutCard,colors,4);shadow=check(layoutCard,"文字陰影（相片內）",true);
@@ -101,6 +105,32 @@ public class MainActivity extends Activity {
         LinearLayout geo=row();equal(geo,button("查詢拍攝地點",()->lookupCurrent()));equal(geo,button("自動地名設定",()->geoSettings()));add(advanced,geo,6);keepExif=check(advanced,"保留可相容的 EXIF 拍攝資訊",true);stripGps=check(advanced,"移除輸出 EXIF 的 GPS 資訊",false);lookup=check(advanced,"批次時使用網路查詢地名",false);CheckBox bv=check(advanced,"按鈕輕震回饋",buttonHaptic);bv.setOnCheckedChangeListener((b,v)->{buttonHaptic=v;getPreferences(0).edit().putBoolean("buttonHaptic",v).apply();});
         LinearLayout bottom=row();bottom.setPadding(0,dp(5),0,0);saveOne=button("儲存本張",()->export(false));saveAll=button("批次儲存",()->export(true));skin(saveOne,PAPER,TEAL,TEAL,48);skin(saveAll,TEAL,Color.WHITE,0,48);saveOne.setTypeface(null,Typeface.BOLD);saveAll.setTypeface(null,Typeface.BOLD);equal(bottom,saveOne);equal(bottom,saveAll);add(root,bottom,4);
         binding=false;changed();refreshControls();root.requestFocus();
+    }
+    // Keep each original EditText alive, even when its field is unchecked.
+    // Only rebuild visual ordering when the user's field selection/order changes.
+    private EditText editableInput(int key,String label,boolean multi){
+        EditText e=input(editableFields,label,multi);
+        View fieldRow=(View)e.getParent();
+        editableRows.put(key,fieldRow);
+        fieldRow.setVisibility(View.GONE);
+        return e;
+    }
+    private void syncEditableFields(){
+        if(editableFields==null)return;
+        ArrayList<Integer> visible=new ArrayList<>();
+        for(int key:chosen)if(editableRows.containsKey(key))visible.add(key);
+        if(visible.equals(renderedEditableOrder))return;
+        for(Map.Entry<Integer,View> e:editableRows.entrySet()){
+            View fieldRow=e.getValue();
+            boolean show=visible.contains(e.getKey());
+            if(!show&&fieldRow.hasFocus())fieldRow.clearFocus();
+            fieldRow.setVisibility(show?View.VISIBLE:View.GONE);
+        }
+        for(int key:visible)editableFields.bringChildToFront(editableRows.get(key));
+        editableFields.setVisibility(visible.isEmpty()?View.GONE:View.VISIBLE);
+        renderedEditableOrder=visible;
+        editableFields.requestLayout();
+        editableFields.invalidate();
     }
     private void setBusy(boolean b){busy=b;refreshControls();}
     private void refreshControls(){boolean has=!photos.isEmpty();pickButton.setEnabled(!busy);prev.setEnabled(!busy&&has&&index>0);next.setEnabled(!busy&&has&&index<photos.size()-1);infoButton.setEnabled(!busy&&has);saveOne.setEnabled(!busy&&has&&current!=null);saveAll.setEnabled(!busy&&has&&current!=null);setEnabledTree(editor,!busy&&has);setEnabledTree(nudges,!busy&&has&&current!=null);nav.getChildAt(nav.getChildCount()-1).setEnabled(!busy&&has&&current!=null);Photo item=active();metaBadge.setVisibility(item!=null&&item.loaded&&!busy?View.VISIBLE:View.GONE);if(item!=null&&item.loaded){String a=item.v(7).isEmpty()?"":"器材";String b=item.v(0).isEmpty()?"":"日期";metaBadge.setText((a+b).isEmpty()?"相片資訊":(a.isEmpty()?b:b.isEmpty()?a:a+"・"+b)+" ✓");}count.setText(has?(index+1)+" / "+photos.size()+" 張":"未選取相片");}
@@ -160,7 +190,7 @@ public class MainActivity extends Activity {
         }catch(Exception ignored){}p.loaded=true;
     }
     private Bitmap decode(Uri uri,int max)throws IOException{return ImageDecoder.decodeBitmap(ImageDecoder.createSource(getContentResolver(),uri),(decoder,info,src)->{decoder.setAllocator(ImageDecoder.ALLOCATOR_SOFTWARE);if(max==0&&(long)info.getSize().getWidth()*info.getSize().getHeight()*4>Runtime.getRuntime().maxMemory()*.55)throw new IllegalArgumentException("原始相片超過可用記憶體，不縮小輸出");if(max>0){int w=info.getSize().getWidth(),h=info.getSize().getHeight();float f=Math.min(1f,max/(float)Math.max(w,h));if(f<1)decoder.setTargetSize(Math.max(1,Math.round(w*f)),Math.max(1,Math.round(h*f)));}});}
-    private void changed(){if(binding||date==null||lookup==null)return;Photo p=active();if(p!=null&&p.loaded){p.dateOverride=override(date,p.v(0));p.timeOverride=override(time,p.v(1));p.placeOverride=override(place,p.v(3));p.deviceOverride=override(device,p.v(7));}int newMode=Math.max(0,mode.getSelectedItemPosition()), newPos=Math.max(0,position.getSelectedItemPosition());if(newMode!=style.mode||newPos!=style.pos){if(p!=null){p.px[newMode]=Float.NaN;p.py[newMode]=Float.NaN;}style.fallbackX=style.fallbackY=Float.NaN;}style.mode=newMode;style.pos=newPos;style.margin=edge==null?5:edge.getProgress();style.sep=Math.max(0,separator.getSelectedItemPosition());style.font=Math.max(10,size.getProgress());style.border=border.getProgress();style.alpha=alpha.getProgress();style.color=foreground;style.frame=frameColor;style.shadow=shadow.isChecked();style.keep=keepExif.isChecked();style.strip=stripGps.isChecked();style.geo=lookup.isChecked()||autoGeo;style.note=note.getText().toString();style.title=title.getText().toString();style.fields=new ArrayList<>(chosen);ArrayList<String> names=new ArrayList<>();for(int f:chosen)names.add(LABELS[f]);fields.setText(String.join(" · ",names));preview.invalidate();}
+    private void changed(){if(binding||date==null||lookup==null)return;Photo p=active();if(p!=null&&p.loaded){p.dateOverride=override(date,p.v(0));p.timeOverride=override(time,p.v(1));p.placeOverride=override(place,p.v(3));p.deviceOverride=override(device,p.v(7));}int newMode=Math.max(0,mode.getSelectedItemPosition()), newPos=Math.max(0,position.getSelectedItemPosition());if(newMode!=style.mode||newPos!=style.pos){if(p!=null){p.px[newMode]=Float.NaN;p.py[newMode]=Float.NaN;}style.fallbackX=style.fallbackY=Float.NaN;}style.mode=newMode;style.pos=newPos;style.margin=edge==null?5:edge.getProgress();style.sep=Math.max(0,separator.getSelectedItemPosition());style.font=Math.max(10,size.getProgress());style.border=border.getProgress();style.alpha=alpha.getProgress();style.color=foreground;style.frame=frameColor;style.shadow=shadow.isChecked();style.keep=keepExif.isChecked();style.strip=stripGps.isChecked();style.geo=lookup.isChecked()||autoGeo;style.note=note.getText().toString();style.title=title.getText().toString();style.fields=new ArrayList<>(chosen);ArrayList<String> names=new ArrayList<>();for(int f:chosen)names.add(LABELS[f]);fields.setText(String.join(" · ",names));syncEditableFields();preview.invalidate();}
     private String override(EditText e,String original){String v=e.getText().toString();return v.equals(original)?null:v;}
     private void fieldDialog(){boolean[] ticks=new boolean[LABELS.length];for(int k:chosen)ticks[k]=true;new TactileDialogBuilder(this).setTitle("選擇加字資訊").setMultiChoiceItems(LABELS,ticks,(d,i,b)->ticks[i]=b).setNegativeButton("取消",null).setPositiveButton("下一步：排列",(d,w)->{chosen.removeIf(k->!ticks[k]);for(int i=0;i<ticks.length;i++)if(ticks[i]&&!chosen.contains(i))chosen.add(i);changed();orderDialog();}).show();}
     private void orderDialog(){LinearLayout box=column();ScrollView sc=new ScrollView(this);sc.addView(box);Runnable[] refresh=new Runnable[1];refresh[0]=()->{box.removeAllViews();for(int i=0;i<chosen.size();i++){final int j=i;LinearLayout r=row();r.addView(text(LABELS[chosen.get(i)],15),new LinearLayout.LayoutParams(0,-2,1));r.addView(button("↑",()->{if(j>0){Collections.swap(chosen,j,j-1);changed();refresh[0].run();}}));r.addView(button("↓",()->{if(j+1<chosen.size()){Collections.swap(chosen,j,j+1);changed();refresh[0].run();}}));box.addView(r);}};refresh[0].run();new TactileDialogBuilder(this).setTitle("排列顯示順序").setView(sc).setPositiveButton("完成",null).show();}

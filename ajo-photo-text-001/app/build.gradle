@@ -2,7 +2,7 @@ plugins { id 'com.android.application' }
 android {
     namespace 'tw.ajo.phototext'
     compileSdk 35
-    defaultConfig { applicationId 'tw.ajo.photoannotator'; minSdk 29; targetSdk 34; versionCode 4; versionName '004' }
+    defaultConfig { applicationId 'tw.ajo.photoannotator'; minSdk 29; targetSdk 34; versionCode 5; versionName '005' }
     compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
 }
 dependencies { implementation 'androidx.exifinterface:exifinterface:1.4.2' }

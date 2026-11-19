@@ -1,4 +1,4 @@
-name: Ajo Photo Text 004
+name: Ajo Photo Text 005
 on:
   push:
     branches: [ajo-photo-text-001-build]
@@ -31,10 +31,10 @@ jobs:
           APK=app/build/outputs/apk/debug/app-debug.apk
           "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK"
           "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose "$APK"
-          cp "$APK" ajo-photo-text_004.apk
-          sha256sum ajo-photo-text_004.apk
+          cp "$APK" ajo-photo-text_005.apk
+          sha256sum ajo-photo-text_005.apk
           cp "$ANDROID_HOME/build-tools/35.0.0/lib/apksigner.jar" apksigner.jar
-          zip -q -r ajo-photo-text_004_source.zip settings.gradle build.gradle gradle.properties app/build.gradle app/src
+          zip -q -r ajo-photo-text_005_source.zip settings.gradle build.gradle gradle.properties app/build.gradle app/src
       - name: Compare old OCR package ID
         continue-on-error: true
         run: |
@@ -43,8 +43,8 @@ jobs:
           "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging /tmp/ocr005.apk | head -n 2
       - uses: actions/upload-artifact@v4
         with:
-          name: ajo-photo-text-004
+          name: ajo-photo-text-005
           path: |
-            ajo-photo-text-001/ajo-photo-text_004.apk
+            ajo-photo-text-001/ajo-photo-text_005.apk
             ajo-photo-text-001/apksigner.jar
-            ajo-photo-text-001/ajo-photo-text_004_source.zip
+            ajo-photo-text-001/ajo-photo-text_005_source.zip
