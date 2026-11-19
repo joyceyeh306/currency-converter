@@ -50,11 +50,10 @@ public class MainActivity extends Activity {
  void space(LinearLayout l,int h){l.addView(new View(this),new LinearLayout.LayoutParams(1,dp(h)));}
  @Override public void onCreate(Bundle b){
   super.onCreate(b);getWindow().setStatusBarColor(BG);getWindow().setNavigationBarColor(BG);
-  if(Build.VERSION.SDK_INT>=30){getWindow().setDecorFitsSystemWindows(false);getWindow().getInsetsController().setSystemBarsAppearance(WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS|WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS,WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS|WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS);}
   load();
   LinearLayout root=vertical();root.setBackgroundColor(BG);root.setPadding(dp(16),dp(14),dp(16),dp(8));
   TextView heading=text("ㄚ喬文字搜尋測試",23,BLUE);heading.setTypeface(null,Typeface.BOLD);root.addView(heading);
-  root.addView(text("004  •  離線 OCR 辨識",13,MUTED));space(root,8);
+  root.addView(text("005  •  離線 OCR 辨識",13,MUTED));space(root,8);
   script=new Spinner(this);ArrayAdapter<String> a=new ArrayAdapter<>(this,android.R.layout.simple_spinner_item,MODES);a.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);script.setAdapter(a);root.addView(script,new LinearLayout.LayoutParams(-1,dp(44)));
   LinearLayout bar=new LinearLayout(this);pick=button("＋ 選擇照片");pick.setBackgroundTintList(android.content.res.ColorStateList.valueOf(BLUE));pick.setTextColor(Color.WHITE);clear=button("清除紀錄");stop=button("停止");
   bar.addView(pick,new LinearLayout.LayoutParams(0,dp(48),1));bar.addView(clear);bar.addView(stop);root.addView(bar);stop.setVisibility(View.GONE);
@@ -63,7 +62,20 @@ public class MainActivity extends Activity {
   search=new EditText(this);search.setSingleLine(true);search.setTextSize(17);search.setHint("搜尋照片中的文字");search.setPadding(dp(12),dp(8),dp(12),dp(8));search.setBackground(bg(Color.WHITE,12));root.addView(search,new LinearLayout.LayoutParams(-1,dp(52)));
   count=text("",13,MUTED);root.addView(count);space(root,4);
   ScrollView sc=new ScrollView(this);results=vertical();sc.addView(results);root.addView(sc,new LinearLayout.LayoutParams(-1,0,1));setContentView(root);
-  if(Build.VERSION.SDK_INT>=30){root.setOnApplyWindowInsetsListener((view,insets)->{Insets bars=insets.getInsets(WindowInsets.Type.systemBars()|WindowInsets.Type.displayCutout());Insets keyboard=insets.getInsets(WindowInsets.Type.ime());view.setPadding(dp(16)+bars.left,dp(14)+bars.top,dp(16)+bars.right,dp(8)+Math.max(bars.bottom,keyboard.bottom));return insets;});root.requestApplyInsets();}
+  // Attach the system bar handling after the UI exists; never access a controller before attachment.
+  if(Build.VERSION.SDK_INT>=30){
+   root.setOnApplyWindowInsetsListener((view,insets)->{
+    Insets bars=insets.getInsets(WindowInsets.Type.systemBars()|WindowInsets.Type.displayCutout());
+    Insets keyboard=insets.getInsets(WindowInsets.Type.ime());
+    view.setPadding(dp(16)+bars.left,dp(14)+bars.top,dp(16)+bars.right,dp(8)+Math.max(bars.bottom,keyboard.bottom));
+    return WindowInsets.CONSUMED;
+   });
+   root.post(()->{
+    if(!root.isAttachedToWindow()||isFinishing()||isDestroyed())return;
+    getWindow().setDecorFitsSystemWindows(false);
+    root.requestApplyInsets();
+   });
+  }
   search.addTextChangedListener(new TextWatcher(){public void beforeTextChanged(CharSequence s,int st,int c,int a){}public void onTextChanged(CharSequence s,int st,int before,int c){render();}public void afterTextChanged(Editable e){}});
   pick.setOnClickListener(v->openPhotoPicker());
   clear.setOnClickListener(v->new AlertDialog.Builder(this).setTitle("清除全部辨識紀錄？").setMessage("不會刪除任何原始照片。").setNegativeButton("取消",null).setPositiveButton("清除",(d,w)->{for(Entry e:entries){try{getContentResolver().releasePersistableUriPermission(Uri.parse(e.uri),Intent.FLAG_GRANT_READ_URI_PERMISSION);}catch(Exception ignored){}}entries.clear();save();render();}).show());

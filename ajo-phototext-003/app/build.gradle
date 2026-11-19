@@ -9,8 +9,8 @@ android {
         applicationId 'tw.ajo.phototext'
         minSdk 29
         targetSdk 35
-        versionCode 4
-        versionName '004'
+        versionCode 5
+        versionName '005'
     }
     packaging { jniLibs { useLegacyPackaging = true } }
     signingConfigs {
