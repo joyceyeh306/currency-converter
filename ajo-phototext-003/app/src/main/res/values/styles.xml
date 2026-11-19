@@ -2,10 +2,10 @@
     <style name="StepTheme" parent="android:style/Theme.Material.Light.NoActionBar">
         <item name="android:fontFamily">sans</item>
         <item name="android:windowLightStatusBar">true</item>
-        <item name="android:statusBarColor">#FFF9F8</item>
-        <item name="android:navigationBarColor">#FFF9F8</item>
+        <item name="android:statusBarColor">#FFFCF6</item>
+        <item name="android:navigationBarColor">#FFFCF6</item>
         <item name="android:windowLightNavigationBar">true</item>
-        <item name="android:colorAccent">#916ED5</item>
+        <item name="android:colorAccent">#086F72</item>
         <item name="android:windowActionModeOverlay">true</item>
     </style>
 </resources>
