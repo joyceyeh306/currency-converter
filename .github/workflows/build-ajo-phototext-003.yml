@@ -1,4 +1,4 @@
-name: Build Ajo Photo Text 007
+name: Build Ajo Photo Text 007a
 on:
   push:
     branches: [ajo-ocr-rebuild-003]
@@ -36,6 +36,12 @@ jobs:
         run: |
           mkdir -p ~/.android
           test -s ~/.android/ajo-phototext-003.jks || { echo "003 signing key unavailable; refusing to generate a different key"; exit 1; }
+      - name: Test keyword snippet and highlight mapping
+        working-directory: ajo-phototext-003
+        run: |
+          mkdir -p /tmp/ajo-match-test
+          javac -encoding UTF-8 -d /tmp/ajo-match-test app/src/main/java/tw/ajo/phototext/MatchText.java tests/MatchTextTest.java
+          java -cp /tmp/ajo-match-test tw.ajo.phototext.MatchTextTest
       - name: Compile Android release APK
         working-directory: ajo-phototext-003
         run: gradle --no-daemon --stacktrace :app:assembleRelease
@@ -54,24 +60,24 @@ jobs:
       - name: Build distribution ZIP and stable filenames
         run: |
           mkdir -p release
-          cp ajo-phototext-003/app/build/outputs/apk/release/app-release.apk release/AjoPhotoText_007.apk
-          rm -f release/AjoPhotoText_007_source.zip
-          zip -rq release/AjoPhotoText_007_source.zip ajo-phototext-003 -x '*/build/*' '*/.gradle/*' '*.gradle.lockfile'
+          cp ajo-phototext-003/app/build/outputs/apk/release/app-release.apk release/AjoPhotoText_007a.apk
+          rm -f release/AjoPhotoText_007a_source.zip
+          zip -rq release/AjoPhotoText_007a_source.zip ajo-phototext-003 -x '*/build/*' '*/.gradle/*' '*.gradle.lockfile'
           ls -lh release
       - name: Upload install APK and complete source
         uses: actions/upload-artifact@v4
         with:
-          name: AjoPhotoText-007
+          name: AjoPhotoText-007a
           path: |
-            release/AjoPhotoText_007.apk
-            release/AjoPhotoText_007_source.zip
+            release/AjoPhotoText_007a.apk
+            release/AjoPhotoText_007a_source.zip
           if-no-files-found: error
       - name: Publish both files on isolated branch
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add release/AjoPhotoText_007.apk release/AjoPhotoText_007_source.zip
+          git add release/AjoPhotoText_007a.apk release/AjoPhotoText_007a_source.zip
           if ! git diff --cached --quiet; then
-            git commit -m "Publish Ajo Photo Text 007 APK and source archive"
+            git commit -m "Publish Ajo Photo Text 007a APK and source archive"
             git push
           fi
