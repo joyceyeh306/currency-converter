@@ -63,11 +63,11 @@ final class FuzzyText {
   if(!eligible(q))return null;
   // At edit distance one at least one of the two halves is unchanged.
   int half=q.length()/2;
-  for(int side=0;side<2;side++){
+  for(int len:new int[]{q.length(),q.length()+1,q.length()-1})for(int side=0;side<2;side++){
    int offset=side==0?0:half;String anchor=side==0?q.substring(0,half):q.substring(half);
    for(int p=hay.indexOf(anchor);p>=0;p=hay.indexOf(anchor,p+1)){
-    for(int shift=-1;shift<=1;shift++){int at=p-offset+shift;
-     for(int len=q.length()-1;len<=q.length()+1;len++)if(closeAt(hay,at,q,len))return new Hit(at,at+len,NEAR);
+    for(int shift:new int[]{0,-1,1}){int at=p-offset+shift;
+     if(closeAt(hay,at,q,len))return new Hit(at,at+len,NEAR);
     }
    }
   }return null;
