@@ -26,18 +26,30 @@ final class IndexStore extends SQLiteOpenHelper {
  static class Page {
   final ArrayList<Result> rows=new ArrayList<>(); int matches,ok,empty,failed; Job job;
  }
- IndexStore(Context c){super(c,"photo_index006.db",null,1);setWriteAheadLoggingEnabled(true);}
+ IndexStore(Context c){super(c,"photo_index006.db",null,2);setWriteAheadLoggingEnabled(true);}
  @Override public void onCreate(SQLiteDatabase d){
-  d.execSQL("CREATE TABLE records(uri TEXT NOT NULL, mode INTEGER NOT NULL, name TEXT NOT NULL, stamp TEXT NOT NULL, body TEXT NOT NULL, norm TEXT NOT NULL, error TEXT NOT NULL, ms INTEGER NOT NULL, updated INTEGER NOT NULL, PRIMARY KEY(uri,mode))");
+  d.execSQL("CREATE TABLE records(uri TEXT NOT NULL, mode INTEGER NOT NULL, name TEXT NOT NULL, stamp TEXT NOT NULL, body TEXT NOT NULL, norm TEXT NOT NULL, folded TEXT NOT NULL DEFAULT '', error TEXT NOT NULL, ms INTEGER NOT NULL, updated INTEGER NOT NULL, PRIMARY KEY(uri,mode))");
   d.execSQL("CREATE INDEX records_updated ON records(updated DESC)");
   d.execSQL("CREATE TABLE queue(seq INTEGER PRIMARY KEY,uri TEXT NOT NULL,name TEXT NOT NULL,stamp TEXT NOT NULL,mode INTEGER NOT NULL,UNIQUE(uri,mode))");
   d.execSQL("CREATE TABLE job(id INTEGER PRIMARY KEY CHECK(id=1),total INTEGER NOT NULL,done INTEGER NOT NULL DEFAULT 0,skipped INTEGER NOT NULL DEFAULT 0,failed INTEGER NOT NULL DEFAULT 0,withtext INTEGER NOT NULL DEFAULT 0,empty INTEGER NOT NULL DEFAULT 0,ms INTEGER NOT NULL DEFAULT 0,elapsed INTEGER NOT NULL DEFAULT 0,scope TEXT NOT NULL)");
-  d.execSQL("CREATE TABLE meta(k TEXT PRIMARY KEY,v TEXT NOT NULL)");
+  d.execSQL("CREATE TABLE meta(k TEXT PRIMARY KEY,v TEXT NOT NULL)");createPhotoMeta(d);
  }
- @Override public void onUpgrade(SQLiteDatabase d,int old,int now){}
+ void createPhotoMeta(SQLiteDatabase d){d.execSQL("CREATE TABLE IF NOT EXISTS photo_meta(uri TEXT PRIMARY KEY,album_key TEXT NOT NULL,album_label TEXT NOT NULL,kind TEXT NOT NULL,date_ms INTEGER NOT NULL)");d.execSQL("CREATE INDEX IF NOT EXISTS photo_meta_album ON photo_meta(album_key)");}
+ @Override public void onUpgrade(SQLiteDatabase d,int old,int now){if(old<2){d.execSQL("ALTER TABLE records ADD COLUMN folded TEXT NOT NULL DEFAULT ''");createPhotoMeta(d);
+  long at=0;while(true){ArrayList<Long> ids=new ArrayList<>();ArrayList<String> values=new ArrayList<>();
+   try(Cursor c=d.rawQuery("SELECT rowid,body FROM records WHERE rowid>? ORDER BY rowid LIMIT 150",new String[]{String.valueOf(at)})){while(c.moveToNext()){at=c.getLong(0);ids.add(at);values.add(HanFold.fold(c.getString(1)));}}
+   if(ids.isEmpty())break;for(int i=0;i<ids.size();i++){ContentValues v=new ContentValues();v.put("folded",values.get(i));d.update("records",v,"rowid=?",new String[]{String.valueOf(ids.get(i))});}
+  }
+ }}
+ void refreshMetadata(Context ctx){SQLiteDatabase d=getWritableDatabase();ArrayList<String> uris=new ArrayList<>();try(Cursor c=d.rawQuery("SELECT DISTINCT uri FROM records",null)){while(c.moveToNext())uris.add(c.getString(0));}
+  HashMap<String,PhotoMetadata.Item> data=PhotoMetadata.read(ctx,uris);
+  d.beginTransaction();try{d.delete("photo_meta",null,null);for(PhotoMetadata.Item p:data.values()){ContentValues v=new ContentValues();v.put("uri",p.uri);v.put("album_key",p.key);v.put("album_label",p.label);v.put("kind",p.kind);v.put("date_ms",p.date);d.insertWithOnConflict("photo_meta",null,v,SQLiteDatabase.CONFLICT_REPLACE);}d.setTransactionSuccessful();}finally{d.endTransaction();}
+ }
+ ArrayList<String[]> albums(){ArrayList<String[]> out=new ArrayList<>();try(Cursor c=getReadableDatabase().rawQuery("SELECT DISTINCT p.album_key,p.album_label FROM photo_meta p JOIN records r ON r.uri=p.uri WHERE p.album_key<>'' ORDER BY p.album_label COLLATE NOCASE,p.album_key",null)){while(c.moveToNext())out.add(new String[]{c.getString(0),c.getString(1)});}return out;}
+
  static String norm(String x){return Normalizer.normalize(x==null?"":x,Normalizer.Form.NFKC).toLowerCase(Locale.ROOT).replaceAll("[\\s\\p{Z}]+","");}
  void put(SQLiteDatabase d,Photo p,String body,String error,long ms,long updated){
-  ContentValues v=new ContentValues();v.put("uri",p.uri);v.put("mode",p.mode);v.put("name",p.name);v.put("stamp",p.stamp);v.put("body",body);v.put("norm",norm(body));v.put("error",error);v.put("ms",ms);v.put("updated",updated);
+  ContentValues v=new ContentValues();v.put("uri",p.uri);v.put("mode",p.mode);v.put("name",p.name);v.put("stamp",p.stamp);v.put("body",body);v.put("norm",norm(body));v.put("folded",HanFold.fold(body));v.put("error",error);v.put("ms",ms);v.put("updated",updated);
   d.insertWithOnConflict("records",null,v,SQLiteDatabase.CONFLICT_REPLACE);
  }
  void migrate(Context c)throws Exception{
@@ -73,11 +85,11 @@ final class IndexStore extends SQLiteOpenHelper {
  }
  void discard(){SQLiteDatabase d=getWritableDatabase();d.beginTransaction();try{d.delete("queue",null,null);d.delete("job",null,null);d.setTransactionSuccessful();}finally{d.endTransaction();}}
  void clear(){SQLiteDatabase d=getWritableDatabase();d.beginTransaction();try{d.delete("queue",null,null);d.delete("job",null,null);d.delete("records",null,null);d.setTransactionSuccessful();}finally{d.endTransaction();}}
- Page search(String query,int limit){
-  SQLiteDatabase d=getReadableDatabase();Page p=new Page();String q=norm(query);String where=q.isEmpty()?"1=1":"error='' AND instr(norm,?)>0";String[] args=q.isEmpty()?null:new String[]{q};
+ Page search(SearchSpec spec,int limit){
+  SQLiteDatabase d=getReadableDatabase();Page p=new Page();SearchSpec.Where w=spec.where(HanFold::fold);String where=w.sql;String[] args=w.args;String joined=" FROM records r LEFT JOIN photo_meta p ON r.uri=p.uri WHERE ";
   try(Cursor c=d.rawQuery("SELECT COUNT(*), COALESCE(SUM(CASE WHEN error='' AND length(trim(body))>0 THEN 1 ELSE 0 END),0),COALESCE(SUM(CASE WHEN error='' AND length(trim(body))=0 THEN 1 ELSE 0 END),0),COALESCE(SUM(CASE WHEN error<>'' THEN 1 ELSE 0 END),0) FROM records",null)){if(c.moveToFirst()){p.ok=c.getInt(1);p.empty=c.getInt(2);p.failed=c.getInt(3);}}
-  try(Cursor c=d.rawQuery("SELECT COUNT(*) FROM records WHERE "+where,args)){if(c.moveToFirst())p.matches=c.getInt(0);}
-  try(Cursor c=d.rawQuery("SELECT uri,name,mode,body,error,ms FROM records WHERE "+where+" ORDER BY updated DESC,uri LIMIT "+limit,args)){while(c.moveToNext())p.rows.add(new Result(c));}
+  try(Cursor c=d.rawQuery("SELECT COUNT(*)"+joined+where,args)){if(c.moveToFirst())p.matches=c.getInt(0);}
+  try(Cursor c=d.rawQuery("SELECT r.uri,r.name,r.mode,r.body,r.error,r.ms"+joined+where+" ORDER BY "+spec.order()+" LIMIT "+limit,args)){while(c.moveToNext())p.rows.add(new Result(c));}
   p.job=job();return p;
  }
 }

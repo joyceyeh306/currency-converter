@@ -17,15 +17,16 @@ final class MatchText {
  }
  // Same search normalization as IndexStore.norm; returned offsets remain in original UTF-16.
  static String norm(String s){return Normalizer.normalize(s==null?"":s,Normalizer.Form.NFKC).toLowerCase(Locale.ROOT).replaceAll("[\\s\\p{Z}]+","");}
- static ArrayList<Range> find(String original,String query){
-  String needle=norm(query), hay=norm(original);
+ static ArrayList<Range> find(String original,String query){return find(original,query,MatchText::norm);}
+ static ArrayList<Range> find(String original,String query,java.util.function.UnaryOperator<String> fold){
+  String needle=fold.apply(query), hay=fold.apply(original);
   ArrayList<Range> result=new ArrayList<>();
   if(needle.isEmpty()||hay.isEmpty()||!hay.contains(needle))return result;
   int[] start=new int[hay.length()],end=new int[hay.length()];
   BreakIterator iterator=BreakIterator.getCharacterInstance(Locale.ROOT);iterator.setText(original);
   int a=iterator.first(),at=0;
   for(int b=iterator.next();b!=BreakIterator.DONE;a=b,b=iterator.next()){
-   int n=norm(original.substring(a,b)).length();
+   int n=fold.apply(original.substring(a,b)).length();
    if(at+n>hay.length()){at=-1;break;}
    for(int k=0;k<n;k++){start[at]=a;end[at]=b;at++;}
   }
@@ -33,7 +34,7 @@ final class MatchText {
   if(at!=hay.length()){
    iterator.first();a=0;at=0;
    for(int b=iterator.next();b!=BreakIterator.DONE;a=b,b=iterator.next()){
-    int n=Math.min(hay.length(),norm(original.substring(0,b)).length());
+    int n=Math.min(hay.length(),fold.apply(original.substring(0,b)).length());
     while(at<n){start[at]=a;end[at]=b;at++;}
    }
    if(at!=hay.length())return result;
@@ -48,9 +49,12 @@ final class MatchText {
  static Segment full(String original,String query){String s=original==null?"":original;return new Segment(s,find(s,query));}
  static int before(String s,int offset,int n){return s.offsetByCodePoints(offset,-Math.min(n,s.codePointCount(0,offset)));}
  static int after(String s,int offset,int n){return s.offsetByCodePoints(offset,Math.min(n,s.codePointCount(offset,s.length())));}
- static Segment snippet(String original,String query){
+ static Segment snippet(String original,String query){return snippet(original,java.util.Collections.singletonList(query),MatchText::norm);}
+ static ArrayList<Range> all(String text,java.util.List<String> terms,java.util.function.UnaryOperator<String> fold){ArrayList<Range> hits=new ArrayList<>();for(String q:terms)hits.addAll(find(text,q,fold));hits.sort(java.util.Comparator.comparingInt((Range a)->a.start).thenComparingInt(a->a.end));ArrayList<Range> merged=new ArrayList<>();for(Range r:hits){if(!merged.isEmpty()&&merged.get(merged.size()-1).end>r.start){Range p=merged.remove(merged.size()-1);merged.add(new Range(p.start,Math.max(p.end,r.end)));}else merged.add(r);}return merged;}
+ static Segment full(String original,java.util.List<String> terms,java.util.function.UnaryOperator<String> fold){String s=original==null?"":original;return new Segment(s,all(s,terms,fold));}
+ static Segment snippet(String original,java.util.List<String> terms,java.util.function.UnaryOperator<String> fold){
   String plain=(original==null?"":original).replaceAll("[\\s\\p{Z}]+"," ").trim();
-  ArrayList<Range> hits=find(plain,query);
+  ArrayList<Range> hits=all(plain,terms,fold);
   int start=0,end=after(plain,0,46);
   if(!hits.isEmpty()){
    Range first=hits.get(0);
