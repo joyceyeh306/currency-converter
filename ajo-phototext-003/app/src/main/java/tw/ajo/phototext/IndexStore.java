@@ -43,7 +43,16 @@ final class IndexStore extends SQLiteOpenHelper {
  }}
  void refreshMetadata(Context ctx){SQLiteDatabase d=getWritableDatabase();ArrayList<String> uris=new ArrayList<>();try(Cursor c=d.rawQuery("SELECT DISTINCT uri FROM records",null)){while(c.moveToNext())uris.add(c.getString(0));}
   HashMap<String,PhotoMetadata.Item> data=PhotoMetadata.read(ctx,uris);
-  d.beginTransaction();try{d.delete("photo_meta",null,null);for(PhotoMetadata.Item p:data.values()){ContentValues v=new ContentValues();v.put("uri",p.uri);v.put("album_key",p.key);v.put("album_label",p.label);v.put("kind",p.kind);v.put("date_ms",p.date);d.insertWithOnConflict("photo_meta",null,v,SQLiteDatabase.CONFLICT_REPLACE);}d.setTransactionSuccessful();}finally{d.endTransaction();}
+  d.beginTransaction();try{for(PhotoMetadata.Item p:data.values()){ContentValues v=new ContentValues();v.put("uri",p.uri);v.put("album_key",p.key);v.put("album_label",p.label);v.put("kind",p.kind);v.put("date_ms",p.date);d.insertWithOnConflict("photo_meta",null,v,SQLiteDatabase.CONFLICT_REPLACE);}d.setTransactionSuccessful();}finally{d.endTransaction();}
+ }
+ ArrayList<SyncPlan.Known> syncKnown(){ArrayList<SyncPlan.Known> out=new ArrayList<>();try(Cursor c=getReadableDatabase().rawQuery("SELECT uri,stamp,mode FROM records",null)){while(c.moveToNext())out.add(new SyncPlan.Known(c.getString(0),c.getString(1),c.getInt(2)));}return out;}
+ void applySync(MediaSync.Snapshot snapshot,ArrayList<String> removed){
+  SQLiteDatabase d=getWritableDatabase();d.beginTransaction();try{
+   for(PhotoMetadata.Item p:snapshot.metadata.values()){ContentValues v=new ContentValues();v.put("uri",p.uri);v.put("album_key",p.key);v.put("album_label",p.label);v.put("kind",p.kind);v.put("date_ms",p.date);d.insertWithOnConflict("photo_meta",null,v,SQLiteDatabase.CONFLICT_REPLACE);}
+   for(SyncPlan.Item p:snapshot.items.values()){ContentValues v=new ContentValues();v.put("name",p.name);d.update("records",v,"uri=? AND name<>?",new String[]{p.uri,p.name});}
+   for(String u:removed){d.delete("records","uri=?",new String[]{u});d.delete("photo_meta","uri=?",new String[]{u});}
+   d.setTransactionSuccessful();
+  }finally{d.endTransaction();}
  }
  ArrayList<String[]> albums(){ArrayList<String[]> out=new ArrayList<>();try(Cursor c=getReadableDatabase().rawQuery("SELECT DISTINCT p.album_key,p.album_label FROM photo_meta p JOIN records r ON r.uri=p.uri WHERE p.album_key<>'' ORDER BY p.album_label COLLATE NOCASE,p.album_key",null)){while(c.moveToNext())out.add(new String[]{c.getString(0),c.getString(1)});}return out;}
 
@@ -84,7 +93,7 @@ final class IndexStore extends SQLiteOpenHelper {
   }finally{d.endTransaction();}
  }
  void discard(){SQLiteDatabase d=getWritableDatabase();d.beginTransaction();try{d.delete("queue",null,null);d.delete("job",null,null);d.setTransactionSuccessful();}finally{d.endTransaction();}}
- void clear(){SQLiteDatabase d=getWritableDatabase();d.beginTransaction();try{d.delete("queue",null,null);d.delete("job",null,null);d.delete("records",null,null);d.setTransactionSuccessful();}finally{d.endTransaction();}}
+ void clear(){SQLiteDatabase d=getWritableDatabase();d.beginTransaction();try{d.delete("queue",null,null);d.delete("job",null,null);d.delete("records",null,null);d.delete("photo_meta",null,null);d.setTransactionSuccessful();}finally{d.endTransaction();}}
  Page search(SearchSpec spec,int limit){
   SQLiteDatabase d=getReadableDatabase();Page p=new Page();SearchSpec.Where w=spec.where(HanFold::fold);String where=w.sql;String[] args=w.args;String joined=" FROM records r LEFT JOIN photo_meta p ON r.uri=p.uri WHERE ";
   try(Cursor c=d.rawQuery("SELECT COUNT(*), COALESCE(SUM(CASE WHEN error='' AND length(trim(body))>0 THEN 1 ELSE 0 END),0),COALESCE(SUM(CASE WHEN error='' AND length(trim(body))=0 THEN 1 ELSE 0 END),0),COALESCE(SUM(CASE WHEN error<>'' THEN 1 ELSE 0 END),0) FROM records",null)){if(c.moveToFirst()){p.ok=c.getInt(1);p.empty=c.getInt(2);p.failed=c.getInt(3);}}

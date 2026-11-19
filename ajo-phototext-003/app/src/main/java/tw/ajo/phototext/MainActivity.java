@@ -35,7 +35,7 @@ public class MainActivity extends Activity {
  final LruCache<String,Bitmap> cache=new LruCache<String,Bitmap>(12*1024*1024){protected int sizeOf(String k,Bitmap b){return b.getByteCount();}};
  final Handler main=new Handler(Looper.getMainLooper());
  IndexStore store; TextView status,count,device; EditText search; Spinner script,scope,limit; Button start,pick,pause,stop,clear,more;
- ProgressBar progress,homeProgress; GridView list; Rows adapter; LinearLayout settingsPanel,homeEmpty,historyBox; TextView homeStatus,stats,emptyTitle; Button homeUpdate,settings,clearQuery; boolean browsing=false; int indexed=0; boolean anyTerms=false; SearchSpec filters=SearchSpec.defaults("",false); Button filterButton,andButton,orButton; LinearLayout termBar; TextView filterSummary; boolean metadataDirty=true; ArrayList<String[]> albumChoices=new ArrayList<>(); volatile boolean cancel=false,discard=false,active=false; boolean ready=false,busy=false,planning=false,readBusy=false,readAgain=false,resetScroll=false;
+ ProgressBar progress,homeProgress; GridView list; Rows adapter; LinearLayout settingsPanel,homeEmpty,historyBox; TextView homeStatus,stats,emptyTitle; Button homeUpdate,settings,clearQuery; boolean browsing=false; int indexed=0; boolean anyTerms=false; SearchSpec filters=SearchSpec.defaults("",false); Button filterButton,andButton,orButton; LinearLayout termBar; TextView filterSummary; boolean metadataDirty=true; Switch autoSwitch; boolean autoRequested=false,autoRun=false,observerRegistered=false; TextView autoInfo; ArrayList<String[]> albumChoices=new ArrayList<>(); volatile boolean cancel=false,discard=false,active=false; boolean ready=false,busy=false,planning=false,readBusy=false,readAgain=false,resetScroll=false;
  IndexStore.Job job; int pageSize=100,matches=0,requestSerial=0; String problem="",scanAccess=""; long lastRefresh=0;
  int dp(float n){return Math.round(n*getResources().getDisplayMetrics().density);}
  LinearLayout vertical(){LinearLayout l=new LinearLayout(this);l.setOrientation(1);return l;}
@@ -71,6 +71,42 @@ public class MainActivity extends Activity {
   Button info=button("ⓘ 日期說明");l.addView(info,new LinearLayout.LayoutParams(-1,dp(44)));info.setOnClickListener(v->new AlertDialog.Builder(this).setTitle("日期說明").setMessage("優先使用照片拍攝日期；沒有拍攝日期時使用檔案修改日期或加入相簿日期。無法取得日期的照片不列入日期篩選，排序時放在最後。手動選取的照片可能無法取得相簿名稱。").setPositiveButton("關閉",null).show());
   ScrollView sc=new ScrollView(this);sc.addView(l);AlertDialog dlg=new AlertDialog.Builder(this).setTitle("搜尋篩選").setView(sc).setNegativeButton("取消",null).setNeutralButton("重設",null).setPositiveButton("套用",null).create();dlg.show();dlg.getButton(-3).setOnClickListener(v->{filters=SearchSpec.defaults("",anyTerms);dlg.dismiss();newSearch();});dlg.getButton(-1).setOnClickListener(v->{int mode=date.getSelectedItemPosition();long f=0,t=0;if(mode==1){f=shift(today,Calendar.MONTH,-1);t=shift(today,Calendar.DATE,1);}else if(mode==2){f=shift(today,Calendar.YEAR,-1);t=shift(today,Calendar.DATE,1);}else if(mode==3){if(days[0]>days[1]){Toast.makeText(this,"起始日期不可晚於結束日期",Toast.LENGTH_SHORT).show();return;}f=days[0];t=shift(days[1],Calendar.DATE,1);}filters=new SearchSpec("",anyTerms,keys.get(albums.getSelectedItemPosition()),f,t,sort.getSelectedItemPosition()==1,mode);dlg.dismiss();newSearch();});
  }
+ boolean autoEnabled(){return getPreferences(MODE_PRIVATE).getBoolean("auto009",true);}
+ void setAutoEnabled(boolean enabled){getPreferences(MODE_PRIVATE).edit().putBoolean("auto009",enabled).apply();if(autoSwitch!=null&&autoSwitch.isChecked()!=enabled)autoSwitch.setChecked(enabled);if(!enabled){autoRequested=false;main.removeCallbacks(autoTask);if(autoRun&&busy)cancel=true;}else scheduleAuto();updateAutoInfo();}
+ void updateAutoInfo(){if(autoInfo==null)return;autoInfo.setText(!autoEnabled()?"自動同步已關閉":!fullAccess()?"需要完整照片權限":autoRun&&busy?"正在自動同步":"開啟 App 時自動檢查");}
+ final Runnable autoTask=()->tryAuto();
+ final android.database.ContentObserver mediaObserver=new android.database.ContentObserver(main){@Override public void onChange(boolean self,Uri uri){scheduleAuto();}@Override public void onChange(boolean self){scheduleAuto();}};
+ void scheduleAuto(){if(!autoEnabled())return;autoRequested=true;main.removeCallbacks(autoTask);if(active)main.postDelayed(autoTask,1200);}
+ void registerMediaObserver(){if(observerRegistered)return;try{getContentResolver().registerContentObserver(Uri.parse("content://media"),true,mediaObserver);observerRegistered=true;}catch(Exception ignored){}}
+ void unregisterMediaObserver(){if(observerRegistered){try{getContentResolver().unregisterContentObserver(mediaObserver);}catch(Exception ignored){}observerRegistered=false;}}
+ void tryAuto(){
+  if(!active||!ready||!autoEnabled()||!fullAccess()||!autoRequested||busy||readBusy)return;
+  if(job!=null&&job.pending()>0&&!job.scope.startsWith("自動同步"))return;
+  autoRequested=false;autoRun=true;busy=true;planning=true;cancel=false;discard=false;problem="";updateButtons();status.setText("正在檢查照片異動…");
+  worker.execute(()->{
+   try{
+    IndexStore.Job persisted=store.job();
+    if(persisted!=null&&persisted.pending()>0){
+     if(persisted.scope.startsWith("自動同步")&&!cancel&&active){scanJob();}else finishRun("");
+     return;
+    }
+    MediaSync.Snapshot snapshot=MediaSync.read(getApplicationContext(),()->cancel||!active);
+    if(cancel||!active||!fullAccess()){finishAutoWithoutScan("");return;}
+    if(snapshot.complete.isEmpty()){finishAutoWithoutScan("暫時無法讀取相簿，下次開啟會再檢查");return;}
+    SyncPlan plan=SyncPlan.build(snapshot.items,store.syncKnown(),snapshot.complete);
+    ArrayList<String> removed=new ArrayList<>();
+    for(String u:plan.missing){if(cancel||!active)break;if(MediaSync.confirmedMissing(getApplicationContext(),u,snapshot.complete))removed.add(u);}
+    if(cancel||!active||!fullAccess()){finishAutoWithoutScan("");return;}
+    store.applySync(snapshot,removed);
+    if(!removed.isEmpty()){for(String u:removed)cache.remove(u);}
+    ArrayList<IndexStore.Photo> pending=new ArrayList<>();
+    for(SyncPlan.Work w:plan.work){pending.add(new IndexStore.Photo(w.item.uri,w.item.name,w.item.stamp,w.mode));cache.remove(w.item.uri);}
+    if(pending.isEmpty()){finishAutoWithoutScan("");return;}
+    store.createJob(pending,plan.skipped,"自動同步（全部相簿）");scanJob();
+   }catch(Exception e){finishAutoWithoutScan("自動同步中斷："+e.getMessage());}
+  });
+ }
+ void finishAutoWithoutScan(String message){finishRunInternal(message,false);}
  void space(LinearLayout l,int h){l.addView(new View(this),new LinearLayout.LayoutParams(1,dp(h)));}
  Spinner spinner(String[] values){Spinner s=new Spinner(this);ArrayAdapter<String> a=new ArrayAdapter<>(this,android.R.layout.simple_spinner_item,values);a.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);s.setAdapter(a);return s;}
  void addButton(LinearLayout r,Button b){LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,dp(48),1);p.setMargins(dp(3),dp(2),dp(3),dp(2));r.addView(b,p);}
@@ -89,7 +125,7 @@ public class MainActivity extends Activity {
   more=button("載入更多結果");root.addView(more,new LinearLayout.LayoutParams(-1,dp(46)));more.setVisibility(View.GONE);
   space(root,8);homeProgress=new ProgressBar(this,null,android.R.attr.progressBarStyleHorizontal);homeProgress.setProgressTintList(android.content.res.ColorStateList.valueOf(BLUE));root.addView(homeProgress);homeProgress.setVisibility(View.GONE);
   LinearLayout footer=new LinearLayout(this);footer.setGravity(Gravity.CENTER_VERTICAL);homeStatus=text("正在準備索引…",13,MUTED);footer.addView(homeStatus,new LinearLayout.LayoutParams(0,-2,1));homeUpdate=button("更新索引");primary(homeUpdate);footer.addView(homeUpdate,new LinearLayout.LayoutParams(dp(108),dp(46)));root.addView(footer);
-  settingsPanel=vertical();settingsPanel.setPadding(dp(20),dp(10),dp(20),dp(10));section(settingsPanel,"索引更新");
+  settingsPanel=vertical();settingsPanel.setPadding(dp(20),dp(10),dp(20),dp(10));section(settingsPanel,"索引更新");autoSwitch=new Switch(this);autoSwitch.setText("自動同步照片");autoSwitch.setTextColor(INK);autoSwitch.setTextSize(16);autoSwitch.setChecked(autoEnabled());settingsPanel.addView(autoSwitch,new LinearLayout.LayoutParams(-1,dp(48)));autoInfo=text("",13,MUTED);settingsPanel.addView(autoInfo);autoSwitch.setOnCheckedChangeListener((b,on)->setAutoEnabled(on));updateAutoInfo();space(settingsPanel,8);
   script=spinner(IndexStore.MODES);settingsPanel.addView(script,new LinearLayout.LayoutParams(-1,dp(48)));
   LinearLayout opts=new LinearLayout(this);scope=spinner(SCOPES);limit=spinner(new String[]{"1,000 張","3,000 張","5,000 張","10,000 張","全部照片"});opts.addView(scope,new LinearLayout.LayoutParams(0,dp(48),1));opts.addView(limit,new LinearLayout.LayoutParams(0,dp(48),1));settingsPanel.addView(opts);
   LinearLayout bar=new LinearLayout(this);start=button("開始掃描");primary(start);pick=button("選擇照片");addButton(bar,start);addButton(bar,pick);settingsPanel.addView(bar);
@@ -97,8 +133,8 @@ public class MainActivity extends Activity {
   progress=new ProgressBar(this,null,android.R.attr.progressBarStyleHorizontal);progress.setProgressTintList(android.content.res.ColorStateList.valueOf(BLUE));settingsPanel.addView(progress);progress.setVisibility(View.GONE);
   status=text("正在準備索引…",14,MUTED);settingsPanel.addView(status);device=text("",13,MUTED);settingsPanel.addView(device);space(settingsPanel,18);
   section(settingsPanel,"索引紀錄");stats=text("",14,MUTED);settingsPanel.addView(stats);space(settingsPanel,8);LinearLayout manage=new LinearLayout(this);Button browse=button("檢視索引");clear=button("清除紀錄");clear.setTextColor(0xffa13d3d);addButton(manage,browse);addButton(manage,clear);settingsPanel.addView(manage);space(settingsPanel,14);
-  Button help=button("ⓘ 使用說明");settingsPanel.addView(help,new LinearLayout.LayoutParams(-1,dp(48)));help.setOnClickListener(v->new AlertDialog.Builder(this).setTitle("使用說明").setMessage("照片只讀，不修改原始檔。文字索引完全離線。掃描時保持 App 在前景；離開後暫停，重新開啟可繼續。已辨識且未變更的照片會跳過。").setPositiveButton("關閉",null).show());space(settingsPanel,10);TextView version=text("版本 008",12,MUTED);version.setGravity(Gravity.CENTER);settingsPanel.addView(version);
-  settings.setOnClickListener(v->settingsDialog());homeUpdate.setOnClickListener(v->{if(!ready||busy)return;if(job!=null&&job.pending()>0&&job.scope.equals("手動選取"))beginResume();else requestAccess();});homeStatus.setOnClickListener(v->{v.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK);settingsDialog();});
+  Button help=button("ⓘ 使用說明");settingsPanel.addView(help,new LinearLayout.LayoutParams(-1,dp(48)));help.setOnClickListener(v->new AlertDialog.Builder(this).setTitle("使用說明").setMessage("照片只讀，不修改原始檔。文字索引完全離線。自動同步需完整照片權限，僅在 App 前景執行。已辨識且未變更的照片會跳過。暫停或停止自動掃描會關閉自動同步，可在設定重新開啟。清除索引也會關閉自動同步。").setPositiveButton("關閉",null).show());space(settingsPanel,10);TextView version=text("版本 009",12,MUTED);version.setGravity(Gravity.CENTER);settingsPanel.addView(version);
+  settings.setOnClickListener(v->settingsDialog());homeUpdate.setOnClickListener(v->{if(!ready||busy)return;main.removeCallbacks(autoTask);if(job!=null&&job.pending()>0&&job.scope.equals("手動選取"))beginResume();else requestAccess();});homeStatus.setOnClickListener(v->{v.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK);settingsDialog();});
   browse.setOnClickListener(v->{search.setText("");browsing=true;pageSize=100;requestSerial++;resetScroll=true;requestPage();if(settingsPanel.getTag() instanceof AlertDialog)((AlertDialog)settingsPanel.getTag()).dismiss();});
   clearQuery.setOnClickListener(v->{browsing=false;search.setText("");pageSize=100;requestSerial++;resetScroll=true;requestPage();hideKeyboard();});
   search.setOnEditorActionListener((v,action,event)->{if(action==android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH){rememberQuery();hideKeyboard();requestPage();return true;}return false;});
@@ -107,13 +143,13 @@ public class MainActivity extends Activity {
   search.addTextChangedListener(new TextWatcher(){public void beforeTextChanged(CharSequence s,int st,int c,int a){}public void onTextChanged(CharSequence s,int st,int before,int c){browsing=false;pageSize=100;adapter.items.clear();adapter.notifyDataSetChanged();matches=0;updateHome();requestSerial++;resetScroll=true;main.removeCallbacks(searchDelay);main.postDelayed(searchDelay,180);}public void afterTextChanged(Editable e){}});
   start.setOnClickListener(v->{if(!ready||busy)return;if(job!=null&&job.pending()>0){if(job.scope.equals("手動選取"))beginResume();else requestAccess();}else requestAccess();});
   pick.setOnClickListener(v->{if(ready&&!busy&&(job==null||job.pending()==0))openPhotoPicker();});
-  pause.setOnClickListener(v->{cancel=true;pause.setEnabled(false);status.setText("目前這張完成後暫停…");});
-  stop.setOnClickListener(v->new AlertDialog.Builder(this).setTitle("停止本批掃描？").setMessage("已完成的文字索引會保留；未辨識的待處理清單會清除。").setNegativeButton("取消",null).setPositiveButton("停止",(d,w)->{if(busy){discard=true;cancel=true;status.setText("正在停止…");}else{runDiscard();}}).show());
-  clear.setOnClickListener(v->new AlertDialog.Builder(this).setTitle("清除全部辨識紀錄？").setMessage("不會刪除任何原始照片，未完成清單也會清除。").setNegativeButton("取消",null).setPositiveButton("清除",(d,w)->{if(!busy){busy=true;updateButtons();worker.execute(()->{String err="";try{store.clear();}catch(Exception e){err=e.toString();}final String msg=err;main.post(()->{busy=false;problem=msg;job=null;requestPage();updateButtons();});});}}).show());
+  pause.setOnClickListener(v->{if(autoRun||(job!=null&&job.scope.startsWith("自動同步")))setAutoEnabled(false);cancel=true;pause.setEnabled(false);status.setText("目前這張完成後暫停…");});
+  stop.setOnClickListener(v->new AlertDialog.Builder(this).setTitle("停止本批掃描？").setMessage("已完成的文字索引會保留；未辨識的待處理清單會清除。").setNegativeButton("取消",null).setPositiveButton("停止",(d,w)->{if(autoRun||(job!=null&&job.scope.startsWith("自動同步")))setAutoEnabled(false);if(busy){discard=true;cancel=true;status.setText("正在停止…");}else{runDiscard();}}).show());
+  clear.setOnClickListener(v->new AlertDialog.Builder(this).setTitle("清除全部辨識紀錄？").setMessage("不會刪除任何原始照片，未完成清單也會清除。").setNegativeButton("取消",null).setPositiveButton("清除",(d,w)->{if(!busy){setAutoEnabled(false);busy=true;updateButtons();worker.execute(()->{String err="";try{store.clear();}catch(Exception e){err=e.toString();}final String msg=err;main.post(()->{busy=false;problem=msg;job=null;requestPage();updateButtons();});});}}).show());
   more.setOnClickListener(v->{pageSize+=100;requestSerial++;requestPage();});
   list.setOnItemClickListener((a,v,p,id)->{if(p<adapter.items.size()){v.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK);rememberQuery();hideKeyboard();detail(adapter.items.get(p));}});
   updateButtons();
-  worker.execute(()->{String err="";try{store.migrate(getApplicationContext());}catch(Exception e){err="舊索引轉移失敗："+e.getMessage();}final String message=err;final IndexStore.Job initialJob=err.isEmpty()?store.job():null;main.post(()->{if(isDestroyed())return;ready=message.isEmpty();problem=message;job=ready?initialJob:null;requestPage();updateButtons();updateStatus();});});
+  worker.execute(()->{String err="";try{store.migrate(getApplicationContext());}catch(Exception e){err="舊索引轉移失敗："+e.getMessage();}final String message=err;final IndexStore.Job initialJob=err.isEmpty()?store.job():null;main.post(()->{if(isDestroyed())return;ready=message.isEmpty();problem=message;job=ready?initialJob:null;requestPage();updateButtons();updateStatus();scheduleAuto();});});
  }
  final Runnable searchDelay=()->requestPage();
  boolean fullAccess(){return Build.VERSION.SDK_INT>=33?checkSelfPermission(Manifest.permission.READ_MEDIA_IMAGES)==PackageManager.PERMISSION_GRANTED:checkSelfPermission(Manifest.permission.READ_EXTERNAL_STORAGE)==PackageManager.PERMISSION_GRANTED;}
@@ -126,7 +162,7 @@ public class MainActivity extends Activity {
  }
  @Override public void onRequestPermissionsResult(int req,String[] p,int[] g){super.onRequestPermissionsResult(req,p,g);if(req!=PERMISSION||busy)return;if(fullAccess()){scanAccess="完整相簿";startOrResume();}else if(partialAccess()){new AlertDialog.Builder(this).setTitle("僅允許部分照片").setMessage("只能掃描已授權的照片，可能不足 1,000 張。若要測試完整相簿，請選擇允許所有照片。").setNegativeButton("取消",null).setPositiveButton("掃描已授權照片",(d,w)->{scanAccess="部分授權";startOrResume();}).show();}else{status.setText("未取得照片讀取權限，可使用手動選擇照片。");}}
  void startOrResume(){if(job!=null&&job.pending()>0)beginResume();else beginMedia();}
- void launchSetup(){busy=true;planning=true;cancel=false;discard=false;problem="";updateButtons();status.setText("正在建立待辨識清單…");getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);}
+ void launchSetup(){autoRun=false;main.removeCallbacks(autoTask);busy=true;planning=true;cancel=false;discard=false;problem="";updateButtons();status.setText("正在建立待辨識清單…");getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);}
  void beginMedia(){if(busy||!ready)return;final int mode=script.getSelectedItemPosition(),which=scope.getSelectedItemPosition(),max=LIMITS[limit.getSelectedItemPosition()];final String label=SCOPES[which]+"（"+scanAccess+"）";launchSetup();worker.execute(()->{
   try{HashMap<String,String> known=store.scanned(mode);ArrayList<IndexStore.Photo> photos=new ArrayList<>();int skipped=0;
    Uri collection=MediaStore.Images.Media.EXTERNAL_CONTENT_URI;
@@ -168,14 +204,18 @@ public class MainActivity extends Activity {
   if(discard)try{store.discard();}catch(Exception ex){failure="停止失敗："+ex.getMessage();}
   finishRun(failure);
  }
- void finishRun(String message){main.post(()->{if(isDestroyed())return;busy=false;planning=false;problem=message;metadataDirty=true;getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);requestPage();updateButtons();updateStatus();});}
+ void finishRun(String message){finishRunInternal(message,true);}
+ void finishRunInternal(String message,boolean recheck){
+  IndexStore.Job current=null;try{current=store.job();}catch(Exception ignored){}final IndexStore.Job actual=current;
+  main.post(()->{if(isDestroyed())return;job=actual;busy=false;planning=false;autoRun=false;problem=message;metadataDirty=true;getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);requestPage();updateButtons();updateStatus();if(recheck&&message.isEmpty()&&(job==null||job.pending()==0))scheduleAuto();else if(autoRequested&&active&&message.isEmpty()){main.removeCallbacks(autoTask);main.postDelayed(autoTask,1200);}});
+ }
  void runDiscard(){busy=true;updateButtons();worker.execute(()->{String error="";try{store.discard();}catch(Exception e){error=e.toString();}finishRun(error);});}
  void requestPage(){
   if(isDestroyed()||store==null||!ready)return;if(readBusy){readAgain=true;return;}readBusy=true;
   final int serial=requestSerial;final String q=search.getText().toString();final SearchSpec spec=filters.withQuery(q,anyTerms);final int n=IndexStore.norm(q).isEmpty()&&!browsing&&!spec.filtered()?0:pageSize;final boolean refresh=metadataDirty;metadataDirty=false;
-  reader.execute(()->{IndexStore.Page p=null;ArrayList<String[]> albums=null;String err="";try{if(refresh){store.refreshMetadata(getApplicationContext());albums=store.albums();}p=store.search(spec,n);}catch(Exception e){err=e.toString();}final IndexStore.Page page=p;final ArrayList<String[]> availableAlbums=albums;final String message=err;main.post(()->{if(isDestroyed())return;readBusy=false;if(availableAlbums!=null)albumChoices=availableAlbums;if(page!=null){job=page.job;indexed=page.ok+page.empty+page.failed;stats.setText("累計 "+indexed+" 筆｜有文字 "+page.ok+"\n無文字 "+page.empty+"｜失敗 "+page.failed);if(serial==requestSerial){boolean toTop=resetScroll;int pos=toTop?0:list.getFirstVisiblePosition();resetScroll=false;adapter.items=page.rows;adapter.query=q;adapter.terms=SearchSpec.terms(q,HanFold::fold);adapter.notifyDataSetChanged();if(pos<adapter.getCount()&&(toTop||list.getFirstVisiblePosition()!=pos))list.setSelection(pos);matches=page.matches;count.setText((browsing?"全部索引 ":"符合 ")+page.matches+" 筆");more.setVisibility(page.matches>page.rows.size()?View.VISIBLE:View.GONE);}else readAgain=true;}else if(!message.isEmpty()){problem="索引讀取失敗："+message;}updateStatus();updateButtons();if(readAgain){readAgain=false;requestPage();}});});
+  reader.execute(()->{IndexStore.Page p=null;ArrayList<String[]> albums=null;String err="";try{if(refresh){store.refreshMetadata(getApplicationContext());albums=store.albums();}p=store.search(spec,n);}catch(Exception e){err=e.toString();}final IndexStore.Page page=p;final ArrayList<String[]> availableAlbums=albums;final String message=err;main.post(()->{if(isDestroyed())return;readBusy=false;if(availableAlbums!=null)albumChoices=availableAlbums;if(page!=null){job=page.job;indexed=page.ok+page.empty+page.failed;stats.setText("累計 "+indexed+" 筆｜有文字 "+page.ok+"\n無文字 "+page.empty+"｜失敗 "+page.failed);if(serial==requestSerial){boolean toTop=resetScroll;int pos=toTop?0:list.getFirstVisiblePosition();resetScroll=false;adapter.items=page.rows;adapter.query=q;adapter.terms=SearchSpec.terms(q,HanFold::fold);adapter.notifyDataSetChanged();if(pos<adapter.getCount()&&(toTop||list.getFirstVisiblePosition()!=pos))list.setSelection(pos);matches=page.matches;count.setText((browsing?"全部索引 ":"符合 ")+page.matches+" 筆");more.setVisibility(page.matches>page.rows.size()?View.VISIBLE:View.GONE);}else readAgain=true;}else if(!message.isEmpty()){problem="索引讀取失敗："+message;}updateStatus();updateButtons();if(readAgain){readAgain=false;requestPage();}else if(autoRequested&&active&&!busy){main.removeCallbacks(autoTask);main.postDelayed(autoTask,600);}});});
  }
- void updateButtons(){boolean pending=job!=null&&job.pending()>0;start.setEnabled(ready&&!busy);start.setText(pending?"繼續掃描":"開始掃描");pick.setEnabled(ready&&!busy&&!pending);clear.setEnabled(ready&&!busy);scope.setEnabled(ready&&!busy&&!pending);limit.setEnabled(ready&&!busy&&!pending);script.setEnabled(ready&&!busy&&!pending);pause.setVisibility(busy&&!planning?View.VISIBLE:View.GONE);pause.setEnabled(busy&&!cancel);stop.setVisibility((busy||pending)?View.VISIBLE:View.GONE);updateHome();}
+ void updateButtons(){boolean pending=job!=null&&job.pending()>0;start.setEnabled(ready&&!busy);start.setText(pending?"繼續掃描":"開始掃描");pick.setEnabled(ready&&!busy&&!pending);clear.setEnabled(ready&&!busy);scope.setEnabled(ready&&!busy&&!pending);limit.setEnabled(ready&&!busy&&!pending);script.setEnabled(ready&&!busy&&!pending);pause.setVisibility(busy&&!planning?View.VISIBLE:View.GONE);pause.setEnabled(busy&&!cancel);stop.setVisibility((busy||pending)?View.VISIBLE:View.GONE);updateAutoInfo();updateHome();}
  void updateStatus(){
   if(planning){status.setText("正在建立待辨識清單…");updateHome();return;}
   if(job==null){progress.setVisibility(View.GONE);status.setText(!problem.isEmpty()?problem:ready?"可直接掃描相簿或選取照片。":"正在準備索引…");}
@@ -208,7 +248,7 @@ public class MainActivity extends Activity {
   dlg.show();if(w!=null){w.setLayout(-1,-1);if(Build.VERSION.SDK_INT>=30){w.setDecorFitsSystemWindows(false);l.requestApplyInsets();}}if(!full.hits.isEmpty())scrollToMatch(sc,raw,full.hits.get(0).start);
   thumbs.execute(()->{try{Bitmap b=ImageDecoder.decodeBitmap(ImageDecoder.createSource(getContentResolver(),Uri.parse(e.uri)),(decoder,info,source)->{int wi=info.getSize().getWidth(),he=info.getSize().getHeight();decoder.setTargetSampleSize(Math.max(1,(Math.max(wi,he)+2999)/3000));decoder.setAllocator(ImageDecoder.ALLOCATOR_SOFTWARE);});main.post(()->{if(dlg.isShowing())img.setPhoto(b);});}catch(Exception ex){main.post(()->{if(dlg.isShowing())img.failed=true;img.invalidate();});}});
  }
- @Override protected void onStart(){super.onStart();active=true;if(ready){metadataDirty=true;requestPage();}}
- @Override protected void onStop(){active=false;if(busy)cancel=true;super.onStop();}
- @Override protected void onDestroy(){active=false;cancel=true;main.removeCallbacks(searchDelay);worker.shutdown();reader.shutdown();thumbs.shutdown();super.onDestroy();}
+ @Override protected void onStart(){super.onStart();active=true;registerMediaObserver();if(ready){metadataDirty=true;requestPage();}scheduleAuto();}
+ @Override protected void onStop(){active=false;main.removeCallbacks(autoTask);unregisterMediaObserver();if(busy)cancel=true;super.onStop();}
+ @Override protected void onDestroy(){active=false;cancel=true;unregisterMediaObserver();main.removeCallbacks(autoTask);main.removeCallbacks(searchDelay);worker.shutdown();reader.shutdown();thumbs.shutdown();super.onDestroy();}
 }
