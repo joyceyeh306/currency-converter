@@ -1,0 +1,50 @@
+name: Ajo Photo Text 006
+on:
+  push:
+    branches: [ajo-photo-text-001-build]
+    paths: ['ajo-photo-text-001/**', '.github/workflows/ajo-photo-text-001.yml']
+  pull_request:
+    branches: [main]
+    paths: ['ajo-photo-text-001/**', '.github/workflows/ajo-photo-text-001.yml']
+  workflow_dispatch:
+jobs:
+  build-photo-text:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ajo-photo-text-001
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: 'platform-tools platforms;android-35 build-tools;35.0.0'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - run: gradle :app:assembleDebug --stacktrace
+      - name: Verify APK manifest and signature
+        run: |
+          APK=app/build/outputs/apk/debug/app-debug.apk
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK"
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose "$APK"
+          cp "$APK" ajo-photo-text_006.apk
+          sha256sum ajo-photo-text_006.apk
+          cp "$ANDROID_HOME/build-tools/35.0.0/lib/apksigner.jar" apksigner.jar
+          zip -q -r ajo-photo-text_006_source.zip settings.gradle build.gradle gradle.properties app/build.gradle app/src
+      - name: Compare old OCR package ID
+        continue-on-error: true
+        run: |
+          git fetch --depth=1 origin ajo-ocr-rebuild-003
+          git show FETCH_HEAD:release/AjoPhotoText_005.apk > /tmp/ocr005.apk
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging /tmp/ocr005.apk | head -n 2
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ajo-photo-text-006
+          path: |
+            ajo-photo-text-001/ajo-photo-text_006.apk
+            ajo-photo-text-001/apksigner.jar
+            ajo-photo-text-001/ajo-photo-text_006_source.zip
