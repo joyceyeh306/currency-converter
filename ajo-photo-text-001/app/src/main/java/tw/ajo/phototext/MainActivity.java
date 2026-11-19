@@ -68,7 +68,7 @@ public class MainActivity extends Activity {
     private void build(){
         binding=true;root=column();root.setBackgroundColor(BG);root.setPadding(dp(12),dp(8),dp(12),dp(8));setContentView(root);
         LinearLayout top=row();TextView heading=text("ㄚ喬相片加字",22);heading.setTypeface(null,Typeface.BOLD);top.addView(heading,new LinearLayout.LayoutParams(0,-2,1));pickButton=button("選取相片",()->pick());top.addView(pickButton);pickButton.setOnLongClickListener(v->{if(!busy)systemPick();return true;});root.addView(top);
-        status=text("001  ·  點選原生相簿，長按使用系統相片選擇器",12);root.addView(status);
+        status=text("002  ·  點選原生相簿，長按使用系統相片選擇器",12);root.addView(status);
         preview=new Preview();root.addView(preview,new LinearLayout.LayoutParams(-1,0,1.1f));
         nav=row();prev=button("‹",()->switchPhoto(-1));next=button("›",()->switchPhoto(1));count=text("未選取相片",14);count.setGravity(Gravity.CENTER);nav.addView(prev);nav.addView(count,new LinearLayout.LayoutParams(0,-2,1));nav.addView(next);infoButton=button("ⓘ",()->showInfo());nav.addView(infoButton);root.addView(nav);
         ScrollView scroll=new ScrollView(this);editor=column();editor.setPadding(dp(2),0,dp(2),dp(10));scroll.addView(editor);root.addView(scroll,new LinearLayout.LayoutParams(-1,0,1f));
@@ -95,7 +95,7 @@ public class MainActivity extends Activity {
         systemPick();
     }
     private void systemPick(){try{if(Build.VERSION.SDK_INT>=33){Intent i=new Intent(MediaStore.ACTION_PICK_IMAGES);i.setType("image/*");i.putExtra(MediaStore.EXTRA_PICK_IMAGES_MAX,Math.min(LIMIT,MediaStore.getPickImagesMaxLimit()));i.putExtra("android.provider.extra.REQUEST_LOCATION_METADATA_ACCESS",true);i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);startActivityForResult(i,PICK);}else{Intent i=new Intent(Intent.ACTION_PICK,MediaStore.Images.Media.EXTERNAL_CONTENT_URI);i.setType("image/*");i.putExtra(Intent.EXTRA_ALLOW_MULTIPLE,true);startActivityForResult(i,PICK);}}catch(Exception e){message("本機未提供可用的相片選擇器。未改用檔案管理員。");}}
-    @Override protected void onActivityResult(int request,int result,Intent data){super.onActivityResult(request,result,data);if(request!=PICK||result!=RESULT_OK||data==null)return;LinkedHashSet<Uri> uris=new LinkedHashSet<>();if(data.getClipData()!=null)for(int i=0;i<data.getClipData().getItemCount();i++){Uri u=data.getClipData().getItemAt(i).getUri();if(u!=null)uris.add(u);}if(data.getData()!=null)uris.add(data.getData());if(uris.isEmpty())return;photos.clear();for(Uri u:uris){if(photos.size()>=LIMIT)break;photos.add(new Photo(u));}index=0;if(uris.size()>LIMIT)message("001 版每批最多 100 張");loadCurrent();}
+    @Override protected void onActivityResult(int request,int result,Intent data){super.onActivityResult(request,result,data);if(request!=PICK||result!=RESULT_OK||data==null)return;LinkedHashSet<Uri> uris=new LinkedHashSet<>();if(data.getClipData()!=null)for(int i=0;i<data.getClipData().getItemCount();i++){Uri u=data.getClipData().getItemAt(i).getUri();if(u!=null)uris.add(u);}if(data.getData()!=null)uris.add(data.getData());if(uris.isEmpty())return;photos.clear();for(Uri u:uris){if(photos.size()>=LIMIT)break;photos.add(new Photo(u));}index=0;if(uris.size()>LIMIT)message("每批最多 100 張");loadCurrent();}
     private void switchPhoto(int delta){if(busy)return;changed();index+=delta;loadCurrent();}
     private Photo active(){return photos.isEmpty()?null:photos.get(index);}
     private void loadCurrent(){
