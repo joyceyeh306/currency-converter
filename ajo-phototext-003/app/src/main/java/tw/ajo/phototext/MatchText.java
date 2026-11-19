@@ -7,8 +7,9 @@ import java.util.Locale;
 
 final class MatchText {
  static final class Range {
-  final int start,end;
-  Range(int s,int e){start=s;end=e;}
+  final int start,end;final boolean approximate;
+  Range(int s,int e){this(s,e,false);}
+  Range(int s,int e,boolean a){start=s;end=e;approximate=a;}
  }
  static final class Segment {
   final String text;

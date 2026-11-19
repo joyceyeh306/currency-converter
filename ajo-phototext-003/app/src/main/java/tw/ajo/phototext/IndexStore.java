@@ -16,7 +16,7 @@ final class IndexStore extends SQLiteOpenHelper {
   Photo(String u,String n,String s,int m){uri=u;name=n;stamp=s;mode=m;}
  }
  static class Result {
-  String uri,name,text,error; int mode; long ms;
+  String uri,name,text,error; int mode; long ms; boolean approximate;
   Result(Cursor c){uri=c.getString(0);name=c.getString(1);mode=c.getInt(2);text=c.getString(3);error=c.getString(4);ms=c.getLong(5);}
  }
  static class Job {
@@ -24,7 +24,7 @@ final class IndexStore extends SQLiteOpenHelper {
   int pending(){return total-done;}
  }
  static class Page {
-  final ArrayList<Result> rows=new ArrayList<>(); int matches,ok,empty,failed; Job job;
+  final ArrayList<Result> rows=new ArrayList<>(); int matches,ok,empty,failed,nearMatches; Job job;
  }
  IndexStore(Context c){super(c,"photo_index006.db",null,2);setWriteAheadLoggingEnabled(true);}
  @Override public void onCreate(SQLiteDatabase d){
@@ -94,11 +94,38 @@ final class IndexStore extends SQLiteOpenHelper {
  }
  void discard(){SQLiteDatabase d=getWritableDatabase();d.beginTransaction();try{d.delete("queue",null,null);d.delete("job",null,null);d.setTransactionSuccessful();}finally{d.endTransaction();}}
  void clear(){SQLiteDatabase d=getWritableDatabase();d.beginTransaction();try{d.delete("queue",null,null);d.delete("job",null,null);d.delete("records",null,null);d.delete("photo_meta",null,null);d.setTransactionSuccessful();}finally{d.endTransaction();}}
- Page search(SearchSpec spec,int limit){
+ Page search(SearchSpec spec,int limit){return search(spec,limit,false,()->false);}
+ Page search(SearchSpec spec,int limit,boolean fuzzy,java.util.function.BooleanSupplier canceled){
   SQLiteDatabase d=getReadableDatabase();Page p=new Page();SearchSpec.Where w=spec.where(HanFold::fold);String where=w.sql;String[] args=w.args;String joined=" FROM records r LEFT JOIN photo_meta p ON r.uri=p.uri WHERE ";
   try(Cursor c=d.rawQuery("SELECT COUNT(*), COALESCE(SUM(CASE WHEN error='' AND length(trim(body))>0 THEN 1 ELSE 0 END),0),COALESCE(SUM(CASE WHEN error='' AND length(trim(body))=0 THEN 1 ELSE 0 END),0),COALESCE(SUM(CASE WHEN error<>'' THEN 1 ELSE 0 END),0) FROM records",null)){if(c.moveToFirst()){p.ok=c.getInt(1);p.empty=c.getInt(2);p.failed=c.getInt(3);}}
+  if(fuzzy&&!FuzzyText.terms(spec.query,HanFold::fold,true).isEmpty()&&limit>0){fuzzyRows(d,p,spec,limit,canceled);p.job=job();return p;}
   try(Cursor c=d.rawQuery("SELECT COUNT(*)"+joined+where,args)){if(c.moveToFirst())p.matches=c.getInt(0);}
   try(Cursor c=d.rawQuery("SELECT r.uri,r.name,r.mode,r.body,r.error,r.ms"+joined+where+" ORDER BY "+spec.order()+" LIMIT "+limit,args)){while(c.moveToNext())p.rows.add(new Result(c));}
   p.job=job();return p;
+ }
+ static final class Ranked {final long id;final boolean near;final int exact,nearCount;Ranked(long i,FuzzyText.Score s,boolean any){id=i;near=s.approximate(any);exact=s.exact;nearCount=s.near;}}
+ void fuzzyRows(SQLiteDatabase d,Page p,SearchSpec spec,int limit,java.util.function.BooleanSupplier canceled){
+  List<String> terms=FuzzyText.terms(spec.query,HanFold::fold,true);
+  SearchSpec.Where filter=spec.withQuery("",spec.any).where(HanFold::fold);
+  String joined=" FROM records r LEFT JOIN photo_meta p ON r.uri=p.uri WHERE ";
+  Comparator<Ranked> rank=Comparator.comparing((Ranked a)->a.near).thenComparingInt(a->-a.exact).thenComparingInt(a->-a.nearCount);
+  // Stable ties follow original photo date sorting; scan all filtered records, keep only small ID candidates.
+  TreeMap<Ranked,ArrayList<Ranked>> buckets=new TreeMap<>(rank);
+  try(Cursor c=d.rawQuery("SELECT r.rowid,r.folded"+joined+filter.sql+" AND r.error='' AND r.folded<>'' ORDER BY "+spec.order(),filter.args)){
+   while(c.moveToNext()){
+    if(canceled.getAsBoolean())return;
+    FuzzyText.Score score=FuzzyText.score(c.getString(1),terms,spec.any);
+    if(!score.accepted)continue;
+    p.matches++;Ranked entry=new Ranked(c.getLong(0),score,spec.any);if(entry.near)p.nearMatches++;
+    ArrayList<Ranked> bucket=buckets.computeIfAbsent(entry,k->new ArrayList<>());if(bucket.size()<limit)bucket.add(entry);
+   }
+  }
+  ArrayList<Ranked> selected=new ArrayList<>();outer:for(ArrayList<Ranked> bucket:buckets.values())for(Ranked e:bucket){if(selected.size()>=limit)break outer;selected.add(e);}
+  if(canceled.getAsBoolean())return;
+  HashMap<Long,Result> results=new HashMap<>();
+  for(int start=0;start<selected.size();start+=200){int end=Math.min(start+200,selected.size());String[] args=new String[end-start];StringBuilder placeholders=new StringBuilder();for(int i=start;i<end;i++){if(i>start)placeholders.append(',');placeholders.append('?');args[i-start]=String.valueOf(selected.get(i).id);}
+   try(Cursor c=d.rawQuery("SELECT uri,name,mode,body,error,ms,rowid FROM records WHERE rowid IN ("+placeholders+")",args)){while(c.moveToNext())results.put(c.getLong(6),new Result(c));}
+  }
+  for(Ranked e:selected){Result row=results.get(e.id);if(row!=null){row.approximate=e.near;p.rows.add(row);}}
  }
 }

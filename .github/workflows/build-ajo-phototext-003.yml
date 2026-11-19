@@ -1,4 +1,4 @@
-name: Build Ajo Photo Text 009
+name: Build Ajo Photo Text 012
 on:
   push:
     branches: [ajo-ocr-rebuild-003]
@@ -40,10 +40,11 @@ jobs:
         working-directory: ajo-phototext-003
         run: |
           mkdir -p /tmp/ajo-match-test
-          javac -encoding UTF-8 -d /tmp/ajo-match-test app/src/main/java/tw/ajo/phototext/MatchText.java app/src/main/java/tw/ajo/phototext/SearchSpec.java app/src/main/java/tw/ajo/phototext/SyncPlan.java tests/MatchTextTest.java tests/SearchSpecTest.java tests/SyncPlanTest.java
+          javac -encoding UTF-8 -d /tmp/ajo-match-test app/src/main/java/tw/ajo/phototext/MatchText.java app/src/main/java/tw/ajo/phototext/SearchSpec.java app/src/main/java/tw/ajo/phototext/SyncPlan.java app/src/main/java/tw/ajo/phototext/FuzzyText.java tests/MatchTextTest.java tests/SearchSpecTest.java tests/SyncPlanTest.java tests/FuzzyTextTest.java
           java -cp /tmp/ajo-match-test tw.ajo.phototext.MatchTextTest
           java -cp /tmp/ajo-match-test tw.ajo.phototext.SearchSpecTest
           java -cp /tmp/ajo-match-test tw.ajo.phototext.SyncPlanTest
+          java -cp /tmp/ajo-match-test tw.ajo.phototext.FuzzyTextTest
       - name: Compile Android release APK
         working-directory: ajo-phototext-003
         run: gradle --no-daemon --stacktrace :app:assembleRelease
@@ -62,24 +63,24 @@ jobs:
       - name: Build distribution ZIP and stable filenames
         run: |
           mkdir -p release
-          cp ajo-phototext-003/app/build/outputs/apk/release/app-release.apk release/AjoPhotoText_009.apk
-          rm -f release/AjoPhotoText_009_source.zip
-          zip -rq release/AjoPhotoText_009_source.zip ajo-phototext-003 -x '*/build/*' '*/.gradle/*' '*.gradle.lockfile'
+          cp ajo-phototext-003/app/build/outputs/apk/release/app-release.apk release/AjoPhotoText_012.apk
+          rm -f release/AjoPhotoText_012_source.zip
+          zip -rq release/AjoPhotoText_012_source.zip ajo-phototext-003 -x '*/build/*' '*/.gradle/*' '*.gradle.lockfile'
           ls -lh release
       - name: Upload install APK and complete source
         uses: actions/upload-artifact@v4
         with:
-          name: AjoPhotoText-009
+          name: AjoPhotoText-012
           path: |
-            release/AjoPhotoText_009.apk
-            release/AjoPhotoText_009_source.zip
+            release/AjoPhotoText_012.apk
+            release/AjoPhotoText_012_source.zip
           if-no-files-found: error
       - name: Publish both files on isolated branch
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add release/AjoPhotoText_009.apk release/AjoPhotoText_009_source.zip
+          git add release/AjoPhotoText_012.apk release/AjoPhotoText_012_source.zip
           if ! git diff --cached --quiet; then
-            git commit -m "Publish Ajo Photo Text 009 APK and source archive"
+            git commit -m "Publish Ajo Photo Text 012 APK and source archive"
             git push
           fi
