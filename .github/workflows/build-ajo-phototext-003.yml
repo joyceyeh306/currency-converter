@@ -1,4 +1,4 @@
-name: Build Ajo Photo Text 013
+name: Build Ajo Photo Text 014
 on:
   push:
     branches: [ajo-ocr-rebuild-003]
@@ -40,16 +40,17 @@ jobs:
         working-directory: ajo-phototext-003
         run: |
           mkdir -p /tmp/ajo-match-test
-          javac -encoding UTF-8 -d /tmp/ajo-match-test app/src/main/java/tw/ajo/phototext/MatchText.java app/src/main/java/tw/ajo/phototext/SearchSpec.java app/src/main/java/tw/ajo/phototext/SyncPlan.java app/src/main/java/tw/ajo/phototext/FuzzyText.java tests/MatchTextTest.java tests/SearchSpecTest.java tests/SyncPlanTest.java tests/FuzzyTextTest.java
+          javac -encoding UTF-8 -d /tmp/ajo-match-test app/src/main/java/tw/ajo/phototext/MatchText.java app/src/main/java/tw/ajo/phototext/SearchSpec.java app/src/main/java/tw/ajo/phototext/SyncPlan.java app/src/main/java/tw/ajo/phototext/FuzzyText.java tests/MatchTextTest.java tests/SearchSpecTest.java tests/SyncPlanTest.java tests/FuzzyTextTest.java app/src/main/java/tw/ajo/phototext/GeoMath.java tests/GeoMathTest.java
           java -cp /tmp/ajo-match-test tw.ajo.phototext.MatchTextTest
           java -cp /tmp/ajo-match-test tw.ajo.phototext.SearchSpecTest
           java -cp /tmp/ajo-match-test tw.ajo.phototext.SyncPlanTest
           java -cp /tmp/ajo-match-test tw.ajo.phototext.FuzzyTextTest
+          java -cp /tmp/ajo-match-test tw.ajo.phototext.GeoMathTest
       - name: Verify selected launcher artwork
         run: |
-          test "$(git hash-object ajo-phototext-003/app/src/main/res/drawable-nodpi/ic_ajo_photo013.webp)" = "e1a092dfa79700599f1e24eca6c1d25940eac23d"
-          grep -q 'android:icon="@drawable/ic_ajo_photo013"' ajo-phototext-003/app/src/main/AndroidManifest.xml
-          grep -q 'android:roundIcon="@drawable/ic_ajo_photo013"' ajo-phototext-003/app/src/main/AndroidManifest.xml
+          test "$(git hash-object ajo-phototext-003/app/src/main/res/drawable-nodpi/ic_ajo_photo014.webp)" = "e1a092dfa79700599f1e24eca6c1d25940eac23d"
+          grep -q 'android:icon="@drawable/ic_ajo_photo014"' ajo-phototext-003/app/src/main/AndroidManifest.xml
+          grep -q 'android:roundIcon="@drawable/ic_ajo_photo014"' ajo-phototext-003/app/src/main/AndroidManifest.xml
       - name: Compile Android release APK
         working-directory: ajo-phototext-003
         run: gradle --no-daemon --stacktrace :app:assembleRelease
@@ -68,24 +69,24 @@ jobs:
       - name: Build distribution ZIP and stable filenames
         run: |
           mkdir -p release
-          cp ajo-phototext-003/app/build/outputs/apk/release/app-release.apk release/AjoPhotoText_013.apk
-          rm -f release/AjoPhotoText_013_source.zip
-          zip -rq release/AjoPhotoText_013_source.zip ajo-phototext-003 -x '*/build/*' '*/.gradle/*' '*.gradle.lockfile'
+          cp ajo-phototext-003/app/build/outputs/apk/release/app-release.apk release/AjoPhotoText_014.apk
+          rm -f release/AjoPhotoText_014_source.zip
+          zip -rq release/AjoPhotoText_014_source.zip ajo-phototext-003 -x '*/build/*' '*/.gradle/*' '*.gradle.lockfile'
           ls -lh release
       - name: Upload install APK and complete source
         uses: actions/upload-artifact@v4
         with:
-          name: AjoPhotoText-013
+          name: AjoPhotoText-014
           path: |
-            release/AjoPhotoText_013.apk
-            release/AjoPhotoText_013_source.zip
+            release/AjoPhotoText_014.apk
+            release/AjoPhotoText_014_source.zip
           if-no-files-found: error
       - name: Publish both files on isolated branch
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add release/AjoPhotoText_013.apk release/AjoPhotoText_013_source.zip
+          git add release/AjoPhotoText_014.apk release/AjoPhotoText_014_source.zip
           if ! git diff --cached --quiet; then
-            git commit -m "Publish Ajo Photo Text 013 APK and source archive"
+            git commit -m "Publish Ajo Photo Text 014 APK and source archive"
             git push
           fi

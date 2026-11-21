@@ -27,14 +27,14 @@ import java.util.concurrent.*;
 
 public class MainActivity extends Activity {
  final int BLUE=0xff086f72,BG=0xfffffcf6,INK=0xff203836,MUTED=0xff526b66,PALE=0xffe5f3ee,LINE=0xffdce8e3;
- static final int PICK=20,PICK_DOCUMENT=21,PERMISSION=22;
+ static final int PICK=20,PICK_DOCUMENT=21,PERMISSION=22,GEO_PERMISSION=23;
  static final String[] SCOPES={"全部相簿","相機照片","螢幕截圖"};
  static final int[] LIMITS={1000,3000,5000,10000,Integer.MAX_VALUE};
- final ExecutorService worker=Executors.newSingleThreadExecutor(),reader=Executors.newSingleThreadExecutor();
+ final ExecutorService worker=Executors.newSingleThreadExecutor(),reader=Executors.newSingleThreadExecutor(),geoWorker=Executors.newSingleThreadExecutor();
  final ThreadPoolExecutor thumbs=new ThreadPoolExecutor(2,2,30,TimeUnit.SECONDS,new ArrayBlockingQueue<Runnable>(32),new ThreadPoolExecutor.DiscardOldestPolicy());
  final LruCache<String,Bitmap> cache=new LruCache<String,Bitmap>(12*1024*1024){protected int sizeOf(String k,Bitmap b){return b.getByteCount();}};
  final Handler main=new Handler(Looper.getMainLooper());
- IndexStore store; TextView status,count,device; EditText search; Spinner script,scope,limit; Button start,pick,pause,stop,clear,more;
+ IndexStore store; GeoStore geoStore; GeoStore.Stats geoStats=new GeoStore.Stats(); boolean placeMode=false,geoBusy=false; volatile boolean geoCancel=false; int geoRadius=100,geoDone=0,geoTotal=0; String geoError=""; Button modeText,modePlace; TextView status,count,device; EditText search; Spinner script,scope,limit; Button start,pick,pause,stop,clear,more;
  ProgressBar progress,homeProgress; GridView list; Rows adapter; LinearLayout settingsPanel,homeEmpty,historyBox; TextView homeStatus,stats,emptyTitle; Button homeUpdate,settings,clearQuery; boolean browsing=false; int indexed=0; boolean anyTerms=false; boolean fuzzyEnabled=true; SearchSpec filters=SearchSpec.defaults("",false); Button filterButton,andButton,orButton; LinearLayout termBar; TextView filterSummary; boolean metadataDirty=true; Switch autoSwitch; boolean autoRequested=false,autoRun=false,observerRegistered=false; TextView autoInfo; ArrayList<String[]> albumChoices=new ArrayList<>(); volatile boolean cancel=false,discard=false,active=false; boolean ready=false,busy=false,planning=false,readBusy=false,readAgain=false,resetScroll=false;
  IndexStore.Job job; int pageSize=100,matches=0; volatile int requestSerial=0; String problem="",scanAccess=""; long lastRefresh=0;
  int dp(float n){return Math.round(n*getResources().getDisplayMetrics().density);}
@@ -49,7 +49,7 @@ public class MainActivity extends Activity {
  void rememberQuery(){String q=search.getText().toString().trim();if(q.isEmpty())return;ArrayList<String> h=history();h.remove(q);h.add(0,q);while(h.size()>6)h.remove(h.size()-1);getPreferences(MODE_PRIVATE).edit().putString("recent",new org.json.JSONArray(h).toString()).apply();renderHistory();}
  ArrayList<String> history(){ArrayList<String> h=new ArrayList<>();try{org.json.JSONArray a=new org.json.JSONArray(getPreferences(MODE_PRIVATE).getString("recent","[]"));for(int i=0;i<a.length();i++)h.add(a.getString(i));}catch(Exception ignored){}return h;}
  void renderHistory(){if(historyBox==null)return;historyBox.removeAllViews();ArrayList<String> h=history();if(h.isEmpty())return;LinearLayout row=new LinearLayout(this);row.setGravity(Gravity.CENTER_VERTICAL);TextView t=text("最近搜尋",14,MUTED);row.addView(t,new LinearLayout.LayoutParams(0,-2,1));Button clear=button("清除");row.addView(clear,new LinearLayout.LayoutParams(dp(62),dp(42)));clear.setOnClickListener(v->{getPreferences(MODE_PRIVATE).edit().remove("recent").apply();renderHistory();});historyBox.addView(row);for(int i=0;i<h.size();i+=2){LinearLayout r=new LinearLayout(this);for(int k=i;k<Math.min(i+2,h.size());k++){String q=h.get(k);Button chip=button(q);chip.setSingleLine(true);chip.setEllipsize(TextUtils.TruncateAt.END);addButton(r,chip);chip.setOnClickListener(v->{search.setText(q);search.setSelection(q.length());rememberQuery();hideKeyboard();});}if(i+1==h.size())r.addView(new View(this),new LinearLayout.LayoutParams(0,dp(46),1));historyBox.addView(r);space(historyBox,6);}}
- void updateHome(){boolean q=!IndexStore.norm(search.getText().toString()).isEmpty();boolean show=q||browsing||filters.filtered();boolean has=show&&adapter.getCount()>0;list.setVisibility(has?View.VISIBLE:View.GONE);homeEmpty.setVisibility(has?View.GONE:View.VISIBLE);historyBox.setVisibility(show?View.GONE:View.VISIBLE);emptyTitle.setText(show?(readBusy?"搜尋中…":"沒有符合的照片"):"搜尋照片中的文字");count.setVisibility(show?View.VISIBLE:View.GONE);more.setVisibility(has&&matches>adapter.getCount()?View.VISIBLE:View.GONE);clearQuery.setVisibility(q||browsing?View.VISIBLE:View.INVISIBLE);termBar.setVisibility(FuzzyText.terms(search.getText().toString(),MatchText::norm,fuzzyEnabled).size()>1?View.VISIBLE:View.GONE);filterSummary.setVisibility(filters.changed()||!fuzzyEnabled?View.VISIBLE:View.GONE);filterSummary.setText(filterDescription()+(!fuzzyEnabled?(filters.changed()?"・":"")+"精確搜尋":""));filterButton.setBackground(new android.graphics.drawable.RippleDrawable(android.content.res.ColorStateList.valueOf(0x22086f72),bg(filters.changed()?0xffbfded2:PALE,18),null));homeUpdate.setEnabled(ready&&!busy);homeUpdate.setText(job!=null&&job.pending()>0?"繼續掃描":"更新索引");homeProgress.setVisibility(busy?View.VISIBLE:View.GONE);if(job!=null){homeProgress.setMax(Math.max(1,job.total));homeProgress.setProgress(job.done);}homeStatus.setText(!problem.isEmpty()?problem:!ready?"正在準備索引…":busy?(planning?"正在準備掃描…":"辨識中 "+(job==null?0:job.done)+" / "+(job==null?0:job.total)):job!=null&&job.pending()>0?"已暫停・剩餘 "+job.pending()+" 張":"已建立 "+String.format(Locale.TAIWAN,"%,d",indexed)+" 筆索引");}
+ void updateHome(){if(placeMode){updatePlaceHome();return;}boolean q=!IndexStore.norm(search.getText().toString()).isEmpty();boolean show=q||browsing||filters.filtered();boolean has=show&&adapter.getCount()>0;list.setVisibility(has?View.VISIBLE:View.GONE);homeEmpty.setVisibility(has?View.GONE:View.VISIBLE);historyBox.setVisibility(show?View.GONE:View.VISIBLE);emptyTitle.setText(show?(readBusy?"搜尋中…":"沒有符合的照片"):"搜尋照片中的文字");count.setVisibility(show?View.VISIBLE:View.GONE);more.setVisibility(has&&matches>adapter.getCount()?View.VISIBLE:View.GONE);clearQuery.setVisibility(q||browsing?View.VISIBLE:View.INVISIBLE);termBar.setVisibility(FuzzyText.terms(search.getText().toString(),MatchText::norm,fuzzyEnabled).size()>1?View.VISIBLE:View.GONE);filterSummary.setVisibility(filters.changed()||!fuzzyEnabled?View.VISIBLE:View.GONE);filterSummary.setText(filterDescription()+(!fuzzyEnabled?(filters.changed()?"・":"")+"精確搜尋":""));filterButton.setBackground(new android.graphics.drawable.RippleDrawable(android.content.res.ColorStateList.valueOf(0x22086f72),bg(filters.changed()?0xffbfded2:PALE,18),null));homeUpdate.setEnabled(ready&&!busy);homeUpdate.setText(job!=null&&job.pending()>0?"繼續掃描":"更新索引");homeProgress.setVisibility(busy?View.VISIBLE:View.GONE);if(job!=null){homeProgress.setMax(Math.max(1,job.total));homeProgress.setProgress(job.done);}homeStatus.setText(!problem.isEmpty()?problem:!ready?"正在準備索引…":busy?(planning?"正在準備掃描…":"辨識中 "+(job==null?0:job.done)+" / "+(job==null?0:job.total)):job!=null&&job.pending()>0?"已暫停・剩餘 "+job.pending()+" 張":"已建立 "+String.format(Locale.TAIWAN,"%,d",indexed)+" 筆索引");}
 
  void updateTermButtons(){if(anyTerms){primary(orButton);andButton.setTextColor(BLUE);andButton.setBackground(bg(PALE,18));}else{primary(andButton);orButton.setTextColor(BLUE);orButton.setBackground(bg(PALE,18));}}
  void newSearch(){pageSize=100;requestSerial++;resetScroll=true;adapter.items.clear();adapter.notifyDataSetChanged();matches=0;updateHome();requestPage();}
@@ -75,7 +75,7 @@ public class MainActivity extends Activity {
  void setAutoEnabled(boolean enabled){getPreferences(MODE_PRIVATE).edit().putBoolean("auto009",enabled).apply();if(autoSwitch!=null&&autoSwitch.isChecked()!=enabled)autoSwitch.setChecked(enabled);if(!enabled){autoRequested=false;main.removeCallbacks(autoTask);if(autoRun&&busy)cancel=true;}else scheduleAuto();updateAutoInfo();}
  void updateAutoInfo(){if(autoInfo==null)return;autoInfo.setText(!autoEnabled()?"自動同步已關閉":!fullAccess()?"需要完整照片權限":autoRun&&busy?"正在自動同步":"開啟 App 時自動檢查");}
  final Runnable autoTask=()->tryAuto();
- final android.database.ContentObserver mediaObserver=new android.database.ContentObserver(main){@Override public void onChange(boolean self,Uri uri){scheduleAuto();}@Override public void onChange(boolean self){scheduleAuto();}};
+ final android.database.ContentObserver mediaObserver=new android.database.ContentObserver(main){@Override public void onChange(boolean self,Uri uri){scheduleAuto();scheduleGeoRefresh();}@Override public void onChange(boolean self){scheduleAuto();scheduleGeoRefresh();}};
  void scheduleAuto(){if(!autoEnabled())return;autoRequested=true;main.removeCallbacks(autoTask);if(active)main.postDelayed(autoTask,1200);}
  void registerMediaObserver(){if(observerRegistered)return;try{getContentResolver().registerContentObserver(Uri.parse("content://media"),true,mediaObserver);observerRegistered=true;}catch(Exception ignored){}}
  void unregisterMediaObserver(){if(observerRegistered){try{getContentResolver().unregisterContentObserver(mediaObserver);}catch(Exception ignored){}observerRegistered=false;}}
@@ -107,17 +107,91 @@ public class MainActivity extends Activity {
   });
  }
  void finishAutoWithoutScan(String message){finishRunInternal(message,false);}
+ void updateModeButtons(){
+  if(modeText==null||modePlace==null)return;
+  if(placeMode){primary(modePlace);modeText.setTextColor(BLUE);modeText.setBackground(bg(PALE,18));}else{primary(modeText);modePlace.setTextColor(BLUE);modePlace.setBackground(bg(PALE,18));}
+ }
+ void switchMode(boolean geo){
+  if(placeMode==geo)return;placeMode=geo;search.setText("");browsing=false;adapter.terms.clear();search.setHint(geo?"搜尋國家或城市，例如：日本、仙台":"輸入照片中的文字");filterButton.setContentDescription(geo?"調整地點搜尋範圍":"文字搜尋篩選");updateModeButtons();
+  pageSize=100;requestSerial++;resetScroll=true;adapter.items.clear();adapter.notifyDataSetChanged();matches=0;updateHome();requestPage();
+  if(geo){if(!geoStore.permission(this))askGeoPermission();else scheduleGeoRefresh();}
+ }
+ void askGeoPermission(){
+  if(geoStore.permission(this)){scheduleGeoRefresh();return;}
+  new AlertDialog.Builder(this).setTitle("授權照片拍攝位置").setMessage("地點搜尋需要完整照片存取權限，並額外讀取照片內原本儲存的 GPS 座標。只讀取，不會修改照片，也不會追蹤手機目前的位置。").setNegativeButton("取消",null).setPositiveButton("授權",(d,w)->{
+   ArrayList<String> p=new ArrayList<>();if(!fullAccess()){p.add(Build.VERSION.SDK_INT>=33?Manifest.permission.READ_MEDIA_IMAGES:Manifest.permission.READ_EXTERNAL_STORAGE);if(Build.VERSION.SDK_INT>=34)p.add(Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED);}
+   if(checkSelfPermission(Manifest.permission.ACCESS_MEDIA_LOCATION)!=PackageManager.PERMISSION_GRANTED)p.add(Manifest.permission.ACCESS_MEDIA_LOCATION);
+   if(!p.isEmpty())requestPermissions(p.toArray(new String[0]),GEO_PERMISSION);else scheduleGeoRefresh();
+  }).show();
+ }
+ void placeRadiusDialog(){
+  final int[] distances={30,50,100,200,300,500};
+  String[] labels=new String[distances.length];int selected=2;for(int i=0;i<distances.length;i++){labels[i]="城市周邊 "+distances[i]+" 公里";if(distances[i]==geoRadius)selected=i;}
+  final int[] choice={selected};new AlertDialog.Builder(this).setTitle("地點搜尋範圍").setSingleChoiceItems(labels,selected,(d,w)->choice[0]=w)
+   .setMessage("搜尋「日本」等國家名稱時使用全國範圍，不受城市距離限制。")
+   .setNegativeButton("取消",null).setPositiveButton("套用",(d,w)->{geoRadius=distances[choice[0]];getPreferences(MODE_PRIVATE).edit().putInt("geo_radius014",geoRadius).apply();newSearch();}).show();
+ }
+ void updatePlaceHome(){
+  boolean q=!search.getText().toString().trim().isEmpty(),has=q&&adapter.getCount()>0;
+  list.setVisibility(has?View.VISIBLE:View.GONE);homeEmpty.setVisibility(has?View.GONE:View.VISIBLE);historyBox.setVisibility(View.GONE);
+  count.setVisibility(q?View.VISIBLE:View.GONE);clearQuery.setVisibility(q?View.VISIBLE:View.INVISIBLE);
+  emptyTitle.setText(q?(geoBusy?"正在讀取照片定位…":geoStore.permission(this)?"沒有符合這個地點的 GPS 照片":"請先授權照片 GPS 存取"):"輸入中文國家或城市名稱");
+  more.setVisibility(has&&matches>adapter.getCount()?View.VISIBLE:View.GONE);
+  termBar.setVisibility(View.GONE);filterSummary.setVisibility(View.VISIBLE);
+  filterSummary.setText("城市範圍 "+geoRadius+" 公里・國家搜尋不限距離");
+  filterButton.setBackground(new android.graphics.drawable.RippleDrawable(android.content.res.ColorStateList.valueOf(0x22086f72),bg(PALE,18),null));
+  homeProgress.setVisibility(geoBusy?View.VISIBLE:View.GONE);if(geoBusy){homeProgress.setMax(Math.max(1,geoTotal));homeProgress.setProgress(geoDone);}
+  homeUpdate.setText(geoBusy?"建立中":"更新地點");homeUpdate.setEnabled(!geoBusy);
+  homeStatus.setText(geoBusy?"地點掃描 "+geoDone+" / "+geoTotal+" 張":!geoError.isEmpty()?geoError:!geoStore.permission(this)?"需完整照片與 GPS 權限":"有 GPS "+geoStats.gps+" 張｜無 GPS "+geoStats.missing+" 張"+(geoStats.error>0?"｜無法讀取 "+geoStats.error:""));
+ }
+ final Runnable geoTask=()->startGeoScan();
+ void scheduleGeoRefresh(){if(!placeMode||!active||!ready||geoBusy||!geoStore.permission(this))return;main.removeCallbacks(geoTask);main.postDelayed(geoTask,1300);}
+ void startGeoScan(){
+  if(geoBusy||!active||!ready)return;
+  if(!geoStore.permission(this)){geoError="需要完整相簿及 GPS 權限";updateHome();return;}
+  geoBusy=true;geoCancel=false;geoError="";geoDone=0;geoTotal=Math.max(1,geoStats.total);updateHome();
+  geoWorker.execute(()->{
+   String error="";GeoStore.Stats stats=null;
+   try{stats=geoStore.scan(getApplicationContext(),()->geoCancel||!active,(done,total,changed)->main.post(()->{if(!isDestroyed()){geoDone=done;geoTotal=total;updateHome();}}));}
+   catch(Exception ex){error="地點掃描失敗："+ex.getMessage();}
+   final String message=error;final GeoStore.Stats latest=stats;
+   main.post(()->{if(isDestroyed())return;geoBusy=false;geoError=message;if(latest!=null)geoStats=latest;else geoStats=geoStore.stats();updateHome();if(placeMode)requestPage();});
+  });
+ }
+ void requestGeoPage(){
+  if(readBusy){readAgain=true;return;}readBusy=true;
+  final int serial=requestSerial,radius=geoRadius,limit=pageSize;final String q=search.getText().toString().trim();
+  reader.execute(()->{
+   GeoStore.Page result=null;GeoPlaces.Area area=null;String message="";
+   try{if(!q.isEmpty()){area=GeoPlaces.resolve(q,radius,getApplicationContext());if(area==null)message="無法辨識地名，請試其他中文或英文城市名稱";else result=geoStore.find(area,limit,()->serial!=requestSerial||Thread.currentThread().isInterrupted());}}
+   catch(Exception ex){message="地點搜尋失敗："+ex.getMessage();}
+   final GeoStore.Page p=result;final GeoPlaces.Area target=area;final String err=message;
+   main.post(()->{
+    if(isDestroyed())return;readBusy=false;
+    if(serial==requestSerial&&placeMode){ArrayList<IndexStore.Result> found=new ArrayList<>();
+     if(p!=null){geoStats=p.stats;for(GeoStore.Record row:p.rows){
+      String note=target.country?target.title+"境內":"距離"+target.title+"約 "+Math.round(GeoMath.km(target.lat,target.lon,row.lat,row.lon))+" 公里";
+      if(row.date>0)note+="・"+dateText(row.date);
+      found.add(new IndexStore.Result(row.uri,row.name,note));
+     }matches=p.matches;}else matches=0;
+     adapter.items=found;adapter.terms.clear();adapter.fuzzy=false;adapter.notifyDataSetChanged();if(resetScroll){list.setSelection(0);resetScroll=false;}
+     count.setText(p==null?(err.isEmpty()?"":err):"地點符合 "+p.matches+" 張（有 GPS）");updateHome();
+    }else readAgain=true;
+    if(readAgain){readAgain=false;requestPage();}
+   });
+  });
+ }
  void space(LinearLayout l,int h){l.addView(new View(this),new LinearLayout.LayoutParams(1,dp(h)));}
  Spinner spinner(String[] values){Spinner s=new Spinner(this);ArrayAdapter<String> a=new ArrayAdapter<>(this,android.R.layout.simple_spinner_item,values);a.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);s.setAdapter(a);return s;}
  void addButton(LinearLayout r,Button b){LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,dp(48),1);p.setMargins(dp(3),dp(2),dp(3),dp(2));r.addView(b,p);}
  @Override public void onCreate(Bundle b){
   super.onCreate(b);fuzzyEnabled=getPreferences(MODE_PRIVATE).getBoolean("fuzzy012",true);getWindow().setStatusBarColor(BG);getWindow().setNavigationBarColor(BG);
-  store=new IndexStore(getApplicationContext());
+  store=new IndexStore(getApplicationContext());geoStore=new GeoStore(getApplicationContext());geoStats=geoStore.stats();geoRadius=getPreferences(MODE_PRIVATE).getInt("geo_radius014",100);
   LinearLayout root=vertical();root.setBackgroundColor(BG);root.setPadding(dp(16),dp(14),dp(16),dp(8));root.setFocusableInTouchMode(true);
-  LinearLayout header=new LinearLayout(this);header.setGravity(Gravity.CENTER_VERTICAL);TextView title=text("ㄚ喬相片搜尋",25,BLUE);title.setTypeface(null,Typeface.BOLD);header.addView(title,new LinearLayout.LayoutParams(0,-2,1));settings=button("⚙");settings.setTextSize(24);settings.setContentDescription("設定");header.addView(settings,new LinearLayout.LayoutParams(dp(48),dp(48)));root.addView(header);space(root,14);
+  LinearLayout header=new LinearLayout(this);header.setGravity(Gravity.CENTER_VERTICAL);TextView title=text("ㄚ喬相片搜尋",25,BLUE);title.setTypeface(null,Typeface.BOLD);header.addView(title,new LinearLayout.LayoutParams(0,-2,1));settings=button("⚙");settings.setTextSize(24);settings.setContentDescription("設定");header.addView(settings,new LinearLayout.LayoutParams(dp(48),dp(48)));root.addView(header);space(root,10);LinearLayout modeRow=new LinearLayout(this);modeText=button("文字搜尋");modePlace=button("地點搜尋");addButton(modeRow,modeText);addButton(modeRow,modePlace);root.addView(modeRow);updateModeButtons();modeText.setOnClickListener(v->switchMode(false));modePlace.setOnClickListener(v->switchMode(true));space(root,8);
   LinearLayout field=new LinearLayout(this);field.setGravity(Gravity.CENTER_VERTICAL);GradientDrawable fieldBg=bg(Color.WHITE,22);fieldBg.setStroke(dp(1),LINE);field.setBackground(fieldBg);field.setPadding(dp(12),0,dp(6),0);TextView glass=text("⌕",28,BLUE);glass.setGravity(Gravity.CENTER);field.addView(glass,new LinearLayout.LayoutParams(dp(36),dp(54)));search=new EditText(this);search.setSingleLine(true);search.setTextSize(18);search.setTextColor(INK);search.setHintTextColor(MUTED);search.setHint("輸入照片中的文字");search.setImeOptions(android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH);search.setBackgroundColor(Color.TRANSPARENT);search.setPadding(dp(4),0,0,0);field.addView(search,new LinearLayout.LayoutParams(0,dp(54),1));clearQuery=button("×");clearQuery.setTextSize(22);clearQuery.setContentDescription("清除搜尋");field.addView(clearQuery,new LinearLayout.LayoutParams(dp(44),dp(44)));LinearLayout searchRow=new LinearLayout(this);searchRow.setGravity(Gravity.CENTER_VERTICAL);searchRow.addView(field,new LinearLayout.LayoutParams(0,dp(54),1));filterButton=button("");filterButton.setContentDescription("搜尋篩選");filterButton.setCompoundDrawablesWithIntrinsicBounds(R.drawable.ic_filter008,0,0,0);filterButton.setGravity(Gravity.CENTER);filterButton.setPadding(dp(12),0,0,0);LinearLayout.LayoutParams fp=new LinearLayout.LayoutParams(dp(48),dp(48));fp.leftMargin=dp(8);searchRow.addView(filterButton,fp);root.addView(searchRow);space(root,8);
   termBar=new LinearLayout(this);andButton=button("全部符合");orButton=button("任一符合");addButton(termBar,andButton);addButton(termBar,orButton);root.addView(termBar);termBar.setVisibility(View.GONE);updateTermButtons();andButton.setOnClickListener(v->{anyTerms=false;updateTermButtons();newSearch();});orButton.setOnClickListener(v->{anyTerms=true;updateTermButtons();newSearch();});
-  filterSummary=text("",13,MUTED);filterSummary.setSingleLine(true);filterSummary.setEllipsize(TextUtils.TruncateAt.END);root.addView(filterSummary);filterSummary.setVisibility(View.GONE);filterButton.setOnClickListener(v->filterDialog());space(root,4);
+  filterSummary=text("",13,MUTED);filterSummary.setSingleLine(true);filterSummary.setEllipsize(TextUtils.TruncateAt.END);root.addView(filterSummary);filterSummary.setVisibility(View.GONE);filterButton.setOnClickListener(v->{if(placeMode)placeRadiusDialog();else filterDialog();});space(root,4);
   count=text("",14,MUTED);root.addView(count);space(root,6);
   historyBox=vertical();root.addView(historyBox);renderHistory();
   homeEmpty=vertical();homeEmpty.setGravity(Gravity.CENTER);TextView mark=text("⌕",64,BLUE);mark.setGravity(Gravity.CENTER);homeEmpty.addView(mark);emptyTitle=text("搜尋照片中的文字",18,MUTED);emptyTitle.setGravity(Gravity.CENTER);homeEmpty.addView(emptyTitle);root.addView(homeEmpty,new LinearLayout.LayoutParams(-1,0,1));
@@ -133,8 +207,8 @@ public class MainActivity extends Activity {
   progress=new ProgressBar(this,null,android.R.attr.progressBarStyleHorizontal);progress.setProgressTintList(android.content.res.ColorStateList.valueOf(BLUE));settingsPanel.addView(progress);progress.setVisibility(View.GONE);
   status=text("正在準備索引…",14,MUTED);settingsPanel.addView(status);device=text("",13,MUTED);settingsPanel.addView(device);space(settingsPanel,18);
   section(settingsPanel,"索引紀錄");stats=text("",14,MUTED);settingsPanel.addView(stats);space(settingsPanel,8);LinearLayout manage=new LinearLayout(this);Button browse=button("檢視索引");clear=button("清除紀錄");clear.setTextColor(0xffa13d3d);addButton(manage,browse);addButton(manage,clear);settingsPanel.addView(manage);space(settingsPanel,14);
-  Button help=button("ⓘ 使用說明");settingsPanel.addView(help,new LinearLayout.LayoutParams(-1,dp(48)));help.setOnClickListener(v->new AlertDialog.Builder(this).setTitle("使用說明").setMessage("照片只讀，不修改原始檔。文字索引完全離線。自動同步需完整照片權限，僅在 App 前景執行。已辨識且未變更的照片會跳過。暫停或停止自動掃描會關閉自動同步，可在設定重新開啟。清除索引也會關閉自動同步。").setPositiveButton("關閉",null).show());space(settingsPanel,10);TextView version=text("版本 013",12,MUTED);version.setGravity(Gravity.CENTER);settingsPanel.addView(version);
-  settings.setOnClickListener(v->settingsDialog());homeUpdate.setOnClickListener(v->{if(!ready||busy)return;main.removeCallbacks(autoTask);if(job!=null&&job.pending()>0&&job.scope.equals("手動選取"))beginResume();else requestAccess();});homeStatus.setOnClickListener(v->{v.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK);settingsDialog();});
+  Button help=button("ⓘ 使用說明");settingsPanel.addView(help,new LinearLayout.LayoutParams(-1,dp(48)));help.setOnClickListener(v->new AlertDialog.Builder(this).setTitle("使用說明").setMessage("照片只讀，不修改原始檔。文字索引完全離線。自動同步需完整照片權限，僅在 App 前景執行。已辨識且未變更的照片會跳過。暫停或停止自動掃描會關閉自動同步，可在設定重新開啟。清除索引也會關閉自動同步。").setPositiveButton("關閉",null).show());space(settingsPanel,10);TextView version=text("版本 014",12,MUTED);version.setGravity(Gravity.CENTER);settingsPanel.addView(version);
+  settings.setOnClickListener(v->settingsDialog());homeUpdate.setOnClickListener(v->{if(placeMode){if(!geoStore.permission(this))askGeoPermission();else startGeoScan();return;}if(!ready||busy)return;main.removeCallbacks(autoTask);if(job!=null&&job.pending()>0&&job.scope.equals("手動選取"))beginResume();else requestAccess();});homeStatus.setOnClickListener(v->{v.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK);if(placeMode){if(!geoStore.permission(this))askGeoPermission();else placeRadiusDialog();}else settingsDialog();});
   browse.setOnClickListener(v->{search.setText("");browsing=true;pageSize=100;requestSerial++;resetScroll=true;requestPage();if(settingsPanel.getTag() instanceof AlertDialog)((AlertDialog)settingsPanel.getTag()).dismiss();});
   clearQuery.setOnClickListener(v->{browsing=false;search.setText("");pageSize=100;requestSerial++;resetScroll=true;requestPage();hideKeyboard();});
   search.setOnEditorActionListener((v,action,event)->{if(action==android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH){rememberQuery();hideKeyboard();requestPage();return true;}return false;});
@@ -160,7 +234,7 @@ public class MainActivity extends Activity {
   else if(Build.VERSION.SDK_INT>=33)requestPermissions(new String[]{Manifest.permission.READ_MEDIA_IMAGES},PERMISSION);
   else requestPermissions(new String[]{Manifest.permission.READ_EXTERNAL_STORAGE},PERMISSION);
  }
- @Override public void onRequestPermissionsResult(int req,String[] p,int[] g){super.onRequestPermissionsResult(req,p,g);if(req!=PERMISSION||busy)return;if(fullAccess()){scanAccess="完整相簿";startOrResume();}else if(partialAccess()){new AlertDialog.Builder(this).setTitle("僅允許部分照片").setMessage("只能掃描已授權的照片，可能不足 1,000 張。若要測試完整相簿，請選擇允許所有照片。").setNegativeButton("取消",null).setPositiveButton("掃描已授權照片",(d,w)->{scanAccess="部分授權";startOrResume();}).show();}else{status.setText("未取得照片讀取權限，可使用手動選擇照片。");}}
+ @Override public void onRequestPermissionsResult(int req,String[] p,int[] g){super.onRequestPermissionsResult(req,p,g);if(req==GEO_PERMISSION){if(geoStore.permission(this))scheduleGeoRefresh();else{geoError="地點搜尋需要完整照片及媒體位置權限";updateHome();}return;}if(req!=PERMISSION||busy)return;if(fullAccess()){scanAccess="完整相簿";startOrResume();}else if(partialAccess()){new AlertDialog.Builder(this).setTitle("僅允許部分照片").setMessage("只能掃描已授權的照片，可能不足 1,000 張。若要測試完整相簿，請選擇允許所有照片。").setNegativeButton("取消",null).setPositiveButton("掃描已授權照片",(d,w)->{scanAccess="部分授權";startOrResume();}).show();}else{status.setText("未取得照片讀取權限，可使用手動選擇照片。");}}
  void startOrResume(){if(job!=null&&job.pending()>0)beginResume();else beginMedia();}
  void launchSetup(){autoRun=false;main.removeCallbacks(autoTask);busy=true;planning=true;cancel=false;discard=false;problem="";updateButtons();status.setText("正在建立待辨識清單…");getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);}
  void beginMedia(){if(busy||!ready)return;final int mode=script.getSelectedItemPosition(),which=scope.getSelectedItemPosition(),max=LIMITS[limit.getSelectedItemPosition()];final String label=SCOPES[which]+"（"+scanAccess+"）";launchSetup();worker.execute(()->{
@@ -211,7 +285,7 @@ public class MainActivity extends Activity {
  }
  void runDiscard(){busy=true;updateButtons();worker.execute(()->{String error="";try{store.discard();}catch(Exception e){error=e.toString();}finishRun(error);});}
  void requestPage(){
-  if(isDestroyed()||store==null||!ready)return;if(readBusy){readAgain=true;return;}readBusy=true;
+  if(isDestroyed()||store==null||!ready)return;if(placeMode){requestGeoPage();return;}if(readBusy){readAgain=true;return;}readBusy=true;
   final int serial=requestSerial;final boolean useFuzzy=fuzzyEnabled;final String q=search.getText().toString();final SearchSpec spec=filters.withQuery(q,anyTerms);final int n=IndexStore.norm(q).isEmpty()&&!browsing&&!spec.filtered()?0:pageSize;final boolean refresh=metadataDirty;metadataDirty=false;
   reader.execute(()->{IndexStore.Page p=null;ArrayList<String[]> albums=null;String err="";try{if(refresh){store.refreshMetadata(getApplicationContext());albums=store.albums();}p=store.search(spec,n,useFuzzy,()->serial!=requestSerial||Thread.currentThread().isInterrupted());}catch(Exception e){err=e.toString();}final IndexStore.Page page=p;final ArrayList<String[]> availableAlbums=albums;final String message=err;main.post(()->{if(isDestroyed())return;readBusy=false;if(availableAlbums!=null)albumChoices=availableAlbums;if(page!=null){job=page.job;indexed=page.ok+page.empty+page.failed;stats.setText("累計 "+indexed+" 筆｜有文字 "+page.ok+"\n無文字 "+page.empty+"｜失敗 "+page.failed);if(serial==requestSerial){boolean toTop=resetScroll;int pos=toTop?0:list.getFirstVisiblePosition();resetScroll=false;adapter.items=page.rows;adapter.query=q;adapter.terms=FuzzyText.terms(q,HanFold::fold,useFuzzy);adapter.fuzzy=useFuzzy;adapter.notifyDataSetChanged();if(pos<adapter.getCount()&&(toTop||list.getFirstVisiblePosition()!=pos))list.setSelection(pos);matches=page.matches;count.setText((browsing?"全部索引 ":"符合 ")+page.matches+" 筆"+(page.nearMatches>0?"｜精確 "+(page.matches-page.nearMatches)+"・近似 "+page.nearMatches:""));more.setVisibility(page.matches>page.rows.size()?View.VISIBLE:View.GONE);}else readAgain=true;}else if(!message.isEmpty()){problem="索引讀取失敗："+message;}updateStatus();updateButtons();if(readAgain){readAgain=false;requestPage();}else if(autoRequested&&active&&!busy){main.removeCallbacks(autoTask);main.postDelayed(autoTask,600);}});});
  }
@@ -234,21 +308,21 @@ public class MainActivity extends Activity {
  class Rows extends BaseAdapter{
   ArrayList<IndexStore.Result> items=new ArrayList<>();String query="";boolean fuzzy=true;ArrayList<String> terms=new ArrayList<>();public int getCount(){return items.size();}public Object getItem(int p){return items.get(p);}public long getItemId(int p){return p;}
   public View getView(int pos,View convert,ViewGroup parent){Holder h;if(convert==null){LinearLayout card=vertical();card.setBackground(outline(Color.WHITE,14,0xffcbd8d3));card.setElevation(dp(1));card.setClipToOutline(true);card.setPadding(dp(6),dp(6),dp(6),dp(6));h=new Holder();h.img=new SquareImage();h.img.setBackground(bg(PALE,10));h.img.setClipToOutline(true);h.img.setForeground(outline(Color.TRANSPARENT,10,0xffaabdb6));h.img.setScaleType(ImageView.ScaleType.CENTER_CROP);card.addView(h.img,new LinearLayout.LayoutParams(-1,-2));space(card,6);h.body=text("",13,INK);h.body.setMaxLines(2);h.body.setEllipsize(TextUtils.TruncateAt.END);h.body.setPadding(dp(3),0,dp(3),dp(2));h.body.setGravity(Gravity.TOP);h.body.setLines(2);card.addView(h.body,new LinearLayout.LayoutParams(-1,-2));card.setTag(h);convert=card;}else h=(Holder)convert.getTag();
-   IndexStore.Result e=items.get(pos);h.body.setText(e.error.isEmpty()?(e.text.trim().isEmpty()?"未辨識出文字":highlighted(FuzzyText.snippet(e.text,terms,HanFold::fold,fuzzy))):"辨識失敗");h.img.setContentDescription(e.approximate?"近似符合":"搜尋結果");loadThumb(h.img,e.uri);return convert;}
+   IndexStore.Result e=items.get(pos);h.body.setText(e.geo?e.text:e.error.isEmpty()?(e.text.trim().isEmpty()?"未辨識出文字":highlighted(FuzzyText.snippet(e.text,terms,HanFold::fold,fuzzy))):"辨識失敗");h.img.setContentDescription(e.approximate?"近似符合":"搜尋結果");loadThumb(h.img,e.uri);return convert;}
  }
  static class Holder{ImageView img;TextView body;}
  void loadThumb(ImageView view,String key){view.setTag(key);Bitmap b=cache.get(key);if(b!=null){view.setImageBitmap(b);return;}view.setImageResource(android.R.drawable.ic_menu_gallery);thumbs.execute(()->{try{Bitmap image=getContentResolver().loadThumbnail(Uri.parse(key),new Size(dp(180),dp(180)),null);cache.put(key,image);main.post(()->{if(key.equals(view.getTag()))view.setImageBitmap(image);});}catch(Exception ignored){}});}
  void sharePhoto(IndexStore.Result e){try{Uri u=Uri.parse(e.uri);Intent i=new Intent(Intent.ACTION_SEND);String type=getContentResolver().getType(u);i.setType(type==null?"image/*":type);i.putExtra(Intent.EXTRA_STREAM,u);i.setClipData(ClipData.newUri(getContentResolver(),e.name,u));i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);startActivity(Intent.createChooser(i,"分享原始照片"));}catch(Exception ex){Toast.makeText(this,"無法分享這張照片",Toast.LENGTH_SHORT).show();}}
  void detail(IndexStore.Result e){Dialog dlg=new Dialog(this,android.R.style.Theme_Material_Light_NoActionBar);LinearLayout l=vertical();l.setBackgroundColor(BG);l.setPadding(dp(14),dp(10),dp(14),dp(10));LinearLayout h=new LinearLayout(this);h.setGravity(Gravity.CENTER_VERTICAL);Button back=button("‹");back.setTextSize(26);back.setContentDescription("返回");h.addView(back,new LinearLayout.LayoutParams(dp(48),dp(48)));TextView title=text(e.name,16,INK);title.setGravity(Gravity.CENTER);title.setMaxLines(2);title.setEllipsize(TextUtils.TruncateAt.END);h.addView(title,new LinearLayout.LayoutParams(0,-2,1));Button share=button("分享");h.addView(share,new LinearLayout.LayoutParams(dp(64),dp(48)));l.addView(h);space(l,10);
   ZoomPhoto img=new ZoomPhoto(this);img.setBackground(bg(0xffedf1ed,14));img.setContentDescription("照片預覽，雙指縮放");l.addView(img,new LinearLayout.LayoutParams(-1,0,1));space(l,10);
-  LinearLayout action=new LinearLayout(this);action.setGravity(Gravity.CENTER_VERTICAL);TextView label=text("辨識文字",16,BLUE);label.setTypeface(null,Typeface.BOLD);action.addView(label,new LinearLayout.LayoutParams(0,-2,1));Button copy=button("複製全文");action.addView(copy,new LinearLayout.LayoutParams(dp(106),dp(46)));l.addView(action);
-  ScrollView sc=new ScrollView(this);MatchText.Segment full=FuzzyText.full(e.error.isEmpty()?(e.text.isEmpty()?"未辨識出文字":e.text):e.error,e.error.isEmpty()?adapter.terms:java.util.Collections.emptyList(),HanFold::fold,adapter.fuzzy);TextView raw=text("",16,INK);raw.setText(highlighted(full));raw.setPadding(dp(10),dp(8),dp(10),dp(8));raw.setTextIsSelectable(true);raw.setBackground(bg(Color.WHITE,12));sc.addView(raw);l.addView(sc,new LinearLayout.LayoutParams(-1,dp(getResources().getConfiguration().orientation==2?92:150)));
+  LinearLayout action=new LinearLayout(this);action.setGravity(Gravity.CENTER_VERTICAL);TextView label=text(e.geo?"地點資訊":"辨識文字",16,BLUE);label.setTypeface(null,Typeface.BOLD);action.addView(label,new LinearLayout.LayoutParams(0,-2,1));Button copy=button(e.geo?"複製資訊":"複製全文");action.addView(copy,new LinearLayout.LayoutParams(dp(106),dp(46)));l.addView(action);
+  ScrollView sc=new ScrollView(this);MatchText.Segment full=FuzzyText.full(e.error.isEmpty()?(e.text.isEmpty()?"未辨識出文字":e.text):e.error,e.error.isEmpty()&&!e.geo?adapter.terms:java.util.Collections.emptyList(),HanFold::fold,adapter.fuzzy&&!e.geo);TextView raw=text("",16,INK);raw.setText(highlighted(full));raw.setPadding(dp(10),dp(8),dp(10),dp(8));raw.setTextIsSelectable(true);raw.setBackground(bg(Color.WHITE,12));sc.addView(raw);l.addView(sc,new LinearLayout.LayoutParams(-1,dp(getResources().getConfiguration().orientation==2?92:150)));
   back.setOnClickListener(v->dlg.dismiss());share.setOnClickListener(v->sharePhoto(e));copy.setOnClickListener(v->{((android.content.ClipboardManager)getSystemService(CLIPBOARD_SERVICE)).setPrimaryClip(ClipData.newPlainText("OCR",e.text));Toast.makeText(this,"已複製文字",Toast.LENGTH_SHORT).show();});
   dlg.setContentView(l);Window w=dlg.getWindow();if(w!=null){w.setStatusBarColor(BG);w.setNavigationBarColor(BG);w.getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR|View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR);if(Build.VERSION.SDK_INT>=30){l.setOnApplyWindowInsetsListener((v,insets)->{Insets b=insets.getInsets(WindowInsets.Type.systemBars()|WindowInsets.Type.displayCutout());v.setPadding(dp(14)+b.left,dp(10)+b.top,dp(14)+b.right,dp(10)+b.bottom);return WindowInsets.CONSUMED;});}}
   dlg.show();if(w!=null){w.setLayout(-1,-1);if(Build.VERSION.SDK_INT>=30){w.setDecorFitsSystemWindows(false);l.requestApplyInsets();}}if(!full.hits.isEmpty())scrollToMatch(sc,raw,full.hits.get(0).start);
   thumbs.execute(()->{try{Bitmap b=ImageDecoder.decodeBitmap(ImageDecoder.createSource(getContentResolver(),Uri.parse(e.uri)),(decoder,info,source)->{int wi=info.getSize().getWidth(),he=info.getSize().getHeight();decoder.setTargetSampleSize(Math.max(1,(Math.max(wi,he)+2999)/3000));decoder.setAllocator(ImageDecoder.ALLOCATOR_SOFTWARE);});main.post(()->{if(dlg.isShowing())img.setPhoto(b);});}catch(Exception ex){main.post(()->{if(dlg.isShowing())img.failed=true;img.invalidate();});}});
  }
- @Override protected void onStart(){super.onStart();active=true;registerMediaObserver();if(ready){metadataDirty=true;requestPage();}scheduleAuto();}
- @Override protected void onStop(){active=false;main.removeCallbacks(autoTask);unregisterMediaObserver();if(busy)cancel=true;super.onStop();}
- @Override protected void onDestroy(){active=false;cancel=true;unregisterMediaObserver();main.removeCallbacks(autoTask);main.removeCallbacks(searchDelay);worker.shutdown();reader.shutdown();thumbs.shutdown();super.onDestroy();}
+ @Override protected void onStart(){super.onStart();active=true;registerMediaObserver();if(ready){metadataDirty=true;requestPage();}scheduleAuto();scheduleGeoRefresh();}
+ @Override protected void onStop(){active=false;geoCancel=true;main.removeCallbacks(geoTask);main.removeCallbacks(autoTask);unregisterMediaObserver();if(busy)cancel=true;super.onStop();}
+ @Override protected void onDestroy(){active=false;cancel=true;unregisterMediaObserver();main.removeCallbacks(autoTask);main.removeCallbacks(searchDelay);main.removeCallbacks(geoTask);worker.shutdown();reader.shutdown();geoWorker.shutdown();thumbs.shutdown();super.onDestroy();}
 }

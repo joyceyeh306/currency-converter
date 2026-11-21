@@ -16,8 +16,9 @@ final class IndexStore extends SQLiteOpenHelper {
   Photo(String u,String n,String s,int m){uri=u;name=n;stamp=s;mode=m;}
  }
  static class Result {
-  String uri,name,text,error; int mode; long ms; boolean approximate;
+  String uri,name,text,error; int mode; long ms; boolean approximate,geo;
   Result(Cursor c){uri=c.getString(0);name=c.getString(1);mode=c.getInt(2);text=c.getString(3);error=c.getString(4);ms=c.getLong(5);}
+  Result(String uri,String name,String note){this.uri=uri;this.name=name;this.text=note;this.error="";this.geo=true;}
  }
  static class Job {
   int total,done,skipped,failed,withText,empty; long ms,elapsed; String scope;
