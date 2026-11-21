@@ -48,9 +48,9 @@ jobs:
           java -cp /tmp/ajo-match-test tw.ajo.phototext.GeoMathTest
       - name: Verify selected launcher artwork
         run: |
-          test "$(git hash-object ajo-phototext-003/app/src/main/res/drawable-nodpi/ic_ajo_photo014.webp)" = "e1a092dfa79700599f1e24eca6c1d25940eac23d"
-          grep -q 'android:icon="@drawable/ic_ajo_photo014"' ajo-phototext-003/app/src/main/AndroidManifest.xml
-          grep -q 'android:roundIcon="@drawable/ic_ajo_photo014"' ajo-phototext-003/app/src/main/AndroidManifest.xml
+          test "$(git hash-object ajo-phototext-003/app/src/main/res/drawable-nodpi/ic_ajo_photo013.webp)" = "e1a092dfa79700599f1e24eca6c1d25940eac23d"
+          grep -q 'android:icon="@drawable/ic_ajo_photo013"' ajo-phototext-003/app/src/main/AndroidManifest.xml
+          grep -q 'android:roundIcon="@drawable/ic_ajo_photo013"' ajo-phototext-003/app/src/main/AndroidManifest.xml
       - name: Compile Android release APK
         working-directory: ajo-phototext-003
         run: gradle --no-daemon --stacktrace :app:assembleRelease
