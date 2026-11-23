@@ -28,6 +28,8 @@ public final class StepService extends Service implements SensorEventListener {
     private static final int NOTIFICATION_ID=302;
     private SensorManager manager;
     private Sensor counter;
+    private Sensor detector;
+    public static volatile boolean hourlySensorReady=false;
     private long lastUiUpdate=0;
     public static volatile boolean running=false;
     public static volatile boolean sensorReady=false;
@@ -73,6 +75,12 @@ public final class StepService extends Service implements SensorEventListener {
                 counter=manager.getDefaultSensor(Sensor.TYPE_STEP_COUNTER);
                 if(counter!=null) sensorReady=manager.registerListener(this,counter,SensorManager.SENSOR_DELAY_NORMAL,0);
             }
+            if(detector==null && manager!=null) {
+                detector=manager.getDefaultSensor(Sensor.TYPE_STEP_DETECTOR);
+                if(detector!=null)
+                    hourlySensorReady=manager.registerListener(this,detector,
+                            SensorManager.SENSOR_DELAY_NORMAL,0);
+            }
             if(!sensorReady) {
                 getSharedPreferences("ajo",MODE_PRIVATE).edit().putString("last_error","無法註冊計步感測器").apply();
                 stopSelf();return START_NOT_STICKY;
@@ -102,7 +110,12 @@ public final class StepService extends Service implements SensorEventListener {
                 .build();
     }
     @Override public void onSensorChanged(SensorEvent event) {
-        if(event.sensor.getType()!=Sensor.TYPE_STEP_COUNTER||event.values.length==0)return;
+        if(event.values.length==0)return;
+        if(event.sensor.getType()==Sensor.TYPE_STEP_DETECTOR) {
+            if(event.values[0]>0f) StepStore.recordDetector(this,event.timestamp);
+            return;
+        }
+        if(event.sensor.getType()!=Sensor.TYPE_STEP_COUNTER)return;
         long raw=(long)event.values[0];
         long previousToday;
         try(StepStore store=new StepStore(this)) { previousToday=store.day(LocalDate.now()); }
@@ -117,7 +130,7 @@ public final class StepService extends Service implements SensorEventListener {
     @Override public void onAccuracyChanged(Sensor sensor,int accuracy) {}
     @Override public void onDestroy() {
         if(manager!=null) manager.unregisterListener(this);
-        sensorReady=false;running=false;
+        sensorReady=false;hourlySensorReady=false;running=false;
         StepWidget.updateAll(this);
         super.onDestroy();
     }

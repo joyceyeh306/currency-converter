@@ -58,6 +58,9 @@ public final class MainActivity extends Activity {
     private final Handler handler=new Handler(Looper.getMainLooper());
     private int tab=0;
     private YearMonth month=YearMonth.now();
+    private LocalDate selectedDay=LocalDate.now();
+    private int detailReturnTab=1;
+    private int detailReturnScroll=0;
     private long lastToday=-1;
     private String lastStatus="";
     private LocalDate lastDate=LocalDate.now();
@@ -210,7 +213,7 @@ public final class MainActivity extends Activity {
         LinearLayout header=row();
         TextView title=text("🐾 ㄚ喬計步器",22,PURPLE,true);
         header.addView(title,new LinearLayout.LayoutParams(0,dp(52),1));
-        TextView v=text("003",12,MUTED,false);
+        TextView v=text("004",12,MUTED,false);
         LinearLayout.LayoutParams versionParams=new LinearLayout.LayoutParams(-2,-2);
         versionParams.rightMargin=dp(8);
         header.addView(v,versionParams);
@@ -235,7 +238,9 @@ public final class MainActivity extends Activity {
         if(tab==0) home();
         else if(tab==1) history();
         else if(tab==2) backup();
+        else if(tab==4) detail();
         else settings();
+        nav.setVisibility(tab==4?View.GONE:View.VISIBLE);
         nav.removeAllViews();
         String[] names={"今日","歷史紀錄","備份"};
         for(int i=0;i<names.length;i++) {
@@ -308,6 +313,15 @@ public final class MainActivity extends Activity {
             LinearLayout.LayoutParams cp=new LinearLayout.LayoutParams(0,dp(122),1);
             if(i>0)cp.leftMargin=dp(4);
             bars.addView(column,cp);
+            LocalDate chosen=today.minusDays(6-i);
+            column.setClickable(true);
+            column.setHapticFeedbackEnabled(true);
+            column.setContentDescription(chosen.getMonthValue()+"月"+chosen.getDayOfMonth()+"日，"+
+                    fmt(vals[i])+" 步，點選查看每小時步數");
+            column.setOnClickListener(v->{
+                v.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP);
+                openDay(chosen,0);
+            });
             TextView value=text(vals[i]>0?fmt(vals[i]):"·",10,MUTED,false);
             value.setGravity(Gravity.CENTER);add(column,value,-1,23);
             Space spacer=new Space(this);column.addView(spacer,new LinearLayout.LayoutParams(1,0,1));
@@ -391,6 +405,14 @@ public final class MainActivity extends Activity {
                 TextView value=text(recorded?fmt(count)+" 步":"未記錄",15,count>0?PURPLE:MUTED,count>0);
                 value.setGravity(Gravity.RIGHT|Gravity.CENTER_VERTICAL);
                 add(line,value,-2,46);
+                line.setClickable(true);
+                line.setHapticFeedbackEnabled(true);
+                line.setContentDescription(d.getMonthValue()+"月"+d.getDayOfMonth()+"日，"+
+                        (recorded?fmt(count)+"步":"未記錄")+", 點選查看單日詳情");
+                line.setOnClickListener(v->{
+                    v.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP);
+                    openDay(d,1);
+                });
                 add(days,line,-1,-2);
                 any=true;
             }
@@ -398,6 +420,104 @@ public final class MainActivity extends Activity {
         if(!any)add(days,text("這個月份還沒有紀錄",14,MUTED,false),-1,48);
         fullCard(days);
     }
+    private void openDay(LocalDate day,int origin) {
+        selectedDay=day;
+        detailReturnTab=origin;
+        detailReturnScroll=scroller.getScrollY();
+        tab=4;
+        render();
+        scroller.post(()->scroller.scrollTo(0,0));
+    }
+    private void closeDay() {
+        tab=detailReturnTab;
+        render();
+        int y=detailReturnScroll;
+        scroller.post(()->scroller.scrollTo(0,y));
+    }
+    /** A drill-down only. The source of truth for daily totals stays in 003's days table. */
+    private void detail() {
+        LocalDate day=selectedDay;
+        boolean hasDay,hasHourly;
+        long total;
+        long[] hours;
+        try(StepStore store=new StepStore(this)) {
+            hasDay=store.hasDay(day);
+            total=hasDay?store.day(day):0;
+            hasHourly=store.hasHourly(day);
+            hours=store.hourly(day);
+        }
+        Button back=btn("‹ 返回"+(detailReturnTab==0?"今日":"歷史紀錄"),LILAC,false,()->closeDay());
+        add(content,back,-1,45);
+        gap(content,12);
+
+        LinearLayout header=card(YELLOW);
+        TextView date=text(day.getYear()+"年 "+day.getMonthValue()+"月"+day.getDayOfMonth()+"日",20,PURPLE,true);
+        date.setGravity(Gravity.CENTER);add(header,date,-1,40);
+        TextView label=text("當日總步數",14,INK,false);
+        label.setGravity(Gravity.CENTER);add(header,label,-1,28);
+        CuteStepNumberView number=new CuteStepNumberView(this);
+        number.setSteps(total);
+        add(header,number,-1,88);
+        TextView suffix=text(hasDay?"步":"沒有每日步數紀錄",14,INK,true);
+        suffix.setGravity(Gravity.CENTER);add(header,suffix,-1,32);
+        fullCard(header);
+
+        LinearLayout chartCard=card(WHITE);
+        TextView chartTitle=text("每小時步數波型圖",18,PURPLE,true);
+        add(chartCard,chartTitle,-1,38);
+        if(hasHourly) {
+            HourlyWaveView wave=new HourlyWaveView(this);
+            wave.setHourly(hours);
+            add(chartCard,wave,-1,232);
+            long sumHours=0;
+            for(long v:hours)sumHours+=v;
+            TextView count=text("時段已記錄 "+fmt(sumHours)+" 步",14,INK,true);
+            add(chartCard,count,-1,35);
+            TextView caveat=text("波型圖依每一步的感測器時間繪製，和每日累積步數分開記錄。若有系統中斷，時段合計可能與當日總步數不同。",12,MUTED,false);
+            caveat.setLineSpacing(dp(2),1f);add(chartCard,caveat,-1,-2);
+        } else {
+            TextView empty=text("這一天尚未有每小時步數資料",16,INK,true);
+            empty.setGravity(Gravity.CENTER);add(chartCard,empty,-1,70);
+            TextView why=text("004 版開始才會記錄實際步行時間，無法從舊的每日總步數回推波型。",13,MUTED,false);
+            why.setLineSpacing(dp(3),1f);add(chartCard,why,-1,-2);
+            if(day.equals(LocalDate.now()) && !StepService.hourlySensorReady) {
+                gap(chartCard,10);
+                TextView status=text("時段感測器尚未啟動；每日計步仍維持原有方式。",12,PURPLE,false);
+                add(chartCard,status,-1,-2);
+            }
+        }
+        fullCard(chartCard);
+        if(hasHourly) {
+            LinearLayout lines=card(LILAC);
+            infoRow(lines,"24 小時步數明細",
+                    "這些數字只來自 STEP_DETECTOR 的實際步伐事件。沒有記錄到事件的時段顯示 0，但若手機限制背景紀錄，不能據此判定當時完全沒有走路。");
+            gap(lines,7);
+            for(int at=0;at<24;at+=2) {
+                LinearLayout row=row();
+                for(int side=0;side<2;side++) {
+                    int h=at+side;
+                    LinearLayout segment=row();
+                    segment.setPadding(dp(8),0,dp(8),0);
+                    segment.setBackground(bg(side==0?WHITE:PINK,13,0));
+                    TextView when=text(String.format(Locale.TAIWAN,"%02d時",h),12,MUTED,false);
+                    segment.addView(when,new LinearLayout.LayoutParams(0,dp(41),1));
+                    TextView steps=text(fmt(hours[h])+" 步",13,INK,true);
+                    steps.setGravity(Gravity.CENTER_VERTICAL|Gravity.RIGHT);
+                    add(segment,steps,-2,41);
+                    LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,dp(41),1);
+                    if(side==0)lp.rightMargin=dp(4);
+                    else lp.leftMargin=dp(4);
+                    row.addView(segment,lp);
+                }
+                LinearLayout.LayoutParams lineParams=new LinearLayout.LayoutParams(-1,-2);
+                lineParams.bottomMargin=dp(6);
+                lines.addView(row,lineParams);
+            }
+            fullCard(lines);
+        }
+        gap(content,12);
+    }
+
     private String weekday(LocalDate d) {
         return "一二三四五六日".substring(d.getDayOfWeek().getValue()-1,d.getDayOfWeek().getValue());
     }
@@ -644,7 +764,8 @@ public final class MainActivity extends Activity {
         dialog.show();
     }
     @Override public void onBackPressed() {
-        if(tab==3){tab=0;render();scroller.smoothScrollTo(0,0);}
+        if(tab==4) closeDay();
+        else if(tab==3){tab=0;render();scroller.smoothScrollTo(0,0);}
         else super.onBackPressed();
     }
     private void toast(String str) { Toast.makeText(this,str,Toast.LENGTH_LONG).show(); }
