@@ -1,0 +1,74 @@
+name: Build Ajo Step Counter 004 migration installer
+on:
+  push:
+    branches: [ajo-step-001-build]
+    paths:
+      - '.github/workflows/ajo-step-004-migration.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  migration-package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Configure Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.11.1'
+      - name: Run Java logic tests
+        run: |
+          mkdir -p /tmp/step-test
+          javac -d /tmp/step-test ajo-stepcounter-001/app/src/main/java/tw/ajo/stepcounter/StepMath.java ajo-stepcounter-001/app/src/main/java/tw/ajo/stepcounter/GoalMath.java ajo-stepcounter-001/tests/StepMathTest.java ajo-stepcounter-001/tests/GoalMathTest.java
+          java -cp /tmp/step-test StepMathTest
+          java -cp /tmp/step-test GoalMathTest
+      - name: Cache newly issued version 004 signing key
+        uses: actions/cache@v4
+        with:
+          path: ~/.android/ajo-step-004.jks
+          key: ajo-step-004-keystore-v1
+      - name: Create new 004 signing key if needed
+        run: |
+          mkdir -p ~/.android
+          if [ ! -s ~/.android/ajo-step-004.jks ]; then
+            keytool -genkeypair -keystore ~/.android/ajo-step-004.jks -storepass android -keypass android -alias ajostep -dname "CN=Ajo Step 004,O=Ajo,C=TW" -keyalg RSA -keysize 3072 -validity 10000
+          fi
+      - name: Build 004 release
+        working-directory: ajo-stepcounter-001
+        env:
+          AJO_STEP_KEYSTORE: /home/runner/.android/ajo-step-004.jks
+        run: gradle --no-daemon :app:assembleRelease
+      - name: Verify APK signature and report certificate change
+        run: |
+          $ANDROID_HOME/build-tools/35.0.0/apksigner verify --verbose ajo-stepcounter-001/app/build/outputs/apk/release/app-release.apk
+          $ANDROID_HOME/build-tools/35.0.0/apksigner verify --print-certs ajo-stepcounter-001/app/build/outputs/apk/release/app-release.apk
+          echo "::warning::003 original private signing key is unavailable. THIS IS A MIGRATION INSTALLER. Back up 003 records before uninstalling; Android will not overlay 003."
+      - name: Prepare migration package with source ZIP
+        run: |
+          set -e
+          mkdir -p release/004-migration
+          cp ajo-stepcounter-001/app/build/outputs/apk/release/app-release.apk release/004-migration/ajo-stepcounter_004_migration.apk
+          cat >release/004-migration/BEFORE_INSTALL_README.txt <<'NOTE'
+          IMPORTANT: Version 003 and version 004 have DIFFERENT signing certificates.
+          Android will refuse direct replacement of 003.
+          First use the Backup tab in 003 to EXPORT its daily records to a JSON file.
+          Keep an independent verified copy of that JSON file.
+          Only then uninstall 003, install 004, and IMPORT the JSON into 004.
+          Version 004 accepts the old backup format and starts recording hourly data from now.
+          Without a confirmed backup, DO NOT uninstall 003.
+          NOTE
+          zip -rq release/004-migration/ajo-stepcounter_004_source.zip ajo-stepcounter-001 -x '*/build/*' '*/.gradle/*' '*.gradle.lockfile'
+          ls -lh release/004-migration
+      - name: Upload install APK, source and instructions
+        uses: actions/upload-artifact@v4
+        with:
+          name: ajo-stepcounter-004-migration
+          path: release/004-migration/
+          if-no-files-found: error
