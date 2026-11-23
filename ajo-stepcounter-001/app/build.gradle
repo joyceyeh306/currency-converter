@@ -6,7 +6,7 @@ android {
     compileSdk 35
 
     defaultConfig {
-        applicationId 'tw.ajo.stepcounter'
+        applicationId 'tw.ajo.stepcounter.parallel004'
         minSdk 29
         targetSdk 35
         versionCode 4

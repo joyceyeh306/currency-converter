@@ -1,0 +1,68 @@
+name: Build Ajo Step Counter 004 side-by-side safe installer
+on:
+  push:
+    branches: [ajo-step-004-parallel]
+    paths:
+      - 'ajo-stepcounter-001/**'
+      - '.github/workflows/ajo-step-004-parallel.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout the isolated 004 branch
+        uses: actions/checkout@v4
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.11.1'
+      - name: Pure Java regression tests
+        run: |
+          mkdir -p /tmp/test
+          javac -d /tmp/test ajo-stepcounter-001/app/src/main/java/tw/ajo/stepcounter/StepMath.java ajo-stepcounter-001/app/src/main/java/tw/ajo/stepcounter/GoalMath.java ajo-stepcounter-001/tests/StepMathTest.java ajo-stepcounter-001/tests/GoalMathTest.java
+          java -cp /tmp/test StepMathTest
+          java -cp /tmp/test GoalMathTest
+      - name: Cache private 004 parallel signing key
+        uses: actions/cache@v4
+        with:
+          path: ~/.android/ajo-step-004-parallel.jks
+          key: ajo-step-004-parallel-private-cert-v1
+      - name: Generate private key on first build
+        run: |
+          mkdir -p ~/.android
+          if [ ! -s ~/.android/ajo-step-004-parallel.jks ]; then
+            keytool -genkeypair -keystore ~/.android/ajo-step-004-parallel.jks -storepass android -keypass android -alias ajostep -dname "CN=Ajo Step Counter 004 Parallel,O=Ajo,C=TW" -keyalg RSA -keysize 3072 -validity 10000
+          fi
+      - name: Compile signed Android APK
+        working-directory: ajo-stepcounter-001
+        env:
+          AJO_STEP_KEYSTORE: /home/runner/.android/ajo-step-004-parallel.jks
+        run: gradle --no-daemon :app:assembleRelease
+      - name: Verify APK and independent application ID
+        run: |
+          APK=ajo-stepcounter-001/app/build/outputs/apk/release/app-release.apk
+          $ANDROID_HOME/build-tools/35.0.0/apksigner verify --verbose "$APK"
+          $ANDROID_HOME/build-tools/35.0.0/aapt dump badging "$APK" | grep -F "package: name='tw.ajo.stepcounter.parallel004'"
+          $ANDROID_HOME/build-tools/35.0.0/apksigner verify --print-certs "$APK" | grep -F 'Signer #1 certificate SHA-256 digest'
+      - name: Package deliverables
+        run: |
+          mkdir -p deliver
+          cp ajo-stepcounter-001/app/build/outputs/apk/release/app-release.apk deliver/ajo-stepcounter_004_parallel.apk
+          zip -rq deliver/ajo-stepcounter_004_parallel_source.zip ajo-stepcounter-001 -x '*/build/*' '*/.gradle/*' '*.gradle.lockfile'
+          printf '%s\n' 'This version installs alongside the original 003. Do NOT uninstall 003 before exporting and verifying a backup JSON. Import the JSON into 004. Then pause 003 from its settings after testing 004.' > deliver/READ_FIRST.txt
+          ls -lh deliver
+      - name: Upload install APK and source ZIP
+        uses: actions/upload-artifact@v4
+        with:
+          name: ajo-stepcounter-004-parallel
+          path: deliver/*
+          if-no-files-found: error
