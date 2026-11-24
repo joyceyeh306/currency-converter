@@ -1,0 +1,51 @@
+name: Verify Ajo step 004 Android emulator installation
+on:
+  push:
+    branches: [ajo-step-004-parallel]
+    paths:
+      - '.github/workflows/ajo-step-004-install-test.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  install-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.11.1'
+      - name: Compile isolated debug APK
+        run: |
+          cd ajo-stepcounter-001
+          gradle --no-daemon :app:assembleDebug
+      - name: Emulator verify install alongside version 003
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          target: google_apis
+          disable-animations: true
+          emulator-boot-timeout: 900
+          script: |
+            adb install release/ajo-stepcounter_003.apk
+            adb install ajo-stepcounter-001/app/build/outputs/apk/debug/app-debug.apk
+            adb shell pm list packages | grep tw.ajo.stepcounter
+            adb shell am start -W -n tw.ajo.stepcounter.parallel004/tw.ajo.stepcounter.MainActivity
+            adb logcat -d -s PackageManager PackageInstaller ActivityTaskManager AndroidRuntime | tail -250 > install-diagnostics.txt || true
+            echo "004 emulator installation passed"
+      - name: Save diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ajo-004-emulator-install-diagnostics
+          path: install-diagnostics.txt
+          if-no-files-found: ignore
