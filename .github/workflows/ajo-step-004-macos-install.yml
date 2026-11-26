@@ -29,6 +29,7 @@ jobs:
       - name: Build signed 004 release and inspect IDs
         working-directory: ajo-stepcounter-001
         run: |
+          export AJO_STEP_KEYSTORE="$HOME/.android/ajo-step-004-parallel.jks"
           gradle --no-daemon :app:assembleRelease
           AAPT="$ANDROID_HOME/build-tools/35.0.0/aapt"
           SIGNER="$ANDROID_HOME/build-tools/35.0.0/apksigner"
