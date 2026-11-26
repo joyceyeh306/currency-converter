@@ -1,0 +1,53 @@
+name: Verify 003 and 004 APK installation on macOS emulator
+on:
+  push:
+    branches: [ajo-step-004-parallel]
+    paths:
+      - .github/workflows/ajo-step-004-macos-install.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+jobs:
+  install:
+    runs-on: macos-15
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.11.1'
+      - name: Prepare temporary signing key for parallel release
+        shell: bash
+        run: |
+          mkdir -p ~/.android
+          keytool -genkeypair -keystore ~/.android/ajo-step-004-parallel.jks -storepass android -keypass android -alias ajostep -dname 'CN=Ajo Step Counter 004 Parallel,O=Ajo,C=TW' -keyalg RSA -keysize 3072 -validity 10000
+      - name: Build signed 004 release and inspect IDs
+        working-directory: ajo-stepcounter-001
+        run: |
+          gradle --no-daemon :app:assembleRelease
+          AAPT="$ANDROID_HOME/build-tools/35.0.0/aapt"
+          SIGNER="$ANDROID_HOME/build-tools/35.0.0/apksigner"
+          "$SIGNER" verify --verbose app/build/outputs/apk/release/app-release.apk
+          "$AAPT" dump badging app/build/outputs/apk/release/app-release.apk | head -15
+          "$AAPT" dump badging ../release/ajo-stepcounter_003.apk | head -15
+      - name: Install 003 and 004 simultaneously and launch 004
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          target: google_apis
+          disable-animations: true
+          emulator-boot-timeout: 900
+          script: |
+            set -eux
+            adb install release/ajo-stepcounter_003.apk
+            adb install ajo-stepcounter-001/app/build/outputs/apk/release/app-release.apk
+            adb shell pm list packages | grep -E 'tw.ajo.stepcounter'
+            adb shell am start -W -n tw.ajo.stepcounter.parallel004/tw.ajo.stepcounter.MainActivity
+            adb shell dumpsys package tw.ajo.stepcounter.parallel004 | grep -E 'versionCode|versionName' | head
+            echo "CONFIRMED: Original 003 and parallel 004 both installed. 004 launched."
