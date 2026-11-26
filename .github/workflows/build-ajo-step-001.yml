@@ -38,11 +38,11 @@ jobs:
         with:
           path: ~/.android/ajo-step-001.jks
           key: ajo-step-001-keystore-release-v1
-      - name: Generate signing key if absent
+      - name: Require original 003 signing key (never silently replace)
         run: |
-          mkdir -p ~/.android
-          if [ ! -f ~/.android/ajo-step-001.jks ]; then
-            keytool -genkeypair -keystore ~/.android/ajo-step-001.jks -storepass android -keypass android -alias ajostep -dname "CN=Ajo Step Counter,O=Ajo,C=TW" -keyalg RSA -keysize 3072 -validity 10000
+          if [ ! -s ~/.android/ajo-step-001.jks ]; then
+            echo "::error::Original 001-003 signing key missing. Stop build to protect installed versions. Never auto-generate a replacement for an upgrade."
+            exit 1
           fi
       - name: Compile Android release APK
         working-directory: ajo-stepcounter-001
