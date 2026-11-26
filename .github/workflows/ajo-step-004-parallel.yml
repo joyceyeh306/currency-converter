@@ -36,11 +36,11 @@ jobs:
         with:
           path: ~/.android/ajo-step-004-parallel.jks
           key: ajo-step-004-parallel-private-cert-v1
-      - name: Generate private key on first build
+      - name: Require existing parallel version signing key
         run: |
-          mkdir -p ~/.android
           if [ ! -s ~/.android/ajo-step-004-parallel.jks ]; then
-            keytool -genkeypair -keystore ~/.android/ajo-step-004-parallel.jks -storepass android -keypass android -alias ajostep -dname "CN=Ajo Step Counter 004 Parallel,O=Ajo,C=TW" -keyalg RSA -keysize 3072 -validity 10000
+            echo "::error::Original parallel 004 signing key missing. Refusing to silently replace the certificate. Recover the original key before upgrading."
+            exit 1
           fi
       - name: Compile signed Android APK
         working-directory: ajo-stepcounter-001
